@@ -23,3 +23,14 @@ Date: 2026-11-07. Operator decisions, grilling round 3.
 6. **Choosing the reconstruction method** (driving-scene 3DGS variants, dynamic-object removal, licences) is a research ticket, backed by a literature search whose sources go into Librarian.
 7. **Compute.** Builds run on the box, and ollama is unloaded during twin builds. Data downloads straight to the box once the new SSD is installed.
 8. **Relation to drone-survey.** drone-survey (Mission Control) stays a separate product. This repo copies its patterns (Nodes, Manifests, quality gates) rather than depending on its code.
+
+## Round 4 (2026-11-07, operator agreed with all recommendations)
+
+9. **Sight distance is computed in v1**, for crest curves and intersections only.
+10. **Drawings are DXF and PDF.**
+11. **v1 sources:** nuScenes cameras + lidar, plus the cameras-only comparison. Vancouver lidar-only is v1.1. Drone is v2.
+12. **Coordinates:** one projected CRS per site, with the EPSG code stored in every output.
+13. **v1 date: 2026-11-12** (operator).
+14. **UI:** the twin gets a web UI in the Mission Control design (drone-survey `web/`, design spec `docs/ui-theme/spec.md`, UI-12 "Option A" glass). Scope is still open.
+15. **Librarian access:** personal access tokens (hashed, scoped read/write to the user's Library, revocable), plus a CLI with `add`, `add-manifest` and `ask --json`. This is a Librarian ticket.
+16. **The old `AV_Safety` repo** is archived with a pointer to this repo.
