@@ -34,3 +34,25 @@ Date: 2026-11-07. Operator decisions, grilling round 3.
 14. **UI:** the twin gets a web UI in the Mission Control design (drone-survey `web/`, design spec `docs/ui-theme/spec.md`, UI-12 "Option A" glass). Scope is still open.
 15. **Librarian access:** personal access tokens (hashed, scoped read/write to the user's Library, revocable), plus a CLI with `add`, `add-manifest` and `ask --json`. This is a Librarian ticket.
 16. **The old `AV_Safety` repo** is archived with a pointer to this repo.
+
+## Round 5 (2026-11-07, operator agreed with all recommendations): v1 for 2026-11-12
+
+17. **v1 scope:**
+    - 2–3 scenes from nuScenes mini (about 4 GB; fits on the box before the SSD arrives).
+    - Cameras + lidar twin: a point cloud plus 3D lane edges, curbs and crosswalks.
+    - Vertical profile and sight distance at one crest curve or intersection.
+    - DXF and PDF drawings.
+    - Accuracy measured against the nuScenes HD map.
+    - The UI.
+
+    The cameras-only comparison moves to v1.1.
+18. **UI scope:** read-only, from files the pipeline computed beforehand:
+    - a site list;
+    - a plan-view map with layers (point cloud, lane and curb lines, crosswalks);
+    - a profile view with the sight-distance result;
+    - an accuracy panel;
+    - DXF and PDF downloads.
+
+    It uses the Mission Control style (dark photo, glass panels, Manrope) and the Crown living-mark for status.
+19. **Hosting:** a static site at `twin.papyrus-ai.net` on Cloudflare. The code lives in this repo, with design tokens copied from drone-survey.
+20. **The UI is public**, with nuScenes attribution (CC BY-NC-SA 4.0) in the footer.

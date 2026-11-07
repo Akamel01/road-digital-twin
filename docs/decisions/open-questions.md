@@ -3,10 +3,7 @@
 The operator answers these; nothing here is assumed.
 
 ## Digital twin
-- Can 3D vector geometry (nodes and polylines with z) and plan/profile drawings fit in v1, or should v1 stop at 2D plus a vertical profile? (Claude recommends: in v1.)
-- Which drawing output format: DXF (CAD), PDF sheets, or both?
-- Which coordinate reference system for each source (nuScenes local frames versus a projected CRS for Vancouver)?
-- Should the old `AV_Safety` repo be archived with a pointer? (Claude recommends archiving; it can be undone.)
+- None open for v1. The wayfinder map holds the method choices.
 
 ## Risk engine (later)
 - Prediction horizon: is 3 s right?
