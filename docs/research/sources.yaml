@@ -1,0 +1,1181 @@
+[
+  {
+    "id": "kerbl-2023-3dgs",
+    "type": "paper",
+    "title": "3D Gaussian Splatting for Real-Time Radiance Field Rendering",
+    "authors": [
+      "Kerbl, Bernhard",
+      "Kopanas, Georgios",
+      "Leimkuehler, Thomas",
+      "Drettakis, George"
+    ],
+    "year": 2023,
+    "venue": "ACM Transactions on Graphics",
+    "doi": "10.1145/3592433",
+    "url": "https://doi.org/10.1145/3592433",
+    "open_access": true,
+    "pdf_url": "https://arxiv.org/pdf/2308.04079",
+    "questions": [
+      1
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "yan-2024-street-gaussians",
+    "type": "paper",
+    "title": "Street Gaussians: Modeling Dynamic Urban Scenes with Gaussian Splatting",
+    "authors": [
+      "Yan, Yunzhi",
+      "Lin, Haotong",
+      "Zhou, Chenxu",
+      "Wang, Weijie",
+      "Sun, Haiyang",
+      "Zhan, Kun",
+      "Lang, Xianpeng",
+      "Zhou, Xiaowei",
+      "Peng, Sida"
+    ],
+    "year": 2024,
+    "venue": "arXiv preprint",
+    "url": "https://arxiv.org/abs/2401.01339",
+    "open_access": true,
+    "pdf_url": "https://arxiv.org/pdf/2401.01339",
+    "questions": [
+      1
+    ],
+    "relevance": 3
+  },
+  {
+    "id": "chen-2024-omnire",
+    "type": "paper",
+    "title": "OmniRe: Omni Urban Scene Reconstruction",
+    "authors": [
+      "Chen, Ziyu",
+      "Yang, Jiawei",
+      "Huang, Jiahui",
+      "Lutio, Riccardo de",
+      "Esturo, Janick Martinez",
+      "Ivanovic, Boris",
+      "Litany, Or",
+      "Gojcic, Zan",
+      "Fidler, Sanja",
+      "Pavone, Marco",
+      "Song, Li",
+      "Wang, Yue"
+    ],
+    "year": 2024,
+    "venue": "arXiv preprint",
+    "url": "https://arxiv.org/abs/2408.16760",
+    "open_access": true,
+    "pdf_url": "https://arxiv.org/pdf/2408.16760",
+    "questions": [
+      1
+    ],
+    "relevance": 3
+  },
+  {
+    "id": "zhou-2023-drivinggaussian",
+    "type": "paper",
+    "title": "DrivingGaussian: Composite Gaussian Splatting for Surrounding Dynamic Autonomous Driving Scenes",
+    "authors": [
+      "Zhou, Xiaoyu",
+      "Lin, Zhiwei",
+      "Shan, Xiaojun",
+      "Wang, Yongtao",
+      "Sun, Deqing",
+      "Yang, Ming-Hsuan"
+    ],
+    "year": 2023,
+    "venue": "arXiv preprint",
+    "url": "https://arxiv.org/abs/2312.07920",
+    "open_access": true,
+    "pdf_url": "https://arxiv.org/pdf/2312.07920",
+    "questions": [
+      1
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "yang-2023-emernerf",
+    "type": "paper",
+    "title": "EmerNeRF: Emergent Spatial-Temporal Scene Decomposition via Self-Supervision",
+    "authors": [
+      "Yang, Jiawei",
+      "Ivanovic, Boris",
+      "Litany, Or",
+      "Weng, Xinshuo",
+      "Kim, Seung Wook",
+      "Li, Boyi",
+      "Che, Tong",
+      "Xu, Danfei",
+      "Fidler, Sanja",
+      "Pavone, Marco",
+      "Wang, Yue"
+    ],
+    "year": 2023,
+    "venue": "arXiv preprint",
+    "url": "https://arxiv.org/abs/2311.02077",
+    "open_access": true,
+    "pdf_url": "https://arxiv.org/pdf/2311.02077",
+    "questions": [
+      1
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "zhou-2024-hugs",
+    "type": "paper",
+    "title": "HUGS: Holistic Urban 3D Scene Understanding via Gaussian Splatting",
+    "authors": [
+      "Zhou, Hongyu",
+      "Shao, Jiahao",
+      "Xu, Lu",
+      "Bai, Dongfeng",
+      "Qiu, Weichao",
+      "Liu, Bingbing",
+      "Wang, Yue",
+      "Geiger, Andreas",
+      "Liao, Yiyi"
+    ],
+    "year": 2024,
+    "venue": "arXiv preprint",
+    "url": "https://arxiv.org/abs/2403.12722",
+    "open_access": true,
+    "pdf_url": "https://arxiv.org/pdf/2403.12722",
+    "questions": [
+      1
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "hess-2024-splatad",
+    "type": "paper",
+    "title": "SplatAD: Real-Time Lidar and Camera Rendering with 3D Gaussian Splatting for Autonomous Driving",
+    "authors": [
+      "Hess, Georg",
+      "Lindström, Carl",
+      "Fatemi, Maryam",
+      "Petersson, Christoffer",
+      "Svensson, Lennart"
+    ],
+    "year": 2024,
+    "venue": "arXiv preprint",
+    "url": "https://arxiv.org/abs/2411.16816",
+    "open_access": true,
+    "pdf_url": "https://arxiv.org/pdf/2411.16816",
+    "questions": [
+      1
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "caesar-2019-nuscenes",
+    "type": "paper",
+    "title": "nuScenes: A multimodal dataset for autonomous driving",
+    "authors": [
+      "Caesar, Holger",
+      "Bankiti, Varun",
+      "Lang, Alex H.",
+      "Vora, Sourabh",
+      "Liong, Venice Erin",
+      "Xu, Qiang",
+      "Krishnan, Anush",
+      "Pan, Yu",
+      "Baldan, Giancarlo",
+      "Beijbom, Oscar"
+    ],
+    "year": 2019,
+    "venue": "arXiv preprint",
+    "url": "https://arxiv.org/abs/1903.11027",
+    "open_access": true,
+    "pdf_url": "https://arxiv.org/pdf/1903.11027",
+    "questions": [
+      1,
+      8
+    ],
+    "relevance": 3
+  },
+  {
+    "id": "wang-2023-dust3r",
+    "type": "paper",
+    "title": "DUSt3R: Geometric 3D Vision Made Easy",
+    "authors": [
+      "Wang, Shuzhe",
+      "Leroy, Vincent",
+      "Cabon, Yohann",
+      "Chidlovskii, Boris",
+      "Revaud, Jerome"
+    ],
+    "year": 2023,
+    "venue": "arXiv preprint",
+    "url": "https://arxiv.org/abs/2312.14132",
+    "open_access": true,
+    "pdf_url": "https://arxiv.org/pdf/2312.14132",
+    "questions": [
+      2
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "yang-2024-depth-anything",
+    "type": "paper",
+    "title": "Depth Anything: Unleashing the Power of Large-Scale Unlabeled Data",
+    "authors": [
+      "Yang, Lihe",
+      "Kang, Bingyi",
+      "Huang, Zilong",
+      "Xu, Xiaogang",
+      "Feng, Jiashi",
+      "Zhao, Hengshuang"
+    ],
+    "year": 2024,
+    "venue": "arXiv preprint",
+    "url": "https://arxiv.org/abs/2401.10891",
+    "open_access": true,
+    "pdf_url": "https://arxiv.org/pdf/2401.10891",
+    "questions": [
+      2
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "hu-2024-metric3d-v2",
+    "type": "paper",
+    "title": "Metric3D v2: A Versatile Monocular Geometric Foundation Model for Zero-Shot Metric Depth and Surface Normal Estimation",
+    "authors": [
+      "Hu, Mu",
+      "Yin, Wei",
+      "Zhang, Chi",
+      "Cai, Zhipeng",
+      "Long, Xiaoxiao",
+      "Chen, Hao",
+      "Wang, Kaixuan",
+      "Yu, Gang",
+      "Shen, Chunhua",
+      "Shen, Shaojie"
+    ],
+    "year": 2024,
+    "venue": "IEEE Transactions on Pattern Analysis and Machine Intelligence",
+    "doi": "10.1109/tpami.2024.3444912",
+    "url": "https://doi.org/10.1109/tpami.2024.3444912",
+    "open_access": true,
+    "questions": [
+      2
+    ],
+    "relevance": 3
+  },
+  {
+    "id": "wang-2025-vggt",
+    "type": "paper",
+    "title": "VGGT: Visual Geometry Grounded Transformer",
+    "authors": [
+      "Wang, Jianyuan",
+      "Chen, Minghao",
+      "Karaev, Nikita",
+      "Vedaldi, Andrea",
+      "Rupprecht, Christian",
+      "Novotny, David"
+    ],
+    "year": 2025,
+    "venue": "arXiv preprint",
+    "url": "https://arxiv.org/abs/2503.11651",
+    "open_access": true,
+    "pdf_url": "https://arxiv.org/pdf/2503.11651",
+    "questions": [
+      2
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "wei-2022-surrounddepth",
+    "type": "paper",
+    "title": "SurroundDepth: Entangling Surrounding Views for Self-Supervised Multi-Camera Depth Estimation",
+    "authors": [
+      "Wei, Yi",
+      "Zhao, Linqing",
+      "Zheng, Wenzhao",
+      "Zhu, Zheng",
+      "Rao, Yongming",
+      "Huang, Guan",
+      "Lu, Jiwen",
+      "Zhou, Jie"
+    ],
+    "year": 2022,
+    "venue": "arXiv preprint",
+    "url": "https://arxiv.org/abs/2204.03636",
+    "open_access": true,
+    "pdf_url": "https://arxiv.org/pdf/2204.03636",
+    "questions": [
+      2
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "guizilini-2021-full-surround",
+    "type": "paper",
+    "title": "Full Surround Monodepth from Multiple Cameras",
+    "authors": [
+      "Guizilini, Vitor",
+      "Vasiljevic, Igor",
+      "Ambrus, Rares",
+      "Shakhnarovich, Greg",
+      "Gaidon, Adrien"
+    ],
+    "year": 2021,
+    "venue": "arXiv preprint",
+    "url": "https://arxiv.org/abs/2104.00152",
+    "open_access": true,
+    "pdf_url": "https://arxiv.org/pdf/2104.00152",
+    "questions": [
+      2
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "gruber-2019-pixel-accurate",
+    "type": "paper",
+    "title": "Pixel-Accurate Depth Evaluation in Realistic Driving Scenarios",
+    "authors": [
+      "Gruber, Tobias",
+      "Bijelic, Mario",
+      "Heide, Felix",
+      "Ritter, Werner",
+      "Dietmayer, Klaus"
+    ],
+    "year": 2019,
+    "venue": "2019 International Conference on 3D Vision (3DV)",
+    "doi": "10.1109/3DV.2019.00020",
+    "url": "https://doi.org/10.1109/3DV.2019.00020",
+    "open_access": true,
+    "pdf_url": "https://arxiv.org/pdf/1906.08953",
+    "questions": [
+      2,
+      8
+    ],
+    "relevance": 3
+  },
+  {
+    "id": "tan-2020-toronto3d",
+    "type": "paper",
+    "title": "Toronto-3D: A Large-scale Mobile LiDAR Dataset for Semantic Segmentation of Urban Roadways",
+    "authors": [
+      "Tan, Weikai",
+      "Qin, Nannan",
+      "Ma, Lingfei",
+      "Li, Ying",
+      "Du, Jing",
+      "Cai, Guorong",
+      "Yang, Ke",
+      "Li, Jonathan"
+    ],
+    "year": 2020,
+    "venue": "arXiv preprint",
+    "url": "https://arxiv.org/abs/2003.08284",
+    "open_access": true,
+    "pdf_url": "https://arxiv.org/pdf/2003.08284",
+    "questions": [
+      3
+    ],
+    "relevance": 3
+  },
+  {
+    "id": "varney-2020-dales",
+    "type": "paper",
+    "title": "DALES: A Large-scale Aerial LiDAR Data Set for Semantic Segmentation",
+    "authors": [
+      "Varney, Nina",
+      "Asari, Vijayan K.",
+      "Graehling, Quinn"
+    ],
+    "year": 2020,
+    "venue": "arXiv preprint",
+    "url": "https://arxiv.org/abs/2004.11985",
+    "open_access": true,
+    "pdf_url": "https://arxiv.org/pdf/2004.11985",
+    "questions": [
+      3
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "hu-2019-randla-net",
+    "type": "paper",
+    "title": "RandLA-Net: Efficient Semantic Segmentation of Large-Scale Point Clouds",
+    "authors": [
+      "Hu, Qingyong",
+      "Yang, Bo",
+      "Xie, Linhai",
+      "Rosa, Stefano",
+      "Guo, Yulan",
+      "Wang, Zhihua",
+      "Trigoni, Niki",
+      "Markham, Andrew"
+    ],
+    "year": 2019,
+    "venue": "arXiv preprint",
+    "url": "https://arxiv.org/abs/1911.11236",
+    "open_access": true,
+    "pdf_url": "https://arxiv.org/pdf/1911.11236",
+    "questions": [
+      3
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "yu-2015-road-markings",
+    "type": "paper",
+    "title": "Learning Hierarchical Features for Automated Extraction of Road Markings From 3-D Mobile LiDAR Point Clouds",
+    "authors": [
+      "Yu, Yongtao",
+      "Li, Jonathan",
+      "Guan, Haiyan",
+      "Jia, Fukai",
+      "Wang, Cheng"
+    ],
+    "year": 2015,
+    "venue": "IEEE Journal of Selected Topics in Applied Earth Observations and Remote Sensing",
+    "doi": "10.1109/jstars.2014.2347276",
+    "url": "https://doi.org/10.1109/jstars.2014.2347276",
+    "open_access": true,
+    "questions": [
+      3
+    ],
+    "relevance": 3
+  },
+  {
+    "id": "yu-2015-urban-road-facilities",
+    "type": "paper",
+    "title": "Automated Extraction of Urban Road Facilities Using Mobile Laser Scanning Data",
+    "authors": [
+      "Yu, Yongtao",
+      "Li, Jonathan",
+      "Guan, Haiyan",
+      "Wang, Cheng"
+    ],
+    "year": 2015,
+    "venue": "IEEE Transactions on Intelligent Transportation Systems",
+    "doi": "10.1109/tits.2015.2399492",
+    "url": "https://doi.org/10.1109/tits.2015.2399492",
+    "open_access": true,
+    "questions": [
+      3
+    ],
+    "relevance": 3
+  },
+  {
+    "id": "guan-2014-road-markings-mls",
+    "type": "paper",
+    "title": "Using mobile laser scanning data for automated extraction of road markings",
+    "authors": [
+      "Guan, Haiyan",
+      "Li, Jonathan",
+      "Yu, Yongtao",
+      "Wang, Cheng",
+      "Chapman, Michael",
+      "Yang, Bisheng"
+    ],
+    "year": 2014,
+    "venue": "ISPRS Journal of Photogrammetry and Remote Sensing",
+    "doi": "10.1016/j.isprsjprs.2013.11.005",
+    "url": "https://doi.org/10.1016/j.isprsjprs.2013.11.005",
+    "open_access": true,
+    "questions": [
+      3
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "tan-2019-uav-road-distress",
+    "type": "paper",
+    "title": "UAV Photogrammetry-Based 3D Road Distress Detection",
+    "authors": [
+      "Tan, Yumin",
+      "Li, Yunxin"
+    ],
+    "year": 2019,
+    "venue": "ISPRS International Journal of Geo-Information",
+    "doi": "10.3390/ijgi8090409",
+    "url": "https://doi.org/10.3390/ijgi8090409",
+    "open_access": true,
+    "questions": [
+      4
+    ],
+    "relevance": 3
+  },
+  {
+    "id": "polat-2023-uav-road-roughness",
+    "type": "paper",
+    "title": "Assessing road roughness using UAV-derived dense point clouds",
+    "authors": [
+      "POLAT, Nizar",
+      "AKÇA, Şeyma"
+    ],
+    "year": 2023,
+    "venue": "Mersin Photogrammetry Journal",
+    "doi": "10.53093/mephoj.1358902",
+    "url": "https://doi.org/10.53093/mephoj.1358902",
+    "open_access": false,
+    "questions": [
+      4
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "uthai-2024-uav-road-surface",
+    "type": "paper",
+    "title": "Deep Learning-Based Automation of Road Surface Extraction from UAV-Derived Dense Point Clouds in Large-Scale Environment",
+    "authors": [
+      "Uthai, Thanakon",
+      "You, Hengxu",
+      "Du, Jing"
+    ],
+    "year": 2024,
+    "venue": "Computing in Civil Engineering 2023",
+    "doi": "10.1061/9780784485224.011",
+    "url": "https://doi.org/10.1061/9780784485224.011",
+    "open_access": false,
+    "questions": [
+      4
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "schonberger-2016-colmap",
+    "type": "paper",
+    "title": "Structure-from-Motion Revisited",
+    "authors": [
+      "Schonberger, Johannes L.",
+      "Frahm, Jan-Michael"
+    ],
+    "year": 2016,
+    "venue": "2016 IEEE Conference on Computer Vision and Pattern Recognition (CVPR)",
+    "doi": "10.1109/cvpr.2016.445",
+    "url": "https://doi.org/10.1109/cvpr.2016.445",
+    "open_access": false,
+    "questions": [
+      4,
+      1
+    ],
+    "relevance": 3
+  },
+  {
+    "id": "liu-2022-vectormapnet",
+    "type": "paper",
+    "title": "VectorMapNet: End-to-end Vectorized HD Map Learning",
+    "authors": [
+      "Liu, Yicheng",
+      "Yuan, Tianyuan",
+      "Wang, Yue",
+      "Wang, Yilun",
+      "Zhao, Hang"
+    ],
+    "year": 2022,
+    "venue": "arXiv preprint",
+    "url": "https://arxiv.org/abs/2206.08920",
+    "open_access": true,
+    "pdf_url": "https://arxiv.org/pdf/2206.08920",
+    "questions": [
+      5,
+      8
+    ],
+    "relevance": 3
+  },
+  {
+    "id": "liao-2022-maptr",
+    "type": "paper",
+    "title": "MapTR: Structured Modeling and Learning for Online Vectorized HD Map Construction",
+    "authors": [
+      "Liao, Bencheng",
+      "Chen, Shaoyu",
+      "Wang, Xinggang",
+      "Cheng, Tianheng",
+      "Zhang, Qian",
+      "Liu, Wenyu",
+      "Huang, Chang"
+    ],
+    "year": 2022,
+    "venue": "arXiv preprint",
+    "url": "https://arxiv.org/abs/2208.14437",
+    "open_access": true,
+    "pdf_url": "https://arxiv.org/pdf/2208.14437",
+    "questions": [
+      5,
+      8
+    ],
+    "relevance": 3
+  },
+  {
+    "id": "liao-2023-maptrv2",
+    "type": "paper",
+    "title": "MapTRv2: An End-to-End Framework for Online Vectorized HD Map Construction",
+    "authors": [
+      "Liao, Bencheng",
+      "Chen, Shaoyu",
+      "Zhang, Yunchi",
+      "Jiang, Bo",
+      "Zhang, Qian",
+      "Liu, Wenyu",
+      "Huang, Chang",
+      "Wang, Xinggang"
+    ],
+    "year": 2023,
+    "venue": "arXiv preprint",
+    "url": "https://arxiv.org/abs/2308.05736",
+    "open_access": true,
+    "pdf_url": "https://arxiv.org/pdf/2308.05736",
+    "questions": [
+      5
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "li-2021-hdmapnet",
+    "type": "paper",
+    "title": "HDMapNet: An Online HD Map Construction and Evaluation Framework",
+    "authors": [
+      "Li, Qi",
+      "Wang, Yue",
+      "Wang, Yilun",
+      "Zhao, Hang"
+    ],
+    "year": 2021,
+    "venue": "arXiv preprint",
+    "url": "https://arxiv.org/abs/2107.06307",
+    "open_access": true,
+    "pdf_url": "https://arxiv.org/pdf/2107.06307",
+    "questions": [
+      5,
+      8
+    ],
+    "relevance": 3
+  },
+  {
+    "id": "wang-2023-openlane-v2",
+    "type": "paper",
+    "title": "OpenLane-V2: A Topology Reasoning Benchmark for Unified 3D HD Mapping",
+    "authors": [
+      "Wang, Huijie",
+      "Li, Tianyu",
+      "Li, Yang",
+      "Chen, Li",
+      "Sima, Chonghao",
+      "Liu, Zhenbo",
+      "Wang, Bangjun",
+      "Jia, Peijin",
+      "Wang, Yuting",
+      "Jiang, Shengyin",
+      "Wen, Feng",
+      "Xu, Hang",
+      "Luo, Ping",
+      "Yan, Junchi",
+      "Zhang, Wei",
+      "Li, Hongyang"
+    ],
+    "year": 2023,
+    "venue": "arXiv preprint",
+    "url": "https://arxiv.org/abs/2304.10440",
+    "open_access": true,
+    "pdf_url": "https://arxiv.org/pdf/2304.10440",
+    "questions": [
+      5
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "xiong-2023-neural-map-prior",
+    "type": "paper",
+    "title": "Neural Map Prior for Autonomous Driving",
+    "authors": [
+      "Xiong, Xuan",
+      "Liu, Yicheng",
+      "Yuan, Tianyuan",
+      "Wang, Yue",
+      "Wang, Yilun",
+      "Zhao, Hang"
+    ],
+    "year": 2023,
+    "venue": "arXiv preprint",
+    "url": "https://arxiv.org/abs/2304.08481",
+    "open_access": true,
+    "pdf_url": "https://arxiv.org/pdf/2304.08481",
+    "questions": [
+      5
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "poggenhans-2018-lanelet2",
+    "type": "paper",
+    "title": "Lanelet2: A high-definition map framework for the future of automated driving",
+    "authors": [
+      "Poggenhans, Fabian",
+      "Pauls, Jan-Hendrik",
+      "Janosovits, Johannes",
+      "Orf, Stefan",
+      "Naumann, Maximilian",
+      "Kuhnt, Florian",
+      "Mayr, Matthias"
+    ],
+    "year": 2018,
+    "venue": "2018 21st International Conference on Intelligent Transportation Systems (ITSC)",
+    "doi": "10.1109/itsc.2018.8569929",
+    "url": "https://doi.org/10.1109/itsc.2018.8569929",
+    "open_access": false,
+    "questions": [
+      5
+    ],
+    "relevance": 3
+  },
+  {
+    "id": "gonzalez-gomez-2019-sight-distance",
+    "type": "paper",
+    "title": "Framework for 3D Point Cloud Modelling Aimed at Road Sight Distance Estimations",
+    "authors": [
+      "González-Gómez, Keila",
+      "Iglesias, Luis",
+      "Rodríguez-Solano, Roberto",
+      "Castro, María"
+    ],
+    "year": 2019,
+    "venue": "Remote Sensing",
+    "doi": "10.3390/rs11232730",
+    "url": "https://doi.org/10.3390/rs11232730",
+    "open_access": true,
+    "questions": [
+      6,
+      7
+    ],
+    "relevance": 3
+  },
+  {
+    "id": "holgado-barco-2014-vertical-alignment",
+    "type": "paper",
+    "title": "An automated approach to vertical road characterisation using mobile LiDAR systems: Longitudinal profiles and cross-sections",
+    "authors": [
+      "Holgado-Barco, Alberto",
+      "Gonzalez-Aguilera, Diego",
+      "Arias-Sanchez, Pedro",
+      "Martinez-Sanchez, Joaquín"
+    ],
+    "year": 2014,
+    "venue": "ISPRS Journal of Photogrammetry and Remote Sensing",
+    "doi": "10.1016/j.isprsjprs.2014.06.017",
+    "url": "https://doi.org/10.1016/j.isprsjprs.2014.06.017",
+    "open_access": true,
+    "questions": [
+      6
+    ],
+    "relevance": 3
+  },
+  {
+    "id": "jung-2018-virtual-isd",
+    "type": "paper",
+    "title": "3D virtual intersection sight distance analysis using lidar data",
+    "authors": [
+      "Jung, Jaehoon",
+      "Olsen, Michael J.",
+      "Hurwitz, David S.",
+      "Kashani, Alireza G.",
+      "Buker, Kamilah"
+    ],
+    "year": 2018,
+    "venue": "Transportation Research Part C: Emerging Technologies",
+    "doi": "10.1016/j.trc.2017.12.004",
+    "url": "https://doi.org/10.1016/j.trc.2017.12.004",
+    "open_access": true,
+    "questions": [
+      6
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "gargoum-2021-sight-obstruction",
+    "type": "paper",
+    "title": "Virtual assessment of sight distance limitations using LiDAR technology: Automated obstruction detection and classification",
+    "authors": [
+      "Gargoum, Suliman A.",
+      "Karsten, Lloyd"
+    ],
+    "year": 2021,
+    "venue": "Automation in Construction",
+    "doi": "10.1016/j.autcon.2021.103579",
+    "url": "https://doi.org/10.1016/j.autcon.2021.103579",
+    "open_access": true,
+    "questions": [
+      6
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "kilani-2021-urban-isd",
+    "type": "paper",
+    "title": "Safety Assessment of Urban Intersection Sight Distance Using Mobile LiDAR Data",
+    "authors": [
+      "Kilani, Omar",
+      "Gouda, Maged",
+      "Weiß, Jonas",
+      "El-Basyouny, Karim"
+    ],
+    "year": 2021,
+    "venue": "Sustainability",
+    "doi": "10.3390/su13169259",
+    "url": "https://doi.org/10.3390/su13169259",
+    "open_access": true,
+    "questions": [
+      6,
+      7
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "ma-2022-urban-visibility",
+    "type": "paper",
+    "title": "Virtual analysis of urban road visibility using mobile laser scanning data and deep learning",
+    "authors": [
+      "Ma, Yang",
+      "Zheng, Yubing",
+      "Easa, Said",
+      "Wong, Yiik Diew",
+      "El-Basyouny, Karim"
+    ],
+    "year": 2022,
+    "venue": "Automation in Construction",
+    "doi": "10.1016/j.autcon.2021.104014",
+    "url": "https://doi.org/10.1016/j.autcon.2021.104014",
+    "open_access": true,
+    "questions": [
+      6
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "ding-2026-road-digital-twin",
+    "type": "paper",
+    "title": "Automatic Road Digital Twinning from Semantically Labeled Point Cloud Data",
+    "authors": [
+      "Ding, Yuexiong",
+      "Yin, Mengtian",
+      "Wei, Ran",
+      "Brilakis, Ioannis",
+      "Liu, Muyang",
+      "Luo, Xiaowei"
+    ],
+    "year": 2026,
+    "venue": "Journal of Intelligent Construction",
+    "doi": "10.26599/jic.2026.9180112",
+    "url": "https://doi.org/10.26599/jic.2026.9180112",
+    "open_access": false,
+    "questions": [
+      7
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "street-gaussians-repo",
+    "type": "repo",
+    "title": "zju3dv/street_gaussians",
+    "url": "https://github.com/zju3dv/street_gaussians",
+    "stars": 1412,
+    "licence": "Project Registration License v1.0 (custom: company project use needs prior registration)",
+    "last_push": "2026-09-15",
+    "questions": [
+      1
+    ],
+    "relevance": 3
+  },
+  {
+    "id": "emernerf-repo",
+    "type": "repo",
+    "title": "NVlabs/EmerNeRF",
+    "url": "https://github.com/NVlabs/EmerNeRF",
+    "stars": 641,
+    "licence": "NVIDIA License (custom: non-commercial use only, s.3.3)",
+    "last_push": "2024-02-13",
+    "questions": [
+      1
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "drivinggaussian-repo",
+    "type": "repo",
+    "title": "VDIGPKU/DrivingGaussian",
+    "url": "https://github.com/VDIGPKU/DrivingGaussian",
+    "stars": 420,
+    "licence": "none (no LICENSE file; default is all rights reserved)",
+    "last_push": "2024-07-25",
+    "questions": [
+      1
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "hugs-repo",
+    "type": "repo",
+    "title": "hyzhou404/HUGS",
+    "url": "https://github.com/hyzhou404/HUGS",
+    "stars": 191,
+    "licence": "HUGS License (custom: non-commercial research use)",
+    "last_push": "2024-06-13",
+    "questions": [
+      1
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "gaussian-splatting-repo",
+    "type": "repo",
+    "title": "graphdeco-inria/gaussian-splatting",
+    "url": "https://github.com/graphdeco-inria/gaussian-splatting",
+    "stars": 24432,
+    "licence": "Gaussian-Splatting License (Inria/MPII: non-commercial research use)",
+    "last_push": "2025-10-17",
+    "questions": [
+      1
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "gsplat-repo",
+    "type": "repo",
+    "title": "nerfstudio-project/gsplat",
+    "url": "https://github.com/nerfstudio-project/gsplat",
+    "stars": 5872,
+    "licence": "Apache-2.0",
+    "last_push": "2026-09-19",
+    "questions": [
+      1
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "colmap-repo",
+    "type": "repo",
+    "title": "colmap/colmap",
+    "url": "https://github.com/colmap/colmap",
+    "stars": 13174,
+    "licence": "BSD-3-Clause (LICENSE text; GitHub did not detect the SPDX id)",
+    "last_push": "2026-11-07",
+    "questions": [
+      4,
+      1
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "dust3r-repo",
+    "type": "repo",
+    "title": "naver/dust3r",
+    "url": "https://github.com/naver/dust3r",
+    "stars": 7365,
+    "licence": "CC-BY-NC-SA-4.0 (non-commercial; LICENSE text)",
+    "last_push": "2025-09-24",
+    "questions": [
+      2
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "vggt-repo",
+    "type": "repo",
+    "title": "facebookresearch/vggt",
+    "url": "https://github.com/facebookresearch/vggt",
+    "stars": 14607,
+    "licence": "VGGT License v1 (custom, with Acceptable Use Policy)",
+    "last_push": "2026-05-19",
+    "questions": [
+      2
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "metric3d-repo",
+    "type": "repo",
+    "title": "YvanYin/Metric3D",
+    "url": "https://github.com/YvanYin/Metric3D",
+    "stars": 2341,
+    "licence": "BSD-2-Clause",
+    "last_push": "2025-03-13",
+    "questions": [
+      2
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "depth-anything-repo",
+    "type": "repo",
+    "title": "LiheYoung/Depth-Anything",
+    "url": "https://github.com/LiheYoung/Depth-Anything",
+    "stars": 8250,
+    "licence": "Apache-2.0",
+    "last_push": "2024-07-17",
+    "questions": [
+      2
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "randla-net-repo",
+    "type": "repo",
+    "title": "QingyongHu/RandLA-Net",
+    "url": "https://github.com/QingyongHu/RandLA-Net",
+    "stars": 1569,
+    "licence": "CC-BY-NC-SA-4.0 (non-commercial; LICENSE text)",
+    "last_push": "2023-07-11",
+    "questions": [
+      3
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "maptr-repo",
+    "type": "repo",
+    "title": "hustvl/MapTR",
+    "url": "https://github.com/hustvl/MapTR",
+    "stars": 1565,
+    "licence": "MIT",
+    "last_push": "2025-03-03",
+    "questions": [
+      5
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "hdmapnet-repo",
+    "type": "repo",
+    "title": "Tsinghua-MARS-Lab/HDMapNet",
+    "url": "https://github.com/Tsinghua-MARS-Lab/HDMapNet",
+    "stars": 769,
+    "licence": "GPL-3.0",
+    "last_push": "2022-12-16",
+    "questions": [
+      5
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "vectormapnet-repo",
+    "type": "repo",
+    "title": "Tsinghua-MARS-Lab/vectormapnet",
+    "url": "https://github.com/Tsinghua-MARS-Lab/vectormapnet",
+    "stars": 69,
+    "licence": "none (no LICENSE file in repo)",
+    "last_push": "2023-06-26",
+    "questions": [
+      5
+    ],
+    "relevance": 1
+  },
+  {
+    "id": "openlane-v2-repo",
+    "type": "repo",
+    "title": "OpenDriveLab/OpenLane-V2",
+    "url": "https://github.com/OpenDriveLab/OpenLane-V2",
+    "stars": 680,
+    "licence": "Apache-2.0",
+    "last_push": "2025-07-02",
+    "questions": [
+      5
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "lanelet2-repo",
+    "type": "repo",
+    "title": "fzi-forschungszentrum-informatik/Lanelet2",
+    "url": "https://github.com/fzi-forschungszentrum-informatik/Lanelet2",
+    "stars": 973,
+    "licence": "BSD-3-Clause",
+    "last_push": "2026-10-10",
+    "questions": [
+      5
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "nuscenes-devkit-repo",
+    "type": "repo",
+    "title": "nutonomy/nuscenes-devkit",
+    "url": "https://github.com/nutonomy/nuscenes-devkit",
+    "stars": 2818,
+    "licence": "NOASSERTION",
+    "last_push": "2026-08-06",
+    "questions": [
+      1,
+      8
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "autoware-repo",
+    "type": "repo",
+    "title": "autowarefoundation/autoware",
+    "url": "https://github.com/autowarefoundation/autoware",
+    "stars": 12226,
+    "licence": "Apache-2.0",
+    "last_push": "2026-11-07",
+    "questions": [
+      5,
+      7
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "pix4d-product",
+    "type": "product",
+    "title": "Pix4D (Pix4Dmapper, PIX4Dmatic)",
+    "url": "https://www.pix4d.com",
+    "questions": [
+      4
+    ],
+    "relevance": 2,
+    "checked": "2026-11-07"
+  },
+  {
+    "id": "bentley-itwin-capture-product",
+    "type": "product",
+    "title": "Bentley iTwin Capture Modeler",
+    "url": "https://www.bentley.com/software/contextcapture/",
+    "questions": [
+      4,
+      1
+    ],
+    "relevance": 2,
+    "checked": "2026-11-07"
+  },
+  {
+    "id": "riegl-mobile-scanning-product",
+    "type": "product",
+    "title": "RIEGL mobile scanning systems (VMX, VMQ, VMY series)",
+    "url": "https://www.riegl.com/products/mobile-scanning/",
+    "questions": [
+      3
+    ],
+    "relevance": 2,
+    "checked": "2026-11-07"
+  },
+  {
+    "id": "leica-pegasus-product",
+    "type": "product",
+    "title": "Leica Pegasus:Backpack wearable mobile mapping",
+    "url": "https://leica-geosystems.com/en-gb/products/mobile-mapping-systems/capture-platforms/leica-pegasus-backpack",
+    "questions": [
+      3,
+      7
+    ],
+    "relevance": 2,
+    "checked": "2026-11-07"
+  },
+  {
+    "id": "mapillary-product",
+    "type": "product",
+    "title": "Mapillary street-level imagery platform",
+    "url": "https://www.mapillary.com",
+    "questions": [
+      5,
+      7
+    ],
+    "relevance": 1,
+    "checked": "2026-11-07"
+  }
+]
