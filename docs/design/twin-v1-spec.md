@@ -1,278 +1,466 @@
 # Twin v1 design spec
 
-Status: revision 2, 2026-11-07, after the EGM review of revision 1. Due date: 2026-11-12.
+Status: revision 3, 2026-11-07, after the EGM implementation-readiness review. Due 2026-11-12.
 
-This spec is the one current statement of v1. It replaces the v1 items in the decision records ([0001](../decisions/0001-scope-and-order.md), [0002](../decisions/0002-digital-twin.md), [0003](../decisions/0003-risk-engine.md)), which stay as history. Supporting documents:
-- [consolidated review of the decisions](../reviews/2026-11-07-decisions/consolidated_review_report.md);
-- [review of revision 1 of this spec](../reviews/2026-11-07-spec/intermediate_zoom_out_report.md);
-- [related work](../research/related-work.md).
+This spec is the one current statement of v1. It replaces the v1 items in the decision records ([0001](../decisions/0001-scope-and-order.md), [0002](../decisions/0002-digital-twin.md), [0003](../decisions/0003-risk-engine.md)), which stay as history.
+
+Reviews and research:
+- [decisions review](../reviews/2026-11-07-decisions/consolidated_review_report.md)
+- [spec review](../reviews/2026-11-07-spec/consolidated_review_report.md)
+- [related work](../research/related-work.md)
 
 Citation keys such as `[kilani-2021-urban-isd]` are entries in [sources.yaml](../research/sources.yaml).
 
-**Terms.**
-- **Operator:** Ahmed Kamel, the project owner. He sets the methodology and is the only admin.
-- **The box:** the operator's Linux workstation, which also hosts Papyrus production services. It has 28 CPU cores, an RTX 4070 SUPER with 12 GB (partly used by ollama), and, on 2026-11-07, 35 GB of free disk; a new SSD is pending.
+**Terms**
+
+- **Operator:** Ahmed Kamel, project owner. He sets the methodology and is the only admin.
+- **The box:** the operator's Linux workstation, which also hosts Papyrus production.
+  - 28 CPU cores.
+  - RTX 4070 SUPER with 12 GB, which ollama shares.
+  - 35 GB free disk on 2026-11-07, with an SSD to be added.
 - **Mission Control:** the operator's drone-survey product (`Akamel01/drone-survey`). Its `web/` app sets the visual style.
+- **Keyframe:** a nuScenes sample at 2 Hz, with annotated boxes. **Sweep:** a lidar scan at about 20 Hz. Only keyframes have boxes.
 
 ## 1. Problem
 
-A road safety audit is done by a qualified auditor who inspects the road, often in person, against a checklist. Because each audit takes so long, agencies audit a selection of facilities chosen by screening, not every facility. A measurable 3D model of the road (a "twin") could move the geometry and sight-distance checks to a desk. Those are the checks v1 targets, and they would then be possible on every facility. To be trusted, the twin has to give measurements with stated error, not just pictures.
+A road safety audit is done by a qualified auditor who inspects the road, often in person, against a checklist. Each audit costs that time, so agencies audit selected facilities, chosen by screening, rather than all of them.
 
-Sight-distance work on lidar point clouds exists (for example [kilani-2021-urban-isd], [gonzalez-gomez-2019-sight-distance]). The related-work search found no source that combines a 3D road twin with a formal audit (related work, section 7).
+A measurable 3D model of the road (a "twin") could move the geometry and sight-distance checks to a desk, and make them possible on every facility. That only helps if the twin gives measurements with a stated error, not just pictures.
 
-v1's purpose is narrower: **show recruiters for AV safety roles a working pipeline that turns AV sensor logs into measured road geometry, with stated error.** It also gives the operator a control panel to tune and evaluate that pipeline.
+- Sight-distance work on lidar point clouds already exists ([kilani-2021-urban-isd], [gonzalez-gomez-2019-sight-distance]).
+- The related-work search found no source that joins a 3D road twin to a formal audit (related work, section 7).
 
-Success signal: a reviewer can trace one reported number, such as a crosswalk's P95 error, back through the run's parameters and stage outputs to the raw sweeps, all from the UI.
+v1 has a narrower purpose: **show recruiters for AV safety roles a working pipeline that turns AV sensor logs into measured road geometry, with stated error.** It also gives the operator a control panel to tune and evaluate that pipeline.
+
+The success signal: from the UI, a reviewer can trace one reported number back to the raw sweeps, through the run's parameters and stage outputs. An example is the P95 error for crosswalks.
 
 ## 2. Goals and non-goals
 
 ### Goals (v1, 2026-11-12)
 
-1. **One nuScenes mini scene in Boston, rebuilt as a measurable twin.** nuScenes mini is CC BY-NC-SA 4.0. The twin includes:
+1. **One nuScenes mini scene in Boston, rebuilt as a measurable twin.** nuScenes mini is licensed CC BY-NC-SA 4.0. The twin has:
    - a georeferenced point cloud, split into ground and non-ground;
    - 3D lane markings and crosswalks extracted from the lidar;
    - curb lines found from height steps.
-2. **A vertical profile** along one approach to an intersection. It is descriptive (R1) and flagged invalid when the pose quality check fails.
-3. **Intersection sight distance (ISD)** at that intersection, using a named method with editable parameters. Each leg reports "indeterminate" when it lacks scan coverage or valid height.
-4. **Plan-view accuracy** of the extracted markings, crosswalks and curbs against the nuScenes HD map. Reported as P50 and P95 distance in metres, plus coverage. Each element names its reference, and curbs are labelled "map-conditioned".
+2. **A vertical profile** along one approach to an intersection. It is descriptive only (R1), and flagged invalid when height quality fails.
+3. **Intersection sight distance (ISD)** at that intersection, using a named method with editable parameters. A leg shows "indeterminate" when it lacks scan coverage or valid height.
+4. **Plan-view accuracy** of the extracted markings, crosswalks and curbs against the nuScenes HD map. Each element reports P50 and P95 distance in metres, plus coverage, and names its reference layer. Curbs are labelled "map-conditioned".
 5. **Drawings:** a plan sheet and a profile sheet, each in DXF and PDF.
-6. **A web UI** at `twin.papyrus-ai.net`:
-   - **Public views:** a pinned showcase run with plan, profile, ISD, accuracy and downloads.
-   - **Developer panel:** anyone can view it, but only the operator can act. The operator can:
+6. **A web UI** at `twin.papyrus-ai.net`, in two parts.
+   - **Public views:** a pinned showcase run, with plan, profile, ISD, accuracy and downloads.
+   - **Developer panel:** anyone can view it; only the operator can act. The operator can:
      - choose each stage's method from the registered set;
      - edit every parameter;
      - switch optional stages on or off;
-     - run, or re-run from a stage;
+     - run, or re-run from any stage;
      - compare two runs.
-   - Stage order is fixed (decision 23, revised 2026-11-07).
+
+   The stage order is fixed (decision 25).
 7. **Every run is kept and can be re-run.** Its parameters, method choices, code version, lockfile hash, seeds and outputs are stored together.
 
-**Priority rule (operator, 2026-11-07):** controls are cut last. Three items are never cut, because they keep the stated error honest:
+**Priority rule (operator, 2026-11-07):** the controls are cut last. Three items are never cut, because they keep the stated error honest:
 - the `height_valid` flag;
 - ISD "indeterminate";
 - the curb "map-conditioned" label.
 
 ### Non-goals (v1)
 
-- AuditorAI integration. Later integration will read the output files and manifest; v1 doesn't freeze their schema.
-- Gaussian splatting or any learned reconstruction; an interactive 3D viewer.
-- Cameras-only (v1.1), Vancouver lidar-only (v1.1), drone (v2), Singapore scenes.
-- Signs, signals, poles, sidewalks, cross-section drawings, crest-curve stopping sight distance.
-- Any claim about vertical or absolute georeference accuracy (R1).
-- Free reordering of stages; 3D occupancy ray-casting for ISD (v1.1).
-- The risk engine (decision record 0003 sets direction only).
+- **AuditorAI integration.** Later integration reads the output files and manifest. v1 doesn't freeze their schema for that use.
+- **Other methods and views:** Gaussian splatting or any learned reconstruction; an interactive 3D viewer.
+- **Other sources:** cameras-only and Vancouver lidar-only (both v1.1); drone (v2); Singapore scenes.
+- **Other features:** signs, signals, poles, sidewalks, cross-section drawings, crest-curve stopping sight distance.
+- **Accuracy claims** about height or absolute georeferencing (R1).
+- **Pipeline and ISD extensions:** free reordering of stages; 3D occupancy ray-casting for ISD (v1.1); a TAC ISD preset (v1.1, once its values are cited).
+- **The risk engine.** Decision record 0003 sets its direction only.
 
-## 3. Proposed architecture
+## 3. Architecture
 
 ```text
-[0 select]    (setup, not a pipeline stage) list Boston mini scenes with an intersection;
-              ground density + paint contrast go/no-go; operator picks one
+[select]      setup, not a pipeline stage: list Boston mini scenes with an intersection,
+              road density + paint contrast go/no-go; operator picks one
 nuScenes mini (box: /data/nuscenes)
       ▼
-[1 load]      sweeps, 2D poses, 3D boxes (+ vehicle.parked attribute), HD map
+[1 load]      sweeps, 2D poses, keyframe boxes interpolated to each sweep, HD map layers
       ▼
-[2 mask]      remove points inside annotated boxes → masked cloud; keep removed
-              parked-vehicle points as their own artifact
+[2 mask]      remove points inside boxes → masked cloud; parked-vehicle points kept apart
       ▼
-[3 align]     ICP on masked sweeps → relative 6-DoF refinement (z, pitch, roll consistent)
+[3 align]     KISS-ICP on masked sweeps, anchored to dataset x/y/yaw → 6-DoF poses
       ▼
-[4 ground]    aggregate, voxel-downsample, split ground / non-ground, fit surface;
-              QA: ground-z disagreement where sweeps overlap → height_valid flag
+[4 ground]    aggregate, voxel-downsample, split ground / non-ground, grid surface;
+              QA: ground-z disagreement between sweeps → height_valid
       ▼
-[5 features]  markings + crosswalks (intensity), curbs (height step, optional) → 3D polylines
+[5 features]  markings + crosswalks (intensity); curbs (height step, optional)
       ▼
-[6 profile]   (optional) ground z along approach centreline
-[7 isd]       (optional) sight lines per leg, with and without parked vehicles
+[6 profile]   (optional) ground z along the approach centreline
+[7 isd]       (optional) sight lines per leg, without and with parked vehicles
 [8 accuracy]  (optional) features vs HD map → P50/P95 + coverage
       ▼
-[9 outputs]   LAZ, GeoJSON (3D), DXF, PDF, manifest.json
+[9 outputs]   LAZ, GeoJSON (3D), DXF, PDF
       ▼
-run store (box: /data/twin-runs/<run-id>/) ──► control API (FastAPI, box) ◄── developer panel
-                │                                 Cloudflare Tunnel + Access
+run store (box: /data/twin-runs/<run-id>/) ──► control API (FastAPI, box, Cloudflare Tunnel)
+                │                                 write routes behind Cloudflare Access
                 └── twin publish <run-id> ──► static showcase files ──► public views (Pages)
 ```
 
-**Pipeline definition.**
-- Stages run in the fixed order shown. Each stage has a registry of methods and a static `requires` list.
-- Optional stages are profile, ISD and accuracy, plus curbs within features.
-- The runner rejects a run in which an enabled stage needs a disabled one.
-- The panel cannot upload code. It only chooses among registered methods; for example, ground can be `ransac-tiles` or `csf`.
+**Pipeline.**
+- Stages run in the order shown.
+- Each stage has a registry of methods and a static `requires` list (section 4).
+- Optional stages: profile, ISD and accuracy. Curbs within features is also optional.
+- The runner rejects a run where an enabled stage needs a disabled one.
+- The panel only chooses among registered methods. It cannot upload code.
 
 **Run store.**
-- Each run is one folder holding `pipeline.yaml`, `params.yaml`, `manifest.json` and one sub-folder per stage.
-- The manifest records:
-  - git SHA, a dirty-tree flag and the lockfile hash;
-  - seeds (numpy and Open3D);
-  - the data version (`v1.0-mini` plus map expansion v1.3);
-  - EPSG, units and licence;
-  - timings, stage status and `height_valid`.
+- Each run is one folder holding `pipeline.yaml`, `params.yaml`, `manifest.json` and one folder per stage.
 - Runs are never overwritten.
-- Re-running from stage *k* hard-links stages 1 to *k−1* from the parent run.
-- Compare covers parameters and metrics.
+- A re-run from stage *k* hard-links the parent run's outputs for stages 1 to *k−1*.
 
 **Control API.** FastAPI on the box, reached through a Cloudflare Tunnel.
-- **Access:** all write routes, and the live developer panel, sit behind Cloudflare Access, restricted to the operator's Google account. CORS allows only `twin.papyrus-ai.net`, with credentials.
-- **Runs:** one run at a time, queued with a lock file. A stale lock is cleared when its process ID is gone. Cancel stops the run between stages.
-- **Inputs:** parameters are checked against a schema and loaded with `yaml.safe_load`.
-- **File routes:** reject `..` and absolute paths.
-- **Shell:** there is no shell access.
+- **Read routes (`/api/r/*`):** public. A signed-out viewer can see the live panel, the runs and their files.
+- **Write routes (`/api/w/*`):** behind a Cloudflare Access application limited to the operator's Google account. FastAPI also checks the `Cf-Access-Jwt-Assertion` JWT against the team's public keys, so a request that skips Access is still refused.
+- **CORS:** the Access application's CORS settings and FastAPI's both allow only `https://twin.papyrus-ai.net`, with credentials.
+- **Runs:** one at a time, held by a `filelock` lock.
+  - Cancel stops a run between stages.
+  - A run doesn't start when the box has less than 10 GB free.
+  - The container is capped at 8 CPUs.
+- **Input handling:** parameters are checked against the schema and loaded with `yaml.safe_load`. File routes reject `..` and absolute paths. There is no shell access.
 
 **Static showcase.**
-- `twin publish <run-id>` copies one chosen run's public outputs into the Pages build: plan raster, GeoJSON, a downsampled LAZ, PDFs, DXFs and manifest.
-- Every file stays under the Pages per-file limit (25 MiB).
+- `twin publish <run-id>` copies one run's public files into the Pages build:
+  - plan raster;
+  - GeoJSON;
+  - a downsampled LAZ;
+  - PDFs and DXFs;
+  - manifest.
+- Each file is at most 25 MiB, and the build holds fewer than 20,000 files (Pages limits).
 - Public views read only these files, so the demo stays up when the box is busy or down.
 
 **Georeference.**
-- The Boston map origin's latitude and longitude, as in nuscenes-devkit `export_poses.py`, convert map coordinates to UTM zone 19N (EPSG:32619).
-- The origin is approximate, so the absolute georeference error is unknown. It is separate from the plan accuracy against the HD map, which shares the same frame.
+- The Boston map origin comes from nuscenes-devkit `export_poses.py`.
+- A local transverse Mercator projection is centred on that origin (`+proj=tmerc +lat_0=<lat> +lon_0=<lon> +k=1`). pyproj transforms from it to UTM zone 19N (EPSG:32619).
+- Adding map offsets straight onto UTM coordinates is not used. It would ignore grid convergence of about 1.3° at Boston, roughly 20 m of error per km.
+- The origin is approximate, so the absolute georeference error is unknown. That error is separate from plan accuracy against the HD map, which shares the same frame.
 
 **UI.**
-- Next.js static export in the Mission Control style. The design tokens are copied from drone-survey `web/`, with a note of where they came from.
-- **Plan:** one top-down raster image under the file limit, with vector overlays.
+- A Next.js static export in the Mission Control style. Design tokens are copied from drone-survey `web/`, with a note of where they came from.
+- **Plan:** one top-down raster under the file limit, with vector overlays.
 - **Profile:** a chart.
 
 **Data licence.**
 - The code is Apache-2.0.
-- Derived outputs carry CC BY-NC-SA 4.0 from nuScenes and are never committed to git. The manifest and the footer say so.
+- Derived outputs carry nuScenes' CC BY-NC-SA 4.0 and are never committed. The manifest and the site footer state this.
 - The site is labelled "non-commercial research demo".
 
-## 4. Alternatives considered
+## 4. Contracts
+
+T0 writes these as pydantic models in `twin/contracts.py` and exports JSON Schemas to `schemas/`. Every other ticket builds against them.
+
+### Stages
+
+| # | Stage | Methods | Requires | Outputs (in `<run>/<n>_<stage>/`) |
+|---|---|---|---|---|
+| 1 | load | `nuscenes` | (none) | `points.npz` (x, y, z, intensity, sweep), `poses.json` (dataset 4×4 per sweep), `boxes.json` (per sweep, interpolated, `parked` flag), `reference.geojson` (map layers, run CRS) |
+| 2 | mask | `boxes` | load | `points.npz`, `parked.npz` |
+| 3 | align | `kiss-icp`, `dataset-poses` | mask | `poses.json` (refined 4×4 per sweep), `qa.json` (x/y drift vs dataset, fallback used) |
+| 4 | ground | `ransac-tiles`, `csf` | align | `ground.laz`, `nonground.laz`, `surface.npz` (0.5 m grid: z, count), `qa.json` (`rmse_m`, `z_disagreement_p95_m`, `height_valid`) |
+| 5 | features | `intensity` (+ curbs `height-step`) | ground | `markings.geojson`, `crosswalks.geojson`, `curbs.geojson` (3D; properties `id`, `kind`, `n_points`) |
+| 6 | profile | `centreline` | ground | `profile.csv` (`s_m`, `z_m`, `n`), `approach.geojson` |
+| 7 | isd | `aashto-b` | ground, mask | `isd.json`: per leg `required_m`, `available_m`, `available_with_parked_m`, `status` (`ok` or `indeterminate`), `reason` |
+| 8 | accuracy | `one-way` | features, load | `accuracy.json`: per element `reference_layer`, `p50_m`, `p95_m`, `coverage`, `n`, `label` |
+| 9 | outputs | `dxf-pdf` | features | `twin.laz`, `twin.geojson`, `plan.dxf`, `plan.pdf`, `profile.dxf`, `profile.pdf` (if profile is enabled) |
+
+Notes:
+- **Stage interface:** `run(ctx: StageContext, params: <Stage>Params) -> StageResult`.
+- **Stage status:** `pending`, `running`, `ok`, `skipped`, `failed` or `cancelled`.
+- **Height validity:** `height_valid` lives in `ground/qa.json`. Profile and ISD read it from there.
+- **Turning curbs off** (`features.curbs.enabled: false`) leaves no curb file. Accuracy and outputs then skip curbs, and no stage requires them.
+
+### Parameters (`params.yaml`, keyed by stage)
+
+| Key | Default | Range |
+|---|---|---|
+| `select.min_density_pts_m2` | 50 | 1–1000 |
+| `select.min_contrast` | 1.5 | 1.0–10 |
+| `mask.box_margin_m` | 0.3 | 0–1 |
+| `align.window_s` | 20 | 2–20 |
+| `align.voxel_m` | 0.5 | 0.1–2 |
+| `ground.voxel_m` | 0.05 | 0.02–0.5 |
+| `ground.tile_m` | 5 | 1–20 |
+| `ground.ransac_dist_m` | 0.05 | 0.01–0.3 |
+| `ground.csf_cloth_m` | 0.5 | 0.1–2 |
+| `ground.qa_cell_m` | 0.5 | 0.1–2 |
+| `ground.qa_max_p95_m` | 0.10 | 0.01–1 |
+| `features.intensity_pct` | 95 | 50–99.9 |
+| `features.cluster_eps_m` | 0.3 | 0.05–2 |
+| `features.min_points` | 20 | 3–1000 |
+| `features.curbs.enabled` | true | bool |
+| `features.curbs.step_min_m` | 0.08 | 0.02–0.3 |
+| `features.curbs.step_max_m` | 0.25 | 0.1–0.5 |
+| `profile.sample_m` | 1.0 | 0.1–10 |
+| `isd.case` | `B1` | `B1` (left turn), `B2` (right turn), `B3` (crossing) |
+| `isd.time_gap_s` | 7.5 | 4–12 |
+| `isd.design_speed_kmh` | 50 | 20–100 |
+| `isd.eye_height_m` | 1.08 | 0.5–3 |
+| `isd.object_height_m` | 1.08 | 0.2–3 |
+| `isd.band_m` | 0.3 | 0.05–1 |
+| `isd.coverage_window_m` | 2 | 0.5–10 |
+| `isd.coverage_min_pts` | 20 | 1–1000 |
+| `accuracy.buffer_m` | 1.0 | 0.1–5 |
+| `seed` | 0 | int |
+
+`pipeline.yaml` holds, for each stage, `method` and `enabled`.
+
+**Re-run rule:** a re-run from stage *k* may change only the parameters and methods of stage *k* and later stages. If a change touches an earlier stage *j*, the request is refused with "re-run from stage *j*".
+
+### Manifest (`manifest.json`)
+
+- `run_id` (`YYYYMMDD-HHMMSS-<6 hex>`), `parent` (`{run_id, from_stage}` or null)
+- `code`: `git_sha`, `dirty`, `lockfile_sha256`
+- `data`: `nuscenes_version` (`v1.0-mini`), `map_version` (`1.3`), `scene_token`
+- `crs`: `epsg` (32619), `units` (`m`), `licence`
+- `pipeline` and `params`, copied in full
+- `stages[]`: `name`, `method`, `status`, `started`, `seconds`, `files[]`
+- `metrics`: accuracy P50/P95/coverage per element; ISD available and required per leg; ground `rmse_m` and `z_disagreement_p95_m`; `height_valid`
+
+**Compare** shows the differences in `pipeline`, `params` and `metrics` between two manifests.
+
+### API routes
+
+| Route | Use |
+|---|---|
+| `GET /api/r/registry` | stages, methods, parameter schema |
+| `GET /api/r/runs`, `GET /api/r/runs/{id}` | run list, manifest |
+| `GET /api/r/runs/{id}/files/{path}` | one stage output |
+| `GET /api/r/compare?a=&b=` | differences between two runs |
+| `POST /api/w/runs` | new run; body `{scene_token, pipeline, params}` |
+| `POST /api/w/runs/{id}/rerun` | body `{from_stage, pipeline, params}` |
+| `POST /api/w/runs/{id}/cancel` | stop between stages |
+
+### CLI
+
+- `twin select [--min-density N]`: prints a table of scenes. Exits 0.
+- `twin run --scene <token> [--pipeline f] [--params f]`: prints the run ID. Exits 0 on success, 1 if a stage failed, 2 if the input is invalid.
+- `twin rerun <run-id> --from <stage> [--params f]`: starts a re-run from that stage.
+- `twin publish <run-id> --out web/public/showcase`: copies the run's public files.
+- `twin fake-run --out <dir>`: writes a synthetic run that matches the contracts, for UI and outputs work.
+
+## 5. Alternatives considered
 
 | Option | Rejected for v1 because |
 |---|---|
-| Gaussian splatting (DrivingGaussian, Street Gaussians, gsplat) | Doesn't measure geometry. The best-fit repos have no licence or a registration licence (related work, section 1). Needs GPU time shared with ollama. |
+| Gaussian splatting (DrivingGaussian, Street Gaussians, gsplat) | It doesn't measure geometry. The best-fit repos have no licence or a registration licence (related work, section 1). It needs GPU time shared with ollama. |
 | Stacking sweeps on the dataset poses | nuScenes poses are 2D plus yaw, with z always 0 ([nuscenes-devkit#721](https://github.com/nutonomy/nuscenes-devkit/issues/721)). The stack would come out flat. |
-| Pose from a per-sweep ground-plane fit, or a pose graph | Ground-plane fits bias z on cambered or sloped roads, and a pose graph is more work than one short scene needs. KISS-ICP is an existing, MIT-licensed package. |
-| Learned vector mapper (MapTR, MIT) | Predicts 2D map elements from cameras, and no paper reports height error (related work, section 5). Classic extraction outputs polylines straight from measured points, so every vertex traces back to lidar returns. |
+| Pose from a ground-plane fit per sweep, or a pose graph | A ground-plane fit biases z on cambered or sloped roads, and a pose graph is more work than one short scene needs. KISS-ICP is an existing, MIT-licensed package with a nuScenes loader. |
+| Learned vector mapper (MapTR, MIT) | It predicts 2D map elements from cameras, and no paper reports its height error (related work, section 5). Classic extraction outputs polylines from measured points, so each point traces back to the lidar. |
 | Draping HD-map polygons onto the ground | The accuracy check would then compare the map with itself. |
-| Symmetric Chamfer distance for accuracy | Penalises reference length that the scan never covered. A one-way distance from extracted to reference, plus a separate coverage figure, keeps the two apart. |
-| Crest-curve stopping sight distance | Needs a valid vertical profile, which v1 can't validate (R1). ISD at an intersection depends mainly on plan geometry. |
-| Fully static site | A static site can't run, re-run or compare runs. The operator needs those (goal 6). |
-| Custom auth (Papyrus token check, rate limiter) | Cloudflare Access gives Google sign-in and blocks unauthenticated requests at the edge, with no code to maintain. |
-| A tracking tool for runs (MLflow) | A heavy service for one scene and one user. A folder per run plus a manifest covers v1. |
+| Symmetric Chamfer distance for accuracy | It penalises reference length the scan never covered. A one-way distance plus a separate coverage figure keeps the two apart. |
+| Crest-curve stopping sight distance | It needs a valid vertical profile, which v1 can't validate (R1). ISD at an intersection depends mainly on plan geometry. |
+| Fully static site | It can't run, re-run or compare (goal 6). |
+| Custom auth (Papyrus token check, rate limiter) | Cloudflare Access gives Google sign-in and blocks requests at the edge, with no auth code to maintain. |
+| Run-tracking tool (MLflow) | Too heavy for one scene and one user. A folder per run plus a manifest covers v1. |
 | Potree / COPC 3D streaming viewer | A 3D viewer isn't a v1 goal. |
-| Lyft Level 5 as the v1 source | Its pose degrees of freedom are unconfirmed, and switching costs a day the schedule doesn't have. It stays in the pool for v1.1. |
+| Lyft Level 5 as the v1 source | Its pose degrees of freedom are unconfirmed, and a switch costs a day. It stays in the pool for v1.1. |
 
-## 5. Methods and parameters (operator-directed)
+## 6. Methods (operator-directed)
 
-- **Select (setup):** for each candidate scene, measure:
-  - ground points per m² on the road;
-  - the intensity contrast between the top 5% and the median of road points.
+**Select (setup).** Uses keyframe lidar points inside `drivable_area` that lie within 0.3 m of the lowest 5th percentile of z in each 5 m cell. For each scene it reports:
+- points per m²;
+- the ratio of the top-5% intensity to the median intensity.
 
-  Go/no-go thresholds are parameters. On no-go for markings, the run reports markings as "not extractable at this density", and the accuracy stage covers crosswalks and curbs only.
-- **Mask:** remove points inside annotated boxes, placed with the 2D poses. Boxes with the `vehicle.parked` attribute go to a separate parked-vehicle artifact.
-- **Align:** the KISS-ICP pipeline on masked sweeps, over a window of up to the full scene (about 20 s; default 20 s). This makes z, pitch and roll consistent *between* sweeps. It doesn't recover absolute height. If ICP fails, fall back to the dataset poses and set `height_valid=false`.
-- **Ground:** RANSAC plane per 5 m tile (default) or a cloth-simulation filter (CSF; check its licence when it is added).
-  - Report the ground-fit RMSE.
-  - QA: P95 of the ground-z disagreement between points from different sweeps in the same 0.5 m cell.
-  - If that P95 is above the threshold (default 0.10 m), `height_valid=false`.
-- **Markings and crosswalks:** threshold the intensity of ground points (percentile per tile), cluster, then fit polylines. Crosswalks are clustered stripes, reported as polygons. This is the classic mobile-mapping approach ([guan-2014-road-markings-mls]). Its feasibility at 32-beam density is unproven; the select step tests it.
-- **Curbs (optional):** a height step of 0.08–0.25 m at the edge of the fitted ground surface, chained into polylines. The search window is the ground edge. Because of how curbs are scored, curb accuracy is still labelled "map-conditioned" (see Accuracy).
-- **ISD:**
-  - Method: AASHTO case B (stop control). Driver eye height 1.08 m, object height 1.08 m, design speed as a parameter. The alternative preset is the Transportation Association of Canada (TAC) guide (eye height 1.05 m, object height 1.30 m).
-  - For each leg, a sight line runs from the eye point to the object point.
-  - A point blocks the line if it is above the ground surface, below the line, and within 0.3 m of it horizontally.
-  - The leg is "indeterminate" if any 2 m stretch of the line has fewer ground points than a coverage threshold, or if `height_valid=false`.
-  - It is computed twice: without and with the parked-vehicle artifact.
-- **Accuracy:** one-way distance from each extracted vertex to its reference. The references are:
-  - lane markings: `lane_divider` and `road_divider` (map polylines, not painted edges);
-  - crosswalks: `ped_crossing`;
-  - curbs: the `drivable_area` boundary. This is a proxy, so curb accuracy is labelled "map-conditioned".
+If a scene fails the markings threshold, its runs report markings as "not extractable at this density". Accuracy then covers crosswalks and curbs only.
 
-  Report:
-  - P50 and P95 in metres;
-  - coverage: the share of reference length within a 1.0 m matching buffer of an extracted element.
+**Load and mask.**
+- Boxes exist only on keyframes. For each instance, its centre, size and yaw are interpolated linearly to each sweep timestamp between two keyframes. Boxes are not extrapolated outside that span.
+- `parked` comes from the attribute on the nearest keyframe, because that attribute can change along an instance.
+- Points inside a box widened by `mask.box_margin_m` are removed. Parked-vehicle points go to `parked.npz`.
 
-  No pass/fail threshold is set in v1.
+**Align.**
+- KISS-ICP runs on the masked sweeps over `align.window_s`, the whole scene by default (about 20 s). nuScenes has no per-point timestamps, so deskewing is off.
+- KISS-ICP is odometry from the first sweep, so its trajectory is anchored to the dataset trajectory by a rigid fit in x, y and yaw (Umeyama).
+- The result keeps KISS-ICP's relative z, pitch and roll between sweeps, and so makes them consistent. It does not recover absolute height.
+- The x/y difference from the dataset poses is reported as drift.
+- If ICP fails, the stage falls back to the dataset poses and sets `height_valid=false`.
 
-## 6. Risks and limits
+**Ground.**
+- `ransac-tiles` runs Open3D `segment_plane` in each tile.
+- `csf` uses the cloth simulation filter (`cloth-simulation-filter` on PyPI, Apache-2.0).
+- Both report ground-fit RMSE.
+- QA computes the P95 of ground-z disagreement between points from different sweeps in the same `ground.qa_cell_m` cell. If it exceeds `ground.qa_max_p95_m`, the stage sets `height_valid=false`.
+
+**Markings and crosswalks.**
+- Ground points above the `features.intensity_pct` intensity percentile in each tile are kept.
+- They are clustered with DBSCAN, and polylines are fitted to the clusters.
+- Crosswalks are reported as polygons around clustered stripes.
+- This follows the classic mobile-mapping approach ([guan-2014-road-markings-mls]). Whether it works at 32-beam density is unproven; select tests it.
+
+**Curbs (optional).**
+- Found as height steps between `step_min_m` and `step_max_m` at the edge of the ground surface, then chained into polylines.
+- Curbs are scored against the `drivable_area` boundary, so they are labelled "map-conditioned".
+
+**ISD.** AASHTO Case B (stop control).
+- **Sub-case and gap:** set by `isd.case` and `isd.time_gap_s`. The default is B1 for a passenger car, 7.5 s.
+- **Required distance:** 0.278 × `design_speed_kmh` × `time_gap_s`.
+- **Heights:** eye and object height default to 1.08 m.
+- **Sight line:** each leg has one, from the eye point to the object point at the required distance.
+- **Blocking:** a point blocks the line if it lies above the ground surface, below the line, and within `isd.band_m` of it horizontally. So canopy above the line doesn't block.
+- **Indeterminate:** a leg is indeterminate if any `coverage_window_m` stretch has fewer than `coverage_min_pts` ground points, or if `height_valid=false`.
+- **Parked vehicles:** each leg is computed twice, without and with `parked.npz`.
+
+**Accuracy.**
+- Measures the one-way distance from each extracted vertex to its reference layer, read through `NuScenesMap`.
+- Lane markings use `lane_divider` and `road_divider`. Both are map lines, not painted edges; `road_divider` is a median line and a weaker reference.
+- Crosswalks use `ped_crossing`.
+- Curbs use the `drivable_area` boundary, labelled "map-conditioned".
+- Coverage is the share of reference length within `accuracy.buffer_m` of an extracted element, computed with shapely.
+- Results are P50 and P95 in metres. No pass/fail threshold is set in v1.
+
+**Outputs.**
+- `laspy[lazrs]` writes LAZ, with the CRS set via `header.add_crs()`.
+- ezdxf writes DXF. The PDF is drawn from the same DXF with the ezdxf `drawing` add-on (matplotlib backend).
+
+## 7. Risks and limits
 
 | # | Risk or limit | Mitigation |
 |---|---|---|
-| R1 | No independent height reference exists for nuScenes, and the absolute georeference error is unknown. | The profile is descriptive. Height-dependent outputs follow `height_valid`. A Vancouver ALS height check comes in v1.1, where the City of Vancouver LiDAR 2022 states 0.081 m vertical accuracy at 95% (opendata.vancouver.ca, `lidar-2022`). |
-| R2 | ICP drifts or fails. | Mask moving objects first, check the ground-z disagreement, fall back to dataset poses with `height_valid=false`, and show "indeterminate (pose)" in the UI. |
-| R3 | Boston mini has no intersection with dense enough lidar. | The select step decides on day 1, with the no-go branch defined in section 5. |
-| R4 | Extracted markings are noisy. | Report P50 and P95 with coverage, as measured. |
-| R5 | 5 days is short. | Cut order if late: (1) curbs, (2) DXF (PDF stays), (3) the profile sheet. Never cut: the three honesty items and the controls. |
-| R6 | The API runs on a shared production machine. | Cloudflare Access, one run at a time, a CPU cap on the container, no shell, schema-checked parameters. A run does not start if free disk is below 10 GB. Public views never touch the box. |
-| R7 | nuScenes is non-commercial and the site is on a company domain. | "Non-commercial research demo" label, attribution, and no paid features on the site. |
-| R8 | Scale. v1 handles one scene, one run at a time, on one shared machine, and the run store grows without limit. | These limits are accepted for v1, and the free-disk check above guards the machine. Scaling to a network (a batch queue, retention, more workers) is out of scope until after v1.1. |
+| R1 | No independent height reference exists for nuScenes, and the absolute georeference error is unknown. | The profile is descriptive only. Height-dependent outputs follow `height_valid`. A check against Vancouver airborne lidar comes in v1.1: City of Vancouver LiDAR 2022 states 0.081 m vertical accuracy at 95% (opendata.vancouver.ca, `lidar-2022`). |
+| R2 | ICP drifts or fails. | Masking first, anchoring to dataset x/y/yaw, the ground-z QA check, and the fallback to dataset poses. When height fails, the UI shows "indeterminate (height)". |
+| R3 | No Boston mini intersection has enough lidar density. | Select decides on day 1. The no-go branch is in section 6. |
+| R4 | Extracted markings are noisy. | P50 and P95 with coverage are reported as measured. |
+| R5 | Five days is short. | If late, cut in this order: (1) curbs, (2) DXF (the PDF stays), (3) the profile sheet. Never cut the three honesty items or the controls. |
+| R6 | The API runs on a shared production machine. | Access on write routes, one run at a time, an 8-CPU cap, no shell, schema-checked parameters, and the 10 GB free-disk check. Public views never touch the box. |
+| R7 | nuScenes is non-commercial, and the site is on a company domain. | A "non-commercial research demo" label, attribution, and no paid features. |
+| R8 | Scale: one scene, one run at a time, one shared machine, and an unbounded run store. | Accepted for v1; the free-disk check guards the machine. A batch queue, retention and more workers wait until after v1.1. |
+| R9 | nuscenes-devkit lists support only up to about Python 3.9. | T1 tests the install on 3.11 on day 1. If it fails, fall back to 3.10, or vendor the map API. |
 
-## 7. Acceptance criteria
+## 8. Acceptance criteria
 
-- **Select step:** `twin select` lists the Boston mini scenes with an intersection, their density and contrast, and a go/no-go for each.
-- **Run:** a run on the chosen scene finishes on the box CPU in under 30 minutes and writes every output listed in section 3. The time is estimated from the T1 fixture and confirmed in T4.
-- **Manifest:** contains the SHA, the dirty-tree flag, the lockfile hash, seeds, data version, EPSG 32619, units (m), licence, method choices, parameters, per-stage timings and status, and `height_valid`.
-- **Repeatability:** running the same parameters twice gives P50 and P95 within 0.02 m of each other.
-- **Drawings:** the plan and profile sheets pass `ezdxf` audit and open as PDFs. Each has a scale bar, north arrow (plan only), source line and licence line.
-- **Profile:** shows ground z against distance along the approach. It is labelled descriptive, and shows "indeterminate (pose)" when `height_valid=false`.
-- **Accuracy panel:** shows P50, P95 and coverage per element, names each reference layer, and labels curbs "map-conditioned".
+- **Select:** `twin select` lists the Boston mini scenes with an intersection, with density, contrast and go/no-go for each.
+- **Run:** a run on the chosen scene finishes on the box CPU in under 30 minutes. It writes every output in section 4. The time is estimated in T4 and measured on the full run in T11.
+- **Manifest:** validates against `schemas/manifest.schema.json`.
+- **Repeatability:** two runs with the same parameters give accuracy P50 and P95 within 0.02 m for each element.
+- **Drawings:**
+  - The plan and profile DXFs pass `ezdxf` audit.
+  - The PDFs open.
+  - Each sheet has a scale bar, a source line and a licence line. The plan also has a north arrow.
+- **Profile:** shows ground z against distance along the approach, labelled descriptive. It shows "indeterminate (height)" when `height_valid=false`.
+- **Accuracy panel:** shows P50, P95 and coverage for each element, names each reference layer, and labels curbs "map-conditioned".
 - **ISD:**
-  - each leg shows the available and required distance, or "indeterminate";
-  - shown with and without parked vehicles;
-  - a fixture test confirms that a canopy point above the sight line doesn't block it.
+  - Each leg shows the available and required distance, or "indeterminate", both without and with parked vehicles.
+  - A synthetic test confirms that a canopy point above the sight line doesn't block it.
 - **Security:**
-  - a POST without Access credentials gets 401 or 403;
-  - a file route rejects `..`;
-  - a pipeline with a disabled required stage is rejected.
+  - A POST to `/api/w/*` without Access credentials gets 302, 401 or 403 at the edge.
+  - A POST with a forged or missing JWT gets 401 at the origin.
+  - A file route rejects `..`.
+  - A pipeline where an enabled stage needs a disabled one is rejected.
+  - A re-run that changes an earlier stage's parameters is rejected.
 - **Controls:**
-  - signed out, the developer panel is visible with its controls disabled;
-  - signed in, the operator can change one parameter, re-run from that stage, and see the comparison with the parent run.
+  - Signed out, the developer panel shows the live runs, with controls disabled.
+  - Signed in, the operator changes one parameter, re-runs from the stage that uses it, and sees the comparison with the parent run.
 - **Public views:**
-  - they load from the static files with the box unreachable;
-  - at 375 px and 1280 px widths there is no horizontal scroll, every view can be reached, and no control is clipped;
-  - the footer shows the licence and the "non-commercial research demo" label.
+  - They load from static files while the box is unreachable.
+  - At 375 px and 1280 px there is no horizontal scroll, every view can be reached, and no control is clipped.
+  - The footer shows the licence and the "non-commercial research demo" label.
 
 ## Detailed Implementation Plan
 
-[operator] tickets are methodology the operator reviews line by line. [scaffold] tickets are built by agents.
+Ticket labels:
+- **[operator]:** methodology. The operator reviews it line by line.
+- **[scaffold]:** built by agents.
 
-Dependencies:
-- T1 first.
-- T2 and T3 in parallel after T1.
-- T9 after T3.
-- T4 after T2 and T3.
-- T5 after T4, then T6 and T7 after T5.
-- T8 after T5 (its profile sheet after T6).
-- T10 after T9.
-- T11 last.
+Every ticket's PR includes pytest tests. CI runs them on synthetic fixtures. nuScenes data never goes into CI, because download needs a login and the licence bars committing it. Real-data checks run on the box with `make itest`.
 
+**Dependencies.**
+- T0 and T1 come first.
+- T2, T3 and T9 follow T0 and T1.
+- T4 needs T2 and T3.
+- T5 needs T4.
+- T6 and T7 need T5.
+- T8 builds on `twin fake-run` after T0 and is finished after T6 and T7.
+- T10 needs T0 and uses `twin fake-run`. Its live panel needs T9.
+- T11 comes last.
+
+- **T0 [scaffold]: contracts.**
+  - `twin/contracts.py`: pydantic models for the section 4 contracts (stages, parameters, pipeline, manifest, StageResult).
+  - JSON Schemas in `schemas/`.
+  - The `twin fake-run` command.
+  - Done when the schemas validate a fake run and the tests reject a bad pipeline and a bad re-run.
 - **T1 [scaffold]: package and CI.**
-  - `twin/` package with `pyproject.toml` and `uv.lock`, on Python 3.11.
-  - Dependencies: numpy, open3d (MIT), kiss-icp (MIT), laspy, pyproj, shapely, ezdxf, matplotlib, nuscenes-devkit (Apache-2.0), fastapi.
-  - pytest and ruff in GitHub Actions.
-  - A small fixture built from a few sweeps of one mini scene, downloaded in CI and not committed.
+  - `twin/` package with `pyproject.toml` and `uv.lock`, on Python 3.11 (R9).
+  - Dependencies, licences in brackets:
+    - numpy, pyyaml, pydantic, filelock;
+    - open3d (MIT), kiss-icp (MIT, version pinned), cloth-simulation-filter (Apache-2.0);
+    - laspy[lazrs], pyproj, shapely, ezdxf, matplotlib;
+    - nuscenes-devkit (Apache-2.0);
+    - fastapi, uvicorn, PyJWT.
+  - GitHub Actions runs pytest and ruff.
+  - Synthetic fixtures in `tests/fixtures/`: a sloped plane with painted stripes, a curb step and a canopy.
 - **T2 [scaffold]: data and select.**
-  - `scripts/get_nuscenes_mini.sh` downloads nuScenes mini and map expansion v1.3 to `/data/nuscenes` on the box.
-  - `twin select` lists Boston intersection scenes with density, contrast and go/no-go.
+  - `scripts/get_nuscenes_mini.sh` installs to `/data/nuscenes` on the box. It prompts the operator for the download link and does no login itself.
+  - `twin select` as in section 6.
   - The operator picks the scene.
 - **T3 [scaffold]: runner and run store.**
-  - Stage registry with method choices and `requires`.
-  - Run folders, manifest, hard-link re-run, lock-file queue with stale-lock recovery, cancel between stages.
-  - CLI: `twin run` and `twin publish`.
-- **T4 [operator]: stages 1–3** (load, mask, align), with a runtime measurement.
-- **T5 [operator]: stages 4–5** (ground with the QA check, features).
-- **T6 [operator]: stages 6–7** (profile, ISD with the blocking band and coverage proxy).
-- **T7 [operator]: stage 8** (accuracy).
-- **T8 [scaffold]: stage 9** (outputs): LAZ, GeoJSON, DXF and PDF sheets, plan raster, downsampled showcase LAZ.
+  - Stage registry, `requires` check, run folders and manifest writing.
+  - Hard-link re-run with the re-run rule.
+  - `filelock` queue, cancel between stages, and the 10 GB free-disk check.
+  - CLI: `run`, `rerun`, `publish`.
+- **T4 [operator]: stages 1–3.**
+  - `twin/stages/{load,mask,align}.py`.
+  - Tests:
+    - box interpolation between two keyframes;
+    - the anchored fit recovers a known x/y/yaw offset;
+    - an ICP failure sets `height_valid=false`.
+  - On the box, measure the runtime and estimate the full run.
+- **T5 [operator]: stages 4–5.**
+  - `twin/stages/{ground,features}.py`.
+  - Tests:
+    - ground RMSE under 0.02 m on the synthetic plane;
+    - the stripes come out as polylines;
+    - the curb step is found;
+    - the QA check flags a 0.2 m sweep offset.
+- **T6 [operator]: stages 6–7.**
+  - `twin/stages/{profile,isd}.py`.
+  - Tests:
+    - the profile recovers the synthetic slope;
+    - canopy doesn't block;
+    - a wall does block;
+    - a coverage gap gives "indeterminate";
+    - `height_valid=false` gives "indeterminate".
+- **T7 [operator]: stage 8.**
+  - `twin/stages/accuracy.py`.
+  - Tests:
+    - a known 0.5 m offset gives P50 = 0.5 m;
+    - a half-covered reference gives coverage 0.5;
+    - with curbs off, the curb element is skipped.
+- **T8 [scaffold]: stage 9.**
+  - `twin/stages/outputs.py`: LAZ, GeoJSON, DXF, and PDF via the ezdxf drawing add-on.
+  - `twin publish` adds the plan raster and the downsampled LAZ.
+  - Tests:
+    - DXF audit is clean;
+    - every published file is at most 25 MiB.
 - **T9 [scaffold]: control API.**
-  - The routes in section 3, with Access, CORS, schema validation, path checks and compare.
-  - Cloudflare Tunnel and Access configuration. The operator approves the DNS record and Access policy.
-- **T10 [scaffold]: UI.** Public views (static files) and the developer panel (live API). The brief includes:
-  - the intent of each view;
-  - drone-survey `web/` as the reference skeleton;
-  - banned patterns;
-  - a screenshot self-review against the public-view criteria in section 7.
+  - The section 4 routes, with JWT check, CORS, schema validation, path checks and compare.
+  - Tests for the section 8 security items, using a test signing key.
+  - The Cloudflare Tunnel config and the Access application on `/api/w/*` are written as a runbook. The operator approves the DNS record and the Access policy on day 1.
+- **T10 [scaffold]: UI.**
+  - Public views read static files; the developer panel uses the live API.
+  - The brief includes:
+    - what each view is for;
+    - drone-survey `web/` as the reference skeleton;
+    - banned patterns;
+    - a screenshot self-review at 375 px and 1280 px against section 8.
+  - Web build and lint run in CI.
+  - Built against `twin fake-run` output until the real outputs exist.
+- **T11 [scaffold]: deploy.**
+  - Dockerfile for the API, with the 8-CPU cap.
+  - Pages project and tunnel.
+  - `twin publish` of the showcase run.
+  - A smoke test of section 8, including the repeat-run check and the full-run time.
 
-  Until T8 lands, it uses fixture runs.
-- **T11 [scaffold]: deploy.** Pages project, tunnel, API container with a CPU cap, `twin publish` of the showcase run, and a smoke test of section 7.
-
-**Order to 2026-11-12:**
+**Order to 2026-11-12**
 
 | Day | Work |
 |---|---|
-| 1 | T1, then T2 and T3; scene choice; Access decision |
-| 2 | T4, T9 |
-| 3 | T5, T10 |
-| 4 | T6, T7, T8 |
+| 1 | T0, T1; then T2, T3; scene choice; operator approves DNS + Access policy |
+| 2 | T4, T9, T10 (on fake runs) |
+| 3 | T5, T8 (on fake runs), T10 |
+| 4 | T6, T7, finish T8 |
 | 5 | T11, fixes |
