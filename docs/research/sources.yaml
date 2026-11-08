@@ -1268,5 +1268,143 @@
     ],
     "relevance": 1,
     "checked": "2026-11-07"
+  },
+  {
+    "id": "aashto-green-book-2018",
+    "type": "standard",
+    "title": "A Policy on Geometric Design of Highways and Streets (Green Book), 7th ed., 2018",
+    "url": "https://store.transportation.org/item/collectiondetail/1773",
+    "open_access": false,
+    "questions": [
+      6,
+      7
+    ],
+    "relevance": 3
+  },
+  {
+    "id": "nchrp-383",
+    "type": "paper",
+    "title": "Intersection Sight Distance",
+    "authors": [
+      "Harwood, Douglas W.",
+      "Mason, John M.",
+      "Brydia, Robert E.",
+      "Pietrucha, Martin T.",
+      "Gittings, Gary L."
+    ],
+    "year": 1996,
+    "venue": "NCHRP Report 383",
+    "url": "https://trid.trb.org/view/481444",
+    "open_access": false,
+    "questions": [
+      6,
+      7
+    ],
+    "relevance": 3
+  },
+  {
+    "id": "aashto-bike-guide",
+    "type": "standard",
+    "title": "Guide for the Development of Bicycle Facilities (AASHTO Bike Guide), 4th/5th ed.",
+    "url": "https://store.transportation.org/Common/DownloadContentFiles?id=2475",
+    "open_access": false,
+    "questions": [
+      6,
+      7
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "fhwa-idrm-2003",
+    "type": "standard",
+    "title": "IHSDM Intersection Diagnostic Review Model (FHWA-RD-02-045)",
+    "url": "https://www.fhwa.dot.gov/publications/research/safety/ihsdm/02045/3.cfm",
+    "open_access": true,
+    "questions": [
+      6,
+      7
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "nchrp-15-75",
+    "type": "paper",
+    "title": "Acceleration, Deceleration, and Stopping Sight Distance Criteria for Geometric Design of Highways and Streets",
+    "authors": [
+      "Savolainen, Peter T.",
+      "Gates, Timothy J.",
+      "Megat Johari, Megat Usamah",
+      "Bamney, Anshu",
+      "Jashami, Hisham"
+    ],
+    "year": 2023,
+    "venue": "NCHRP Research Report",
+    "url": "https://trid.trb.org/View/2334606",
+    "open_access": false,
+    "questions": [
+      6,
+      7
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "ohio-dot-ldm",
+    "type": "standard",
+    "title": "Ohio DOT Location and Design Manual, Volume 1 (sight distance, sections 201/203)",
+    "url": "https://dam.assets.ohio.gov/image/upload/transportation.ohio.gov/roadway/ld1/archive/2020-07-LD1.pdf",
+    "open_access": true,
+    "questions": [
+      6,
+      7
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "iowa-sudas",
+    "type": "standard",
+    "title": "Iowa SUDAS Design Manual (sight distance)",
+    "url": "https://iowasudas.org/",
+    "open_access": true,
+    "questions": [
+      6,
+      7
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "dmrb-cd-109",
+    "type": "standard",
+    "title": "Design Manual for Roads and Bridges: CD 109 Highway Link Design",
+    "url": "https://www.standardsforhighways.co.uk/",
+    "open_access": false,
+    "questions": [
+      6,
+      7
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "manual-for-streets",
+    "type": "standard",
+    "title": "Manual for Streets (DfT, 2007)",
+    "url": "https://www.gov.uk/government/publications/manual-for-streets",
+    "open_access": true,
+    "questions": [
+      6,
+      7
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "tac-gdg-2017",
+    "type": "standard",
+    "title": "Geometric Design Guide for Canadian Roads (TAC, 2017)",
+    "url": "https://www.tac-atc.ca/en/knowledge-centre/technical-resources-search/publications/ptm-geodes2-e/",
+    "open_access": false,
+    "questions": [
+      6,
+      7
+    ],
+    "relevance": 2
   }
 ]
