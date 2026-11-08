@@ -102,3 +102,8 @@ Date: 2026-11-07. Operator decisions, grilling round 3.
     Q8 (occlusion) waits for the multi-sensor research (#13).
 37. **Multi-sensor work needs a dedicated state-of-the-art search** before its method is fixed (operator, 2026-11-07; #13).
 38. **Colour-stage occlusion (Q8): option (a)**, chosen by the operator. A depth buffer per image from all points plus the annotated boxes at the image time. Full colour-stage method: map ticket #8. The multi-sensor research (#13) can reopen it only with a clearly better method.
+39. **Control API access** (map ticket #10):
+    - The API is at `twin-api.papyrus-ai.net`, behind its own `twin` tunnel.
+    - Zero Trust team `papyrus`; sessions last 24 h.
+    - The panel has a sign-in button.
+    - The operator enables Zero Trust and creates the `cloudflare-zt-token`; Claude configures the rest, showing each change first.
