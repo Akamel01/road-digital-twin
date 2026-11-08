@@ -17,8 +17,8 @@ def store(tmp_path_factory) -> Path:
 
 
 @pytest.fixture(scope="module")
-def client(store):
-    return TestClient(create_app(store))
+def client(store, access):
+    return TestClient(create_app(store, access.verifier))
 
 
 def _ids(store: Path) -> list[str]:
@@ -91,18 +91,18 @@ def test_file_path_rejected(client, store, path):
     assert resp.status_code != 200
 
 
-def test_file_symlink_outside_run_rejected(tmp_path):
+def test_file_symlink_outside_run_rejected(tmp_path, access):
     store = tmp_path / "runs"
     write_fake_runs(store, drives=1)
     rid = _ids(store)[0]
     secret = tmp_path / "secret.txt"
     secret.write_text("outside")
     (store / rid / "link.txt").symlink_to(secret)
-    client = TestClient(create_app(store))
+    client = TestClient(create_app(store, access.verifier))
     assert client.get(f"/api/r/runs/{rid}/files/link.txt").status_code == 400
 
 
-def test_compare_finds_changed_param(tmp_path):
+def test_compare_finds_changed_param(tmp_path, access):
     store = tmp_path / "runs"
     write_fake_runs(store, drives=2)
     a, b = _ids(store)
@@ -111,7 +111,7 @@ def test_compare_finds_changed_param(tmp_path):
     data = json.loads(path.read_text())
     data["params"]["ground"]["voxel_m"] = 0.123
     path.write_text(json.dumps(data))
-    client = TestClient(create_app(store))
+    client = TestClient(create_app(store, access.verifier))
     diffs = client.get(f"/api/r/compare?a={a}&b={b}").json()
     by_path = {d["path"]: d for d in diffs}
     assert by_path["params.ground.voxel_m"]["b"] == 0.123
@@ -126,9 +126,9 @@ def test_compare_same_run_empty(client, store):
     assert client.get(f"/api/r/compare?a={rid}&b={rid}").json() == []
 
 
-def test_no_write_routes(client, store):
+def test_write_routes_need_access_token(client, store):
     rid = _ids(store)[0]
-    assert client.post(f"/api/w/runs/{rid}/cancel").status_code in (404, 405)
+    assert client.post(f"/api/w/runs/{rid}/cancel").status_code == 401
 
 
 def test_cors_allows_only_panel_origin(client):

@@ -27,6 +27,7 @@ dependencies = [
     "uvicorn==0.54.0",
     "PyJWT==2.15.1",
     "pillow==13.0.0",
+    "cryptography==50.0.2",
 ]
 
 [project.scripts]

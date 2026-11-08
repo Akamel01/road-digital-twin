@@ -1,19 +1,29 @@
-"""Control API read routes (/api/r/*). Spec: docs/design/twin-v1-spec.md, sections 3 and 4.
+"""Control API (/api/r/* read, /api/w/* write). Spec: docs/design/twin-v1-spec.md, sections 3, 4 and 8.
 
-Read-only and public. Write routes (/api/w/*) come in ticket 11b and reuse the
-CORS settings here. There is no shell access and no subprocess call.
+Read routes are public. Write routes sit behind the Cloudflare Access check in
+twin/access.py. There is no shell access and no subprocess call; bodies are JSON
+validated by twin.contracts, never YAML.
 """
 
 import re
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
 
-from twin.contracts import STAGE_NAMES, STAGES, Manifest, Params
-from twin.runner import default_store
+from twin.access import Verifier, verifier_from_env
+from twin.contracts import STAGE_NAMES, STAGES, Manifest, Params, Pipeline
+from twin.runner import (
+    LowDisk,
+    RunBusy,
+    cancel,
+    default_store,
+    rerun_async,
+    start_run_async,
+)
 
 ALLOWED_ORIGIN = "https://twin.papyrus-ai.net"
 RUN_ID = re.compile(r"\d{8}-\d{6}-[0-9a-f]{6}")
@@ -66,7 +76,37 @@ def _safe_file(run_dir: Path, rel: str) -> Path:
     return target
 
 
-def create_app(store: Path) -> FastAPI:
+class NewRun(BaseModel):
+    scene_token: str
+    pipeline: Pipeline = Field(default_factory=Pipeline)
+    params: Params = Field(default_factory=Params)
+
+
+class RerunBody(BaseModel):
+    from_stage: str
+    # Partial overrides, merged onto the parent run, then validated by twin.contracts.
+    pipeline: dict[str, Any] | None = None
+    params: dict[str, Any] | None = None
+
+
+def _known_run(store: Path, run_id: str) -> None:
+    _check_id(run_id)
+    if not (store / run_id / "manifest.json").is_file():
+        raise HTTPException(404, "run not found")
+
+
+def _refusal(exc: ValueError) -> HTTPException:
+    if isinstance(exc, RunBusy):
+        return HTTPException(409, str(exc))
+    if isinstance(exc, LowDisk):
+        return HTTPException(507, str(exc))
+    return HTTPException(422, str(exc))  # invalid pipeline, params or re-run
+
+
+def create_app(store: Path, verifier: Verifier | None = None) -> FastAPI:
+    """verifier=None reads the environment (refuses to start without it, see twin/access.py)."""
+    if verifier is None:
+        verifier = verifier_from_env()
     app = FastAPI(title="twin control API")
     app.add_middleware(
         CORSMiddleware,
@@ -143,6 +183,32 @@ def create_app(store: Path) -> FastAPI:
             if p not in flat_a or p not in flat_b or flat_a[p] != flat_b[p]
         ]
 
+    write = APIRouter(prefix="/api/w", dependencies=[Depends(verifier.verify)])
+
+    @write.post("/runs", status_code=202)
+    def new_run(body: NewRun) -> dict[str, str]:
+        try:
+            run_id = start_run_async(store, body.scene_token, body.pipeline, body.params)
+        except ValueError as exc:
+            raise _refusal(exc) from exc
+        return {"run_id": run_id}
+
+    @write.post("/runs/{run_id}/rerun", status_code=202)
+    def rerun_run(run_id: str, body: RerunBody) -> dict[str, str]:
+        _known_run(store, run_id)
+        try:
+            new_id = rerun_async(store, run_id, body.from_stage, body.pipeline, body.params)
+        except ValueError as exc:
+            raise _refusal(exc) from exc
+        return {"run_id": new_id}
+
+    @write.post("/runs/{run_id}/cancel", status_code=202)
+    def cancel_run(run_id: str) -> dict[str, str]:
+        _known_run(store, run_id)
+        cancel(store, run_id)
+        return {"run_id": run_id}
+
+    app.include_router(write)
     return app
 
 
