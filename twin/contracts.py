@@ -315,7 +315,7 @@ class ManifestData(_Strict):
     nuscenes_version: str = "v1.0-mini"
     map_version: str = "1.3"
     scene_token: str
-    osm_names: OsmNames
+    osm_names: OsmNames | None = None  # null when the load stage got no Overpass query
 
 
 class ManifestCrs(_Strict):

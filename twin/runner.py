@@ -298,14 +298,11 @@ def _create_locked(
     )
 
     if parent is None:
-        data = ManifestData(
-            scene_token=scene_token,
-            # Placeholder: the date of this run. The load stage should record the real Overpass query date.
-            osm_names=OsmNames(overpass_query_date=datetime.now(UTC).date()),
-        )
+        # osm_names is filled from the load stage's metrics once it has run (see _run_stages).
+        data = ManifestData(scene_token=scene_token)
         parent_ref = None
     else:
-        data = parent.data
+        data = parent.data.model_copy()
         parent_ref = ManifestParent(run_id=parent.run_id, from_stage=from_stage)
     manifest = Manifest(
         run_id=run_id,
@@ -324,9 +321,7 @@ def _create_locked(
         log=logging.getLogger("twin.run"),
     )
     keep = STAGES[from_stage].number - 1 if from_stage else 0
-    return _Job(
-        store, lock, ctx, manifest, pipeline, params, keep, parent_dir, parent
-    )
+    return _Job(store, lock, ctx, manifest, pipeline, params, keep, parent_dir, parent)
 
 
 def _finish(job: _Job) -> str:
@@ -364,17 +359,22 @@ def start_run_async(
     return _spawn(_begin(Path(store), scene_token, pipeline, params))
 
 
+def _osm_names(meta: dict | None) -> OsmNames | None:
+    """The load stage's osm_names metric as the manifest entry, or None when no query ran."""
+    return OsmNames.model_validate(meta) if meta else None
+
+
 def _run_stages(job: _Job) -> None:
     manifest, ctx = job.manifest, job.ctx
     pipeline, params, run_dir = job.pipeline, job.params, ctx.run_dir
     run_id = manifest.run_id
     for index, name in enumerate(STAGE_NAMES):
         stage = getattr(pipeline, name)
-        if index < job.keep:  # earlier stage of a re-run: linked from the parent, not run
+        if (
+            index < job.keep
+        ):  # earlier stage of a re-run: linked from the parent, not run
             _link_stage(job.parent_dir, run_dir, name)
-            manifest.stages.append(
-                next(s for s in job.parent.stages if s.name == name)
-            )
+            manifest.stages.append(next(s for s in job.parent.stages if s.name == name))
             if name in job.parent.metrics:
                 manifest.metrics[name] = job.parent.metrics[name]
             _write_manifest(run_dir, manifest)
@@ -410,6 +410,8 @@ def _run_stages(job: _Job) -> None:
             )
         if result.metrics:
             manifest.metrics[name] = result.metrics
+        if name == "load":
+            manifest.data.osm_names = _osm_names(result.metrics.get("osm_names"))
         manifest.stages.append(
             ManifestStage(
                 name=name,
@@ -534,7 +536,9 @@ def rerun_async(
 ) -> str:
     """Like rerun, but returns the new run id once its folder exists; stages run in a thread.
     Raises ValueError (RunBusy, LowDisk, or a refused re-run) before any folder when refused."""
-    return _spawn(_begin(*_rerun_args(store, parent_run_id, from_stage, pipeline, params)))
+    return _spawn(
+        _begin(*_rerun_args(store, parent_run_id, from_stage, pipeline, params))
+    )
 
 
 def _exit_code(store: Path, run_id: str) -> int:
