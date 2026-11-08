@@ -1,3 +1,4 @@
+import DevLink from "@/components/dev/DevLink";
 import type { AreaFacility } from "@/lib/showcase";
 
 // Crown mark: copied from prototypes/plan-view/index.html (CROWN). Source of truth: papyrus-home#37.
@@ -80,6 +81,7 @@ export default function TopBar({ areaName, facility, element, onUp, railCollapse
           <path d="M10 2.5v11" />
         </svg>
       </button>
+      <DevLink />
     </header>
   );
 }

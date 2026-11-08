@@ -95,7 +95,9 @@ def _lidar_global(nusc, sample_data: dict):
 
 def scan_scenes(dataroot, params: SelectParams | None = None) -> list[dict]:
     """One row per Boston scene in v1.0-mini: name, token, keyframes, density, contrast, go."""
-    from nuscenes.map_expansion.map_api import NuScenesMap
+    from twin.devkit_compat import nuscenes_map_class
+
+    NuScenesMap = nuscenes_map_class()
     from nuscenes.nuscenes import NuScenes
 
     params = params or SelectParams()

@@ -339,7 +339,15 @@
           "type": "string"
         },
         "osm_names": {
-          "$ref": "#/$defs/OsmNames"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OsmNames"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "scene_token": {
           "title": "Scene Token",
@@ -347,8 +355,7 @@
         }
       },
       "required": [
-        "scene_token",
-        "osm_names"
+        "scene_token"
       ],
       "title": "ManifestData",
       "type": "object"

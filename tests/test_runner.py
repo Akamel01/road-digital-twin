@@ -210,3 +210,29 @@ def test_low_disk_refused_before_any_folder(tmp_path, stubs, monkeypatch, capsys
     assert not any(p.is_dir() for p in store.iterdir())
     assert main(["run", "--scene", "scene-1", "--store", str(store)]) == 2
     assert "need 10 GB" in capsys.readouterr().err
+
+
+def _load_stub(metrics):
+    def run(ctx, params):
+        (ctx.stage_dir("load") / "out.txt").write_text("load")
+        return StageResult(status="ok", metrics=metrics)
+
+    return run
+
+
+def test_manifest_osm_names_lifted_from_load_metric(tmp_path, stubs):
+    stubs()
+    osm = {"overpass_query_date": "2026-11-08", "licence": "ODbL"}
+    registry._REGISTRY[("load", "nuscenes")] = _load_stub({"osm_names": osm})
+    run_id = runner.start_run(tmp_path, "scene-1", Pipeline(), Params())
+    manifest = _manifest(tmp_path / run_id)
+    assert manifest.data.osm_names is not None
+    assert manifest.data.osm_names.overpass_query_date.isoformat() == "2026-11-08"
+    assert manifest.data.osm_names.licence == "ODbL"
+
+
+def test_manifest_osm_names_null_when_load_has_no_query(tmp_path, stubs):
+    stubs()
+    registry._REGISTRY[("load", "nuscenes")] = _load_stub({"osm_names": None})
+    run_id = runner.start_run(tmp_path, "scene-1", Pipeline(), Params())
+    assert _manifest(tmp_path / run_id).data.osm_names is None
