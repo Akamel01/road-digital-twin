@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 from twin.contracts import AreaIndex, Manifest, Params, Pipeline, StageResult
@@ -49,6 +50,14 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--store", type=Path, help="run store (default: $TWIN_RUNS or /data/twin-runs)"
     )
+    select = sub.add_parser("select", help="list Boston drives with go/no-go")
+    select.add_argument("--min-density", type=float, default=None)
+    select.add_argument("--min-contrast", type=float, default=None)
+    select.add_argument(
+        "--dataroot",
+        type=Path,
+        default=Path(os.environ.get("NUSCENES_ROOT", "/data/nuscenes")),
+    )
     return parser
 
 
@@ -61,6 +70,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "run":
         return run_command(args.scene, args.pipeline, args.params, args.store)
+    if args.command == "select":
+        from twin.select import run_select
+
+        return run_select(args.dataroot, args.min_density, args.min_contrast)
     return 0
 
 
