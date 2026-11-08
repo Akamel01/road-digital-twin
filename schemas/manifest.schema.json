@@ -1,0 +1,674 @@
+{
+  "$defs": {
+    "AccuracyParams": {
+      "additionalProperties": false,
+      "properties": {
+        "buffer_m": {
+          "default": 1.0,
+          "maximum": 5,
+          "minimum": 0.1,
+          "title": "Buffer M",
+          "type": "number"
+        }
+      },
+      "title": "AccuracyParams",
+      "type": "object"
+    },
+    "AlignParams": {
+      "additionalProperties": false,
+      "properties": {
+        "voxel_m": {
+          "default": 0.5,
+          "maximum": 2,
+          "minimum": 0.1,
+          "title": "Voxel M",
+          "type": "number"
+        },
+        "window_s": {
+          "default": 20.0,
+          "maximum": 20,
+          "minimum": 2,
+          "title": "Window S",
+          "type": "number"
+        }
+      },
+      "title": "AlignParams",
+      "type": "object"
+    },
+    "ColourParams": {
+      "additionalProperties": false,
+      "properties": {
+        "gsd_m": {
+          "default": 0.05,
+          "maximum": 0.5,
+          "minimum": 0.02,
+          "title": "Gsd M",
+          "type": "number"
+        },
+        "max_range_m": {
+          "default": 12.0,
+          "maximum": 50,
+          "minimum": 3,
+          "title": "Max Range M",
+          "type": "number"
+        },
+        "min_depth_m": {
+          "default": 1.0,
+          "maximum": 5,
+          "minimum": 0.5,
+          "title": "Min Depth M",
+          "type": "number"
+        },
+        "top_k": {
+          "default": 5,
+          "maximum": 12,
+          "minimum": 1,
+          "title": "Top K",
+          "type": "integer"
+        },
+        "zbuf_scale": {
+          "default": 0.25,
+          "maximum": 1,
+          "minimum": 0.1,
+          "title": "Zbuf Scale",
+          "type": "number"
+        },
+        "zbuf_tol_m": {
+          "default": 0.2,
+          "maximum": 1,
+          "minimum": 0.05,
+          "title": "Zbuf Tol M",
+          "type": "number"
+        }
+      },
+      "title": "ColourParams",
+      "type": "object"
+    },
+    "CurbsParams": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "step_max_m": {
+          "default": 0.25,
+          "maximum": 0.5,
+          "minimum": 0.1,
+          "title": "Step Max M",
+          "type": "number"
+        },
+        "step_min_m": {
+          "default": 0.08,
+          "maximum": 0.3,
+          "minimum": 0.02,
+          "title": "Step Min M",
+          "type": "number"
+        }
+      },
+      "title": "CurbsParams",
+      "type": "object"
+    },
+    "FacilitiesParams": {
+      "additionalProperties": false,
+      "properties": {
+        "min_observed": {
+          "default": 0.5,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Min Observed",
+          "type": "number"
+        }
+      },
+      "title": "FacilitiesParams",
+      "type": "object"
+    },
+    "FeaturesParams": {
+      "additionalProperties": false,
+      "properties": {
+        "cluster_eps_m": {
+          "default": 0.3,
+          "maximum": 2,
+          "minimum": 0.05,
+          "title": "Cluster Eps M",
+          "type": "number"
+        },
+        "curbs": {
+          "$ref": "#/$defs/CurbsParams"
+        },
+        "intensity_pct": {
+          "default": 95.0,
+          "maximum": 99.9,
+          "minimum": 50,
+          "title": "Intensity Pct",
+          "type": "number"
+        },
+        "min_points": {
+          "default": 20,
+          "maximum": 1000,
+          "minimum": 3,
+          "title": "Min Points",
+          "type": "integer"
+        }
+      },
+      "title": "FeaturesParams",
+      "type": "object"
+    },
+    "GroundParams": {
+      "additionalProperties": false,
+      "properties": {
+        "csf_cloth_m": {
+          "default": 0.5,
+          "maximum": 2,
+          "minimum": 0.1,
+          "title": "Csf Cloth M",
+          "type": "number"
+        },
+        "qa_cell_m": {
+          "default": 0.5,
+          "maximum": 2,
+          "minimum": 0.1,
+          "title": "Qa Cell M",
+          "type": "number"
+        },
+        "qa_max_p95_m": {
+          "default": 0.1,
+          "maximum": 1,
+          "minimum": 0.01,
+          "title": "Qa Max P95 M",
+          "type": "number"
+        },
+        "ransac_dist_m": {
+          "default": 0.05,
+          "maximum": 0.3,
+          "minimum": 0.01,
+          "title": "Ransac Dist M",
+          "type": "number"
+        },
+        "tile_m": {
+          "default": 5.0,
+          "maximum": 20,
+          "minimum": 1,
+          "title": "Tile M",
+          "type": "number"
+        },
+        "voxel_m": {
+          "default": 0.05,
+          "maximum": 0.5,
+          "minimum": 0.02,
+          "title": "Voxel M",
+          "type": "number"
+        }
+      },
+      "title": "GroundParams",
+      "type": "object"
+    },
+    "IsdParams": {
+      "additionalProperties": false,
+      "properties": {
+        "band_m": {
+          "default": 0.3,
+          "maximum": 1,
+          "minimum": 0.05,
+          "title": "Band M",
+          "type": "number"
+        },
+        "case": {
+          "default": "B1",
+          "enum": [
+            "B1",
+            "B2",
+            "B3"
+          ],
+          "title": "Case",
+          "type": "string"
+        },
+        "coverage_min_pts": {
+          "default": 20,
+          "maximum": 1000,
+          "minimum": 1,
+          "title": "Coverage Min Pts",
+          "type": "integer"
+        },
+        "coverage_window_m": {
+          "default": 2.0,
+          "maximum": 10,
+          "minimum": 0.5,
+          "title": "Coverage Window M",
+          "type": "number"
+        },
+        "design_speed_kmh": {
+          "default": 50.0,
+          "maximum": 100,
+          "minimum": 20,
+          "title": "Design Speed Kmh",
+          "type": "number"
+        },
+        "eye_height_m": {
+          "default": 1.08,
+          "maximum": 3,
+          "minimum": 0.5,
+          "title": "Eye Height M",
+          "type": "number"
+        },
+        "eye_setback_m": {
+          "default": 4.4,
+          "maximum": 10,
+          "minimum": 2,
+          "title": "Eye Setback M",
+          "type": "number"
+        },
+        "object_height_m": {
+          "default": 1.08,
+          "maximum": 3,
+          "minimum": 0.2,
+          "title": "Object Height M",
+          "type": "number"
+        },
+        "time_gap_s": {
+          "default": 7.5,
+          "maximum": 12,
+          "minimum": 4,
+          "title": "Time Gap S",
+          "type": "number"
+        }
+      },
+      "title": "IsdParams",
+      "type": "object"
+    },
+    "ManifestCode": {
+      "additionalProperties": false,
+      "properties": {
+        "dirty": {
+          "title": "Dirty",
+          "type": "boolean"
+        },
+        "git_sha": {
+          "title": "Git Sha",
+          "type": "string"
+        },
+        "lockfile_sha256": {
+          "title": "Lockfile Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "git_sha",
+        "dirty",
+        "lockfile_sha256"
+      ],
+      "title": "ManifestCode",
+      "type": "object"
+    },
+    "ManifestCrs": {
+      "additionalProperties": false,
+      "properties": {
+        "epsg": {
+          "const": 32619,
+          "default": 32619,
+          "title": "Epsg",
+          "type": "integer"
+        },
+        "licence": {
+          "default": "CC BY-NC-SA 4.0",
+          "title": "Licence",
+          "type": "string"
+        },
+        "units": {
+          "const": "m",
+          "default": "m",
+          "title": "Units",
+          "type": "string"
+        }
+      },
+      "title": "ManifestCrs",
+      "type": "object"
+    },
+    "ManifestData": {
+      "additionalProperties": false,
+      "properties": {
+        "map_version": {
+          "default": "1.3",
+          "title": "Map Version",
+          "type": "string"
+        },
+        "nuscenes_version": {
+          "default": "v1.0-mini",
+          "title": "Nuscenes Version",
+          "type": "string"
+        },
+        "osm_names": {
+          "$ref": "#/$defs/OsmNames"
+        },
+        "scene_token": {
+          "title": "Scene Token",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scene_token",
+        "osm_names"
+      ],
+      "title": "ManifestData",
+      "type": "object"
+    },
+    "ManifestParent": {
+      "additionalProperties": false,
+      "properties": {
+        "from_stage": {
+          "enum": [
+            "load",
+            "mask",
+            "align",
+            "ground",
+            "features",
+            "colour",
+            "profile",
+            "isd",
+            "accuracy",
+            "outputs"
+          ],
+          "title": "From Stage",
+          "type": "string"
+        },
+        "run_id": {
+          "pattern": "^\\d{8}-\\d{6}-[0-9a-f]{6}$",
+          "title": "Run Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "from_stage"
+      ],
+      "title": "ManifestParent",
+      "type": "object"
+    },
+    "ManifestStage": {
+      "additionalProperties": false,
+      "properties": {
+        "files": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Files",
+          "type": "array"
+        },
+        "method": {
+          "title": "Method",
+          "type": "string"
+        },
+        "name": {
+          "enum": [
+            "load",
+            "mask",
+            "align",
+            "ground",
+            "features",
+            "colour",
+            "profile",
+            "isd",
+            "accuracy",
+            "outputs"
+          ],
+          "title": "Name",
+          "type": "string"
+        },
+        "seconds": {
+          "minimum": 0,
+          "title": "Seconds",
+          "type": "number"
+        },
+        "started": {
+          "format": "date-time",
+          "title": "Started",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "running",
+            "ok",
+            "skipped",
+            "failed",
+            "cancelled"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "method",
+        "status",
+        "started",
+        "seconds"
+      ],
+      "title": "ManifestStage",
+      "type": "object"
+    },
+    "MaskParams": {
+      "additionalProperties": false,
+      "properties": {
+        "box_margin_m": {
+          "default": 0.3,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Box Margin M",
+          "type": "number"
+        }
+      },
+      "title": "MaskParams",
+      "type": "object"
+    },
+    "OsmNames": {
+      "additionalProperties": false,
+      "properties": {
+        "licence": {
+          "default": "ODbL",
+          "title": "Licence",
+          "type": "string"
+        },
+        "overpass_query_date": {
+          "format": "date",
+          "title": "Overpass Query Date",
+          "type": "string"
+        }
+      },
+      "required": [
+        "overpass_query_date"
+      ],
+      "title": "OsmNames",
+      "type": "object"
+    },
+    "Params": {
+      "additionalProperties": false,
+      "properties": {
+        "accuracy": {
+          "$ref": "#/$defs/AccuracyParams"
+        },
+        "align": {
+          "$ref": "#/$defs/AlignParams"
+        },
+        "colour": {
+          "$ref": "#/$defs/ColourParams"
+        },
+        "facilities": {
+          "$ref": "#/$defs/FacilitiesParams"
+        },
+        "features": {
+          "$ref": "#/$defs/FeaturesParams"
+        },
+        "ground": {
+          "$ref": "#/$defs/GroundParams"
+        },
+        "isd": {
+          "$ref": "#/$defs/IsdParams"
+        },
+        "mask": {
+          "$ref": "#/$defs/MaskParams"
+        },
+        "profile": {
+          "$ref": "#/$defs/ProfileParams"
+        },
+        "seed": {
+          "default": 0,
+          "title": "Seed",
+          "type": "integer"
+        },
+        "select": {
+          "$ref": "#/$defs/SelectParams"
+        }
+      },
+      "title": "Params",
+      "type": "object"
+    },
+    "Pipeline": {
+      "additionalProperties": false,
+      "properties": {
+        "accuracy": {
+          "$ref": "#/$defs/PipelineStage"
+        },
+        "align": {
+          "$ref": "#/$defs/PipelineStage"
+        },
+        "colour": {
+          "$ref": "#/$defs/PipelineStage"
+        },
+        "features": {
+          "$ref": "#/$defs/PipelineStage"
+        },
+        "ground": {
+          "$ref": "#/$defs/PipelineStage"
+        },
+        "isd": {
+          "$ref": "#/$defs/PipelineStage"
+        },
+        "load": {
+          "$ref": "#/$defs/PipelineStage"
+        },
+        "mask": {
+          "$ref": "#/$defs/PipelineStage"
+        },
+        "outputs": {
+          "$ref": "#/$defs/PipelineStage"
+        },
+        "profile": {
+          "$ref": "#/$defs/PipelineStage"
+        }
+      },
+      "title": "Pipeline",
+      "type": "object"
+    },
+    "PipelineStage": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "method": {
+          "title": "Method",
+          "type": "string"
+        }
+      },
+      "required": [
+        "method"
+      ],
+      "title": "PipelineStage",
+      "type": "object"
+    },
+    "ProfileParams": {
+      "additionalProperties": false,
+      "properties": {
+        "sample_m": {
+          "default": 1.0,
+          "maximum": 10,
+          "minimum": 0.1,
+          "title": "Sample M",
+          "type": "number"
+        }
+      },
+      "title": "ProfileParams",
+      "type": "object"
+    },
+    "SelectParams": {
+      "additionalProperties": false,
+      "properties": {
+        "min_contrast": {
+          "default": 1.5,
+          "maximum": 10,
+          "minimum": 1.0,
+          "title": "Min Contrast",
+          "type": "number"
+        },
+        "min_density_pts_m2": {
+          "default": 50.0,
+          "maximum": 1000,
+          "minimum": 1,
+          "title": "Min Density Pts M2",
+          "type": "number"
+        }
+      },
+      "title": "SelectParams",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "$ref": "#/$defs/ManifestCode"
+    },
+    "crs": {
+      "$ref": "#/$defs/ManifestCrs"
+    },
+    "data": {
+      "$ref": "#/$defs/ManifestData"
+    },
+    "metrics": {
+      "additionalProperties": true,
+      "title": "Metrics",
+      "type": "object"
+    },
+    "params": {
+      "$ref": "#/$defs/Params"
+    },
+    "parent": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ManifestParent"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "pipeline": {
+      "$ref": "#/$defs/Pipeline"
+    },
+    "run_id": {
+      "pattern": "^\\d{8}-\\d{6}-[0-9a-f]{6}$",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "stages": {
+      "items": {
+        "$ref": "#/$defs/ManifestStage"
+      },
+      "title": "Stages",
+      "type": "array"
+    }
+  },
+  "required": [
+    "run_id",
+    "code",
+    "data",
+    "pipeline",
+    "params"
+  ],
+  "title": "Manifest",
+  "type": "object"
+}
