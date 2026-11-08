@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -204,6 +205,29 @@ def _link_stage(parent_dir: Path, run_dir: Path, name: str) -> None:
             os.link(path, target)
 
 
+class RunBusy(ValueError):
+    """Another run holds the run store lock."""
+
+
+class LowDisk(ValueError):
+    """The run store has less than MIN_FREE_BYTES free."""
+
+
+@dataclass
+class _Job:
+    """A run whose folder, first manifest and lock exist. _finish runs its stages."""
+
+    store: Path
+    lock: FileLock
+    ctx: StageContext
+    manifest: Manifest
+    pipeline: Pipeline
+    params: Params
+    keep: int
+    parent_dir: Path | None
+    parent: Manifest | None
+
+
 def _execute_run(
     store: Path,
     scene_token: str,
@@ -213,40 +237,57 @@ def _execute_run(
     parent: Manifest | None = None,
     from_stage: str | None = None,
 ) -> str:
-    """Refuse when the disk is low or another run holds the lock, else run the stages
-    under the lock. Raises ValueError before any run folder exists when refused."""
+    return _finish(
+        _begin(store, scene_token, pipeline, params, parent_dir, parent, from_stage)
+    )
+
+
+def _begin(
+    store: Path,
+    scene_token: str,
+    pipeline: Pipeline,
+    params: Params,
+    parent_dir: Path | None = None,
+    parent: Manifest | None = None,
+    from_stage: str | None = None,
+) -> _Job:
+    """Refuse when the disk is low or another run holds the lock. Else take the lock and
+    create the run folder with its first manifest. Raises before any folder when refused."""
     store.mkdir(parents=True, exist_ok=True)
     free = free_bytes(store)
     if free < MIN_FREE_BYTES:
-        raise ValueError(
+        raise LowDisk(
             f"{free / 1024**3:.1f} GB free in {store}; "
             f"need {MIN_FREE_BYTES // 1024**3} GB"
         )
-    lock = FileLock(str(store / LOCK_FILE))
+    # thread_local=False: taken here, released by the thread that runs the stages.
+    lock = FileLock(str(store / LOCK_FILE), thread_local=False)
     try:
         lock.acquire(timeout=LOCK_TIMEOUT)
     except Timeout:
         current = store / CURRENT_FILE
         holder = current.read_text().strip() if current.is_file() else "unknown"
-        raise ValueError(f"another run is in progress ({holder})") from None
+        raise RunBusy(f"another run is in progress ({holder})") from None
     try:
-        return _run_locked(
-            store, scene_token, pipeline, params, parent_dir, parent, from_stage
+        return _create_locked(
+            store, lock, scene_token, pipeline, params, parent_dir, parent, from_stage
         )
-    finally:
+    except BaseException:
         (store / CURRENT_FILE).unlink(missing_ok=True)
         lock.release()
+        raise
 
 
-def _run_locked(
+def _create_locked(
     store: Path,
+    lock: FileLock,
     scene_token: str,
     pipeline: Pipeline,
     params: Params,
     parent_dir: Path | None,
     parent: Manifest | None,
     from_stage: str | None,
-) -> str:
+) -> _Job:
     run_id, run_dir = _create_run_dir(store)
     (store / CURRENT_FILE).write_text(run_id)
     (run_dir / "pipeline.yaml").write_text(
@@ -283,13 +324,59 @@ def _run_locked(
         log=logging.getLogger("twin.run"),
     )
     keep = STAGES[from_stage].number - 1 if from_stage else 0
+    return _Job(
+        store, lock, ctx, manifest, pipeline, params, keep, parent_dir, parent
+    )
+
+
+def _finish(job: _Job) -> str:
+    """Run the stages of a begun job, keep the manifest current, release the lock."""
+    try:
+        _run_stages(job)
+        return job.manifest.run_id
+    finally:
+        (job.store / CURRENT_FILE).unlink(missing_ok=True)
+        job.lock.release()
+
+
+def _spawn(job: _Job) -> str:
+    """Run a begun job's stages in a background thread. Returns the run id at once."""
+    try:
+        threading.Thread(
+            target=_finish, args=(job,), name=f"run-{job.manifest.run_id}", daemon=True
+        ).start()
+    except BaseException:
+        (job.store / CURRENT_FILE).unlink(missing_ok=True)
+        job.lock.release()
+        raise
+    return job.manifest.run_id
+
+
+def start_run_async(
+    store: Path | str,
+    scene_token: str,
+    pipeline: Pipeline | dict[str, Any],
+    params: Params | dict[str, Any],
+) -> str:
+    """Like start_run, but returns the run id once the run folder exists; the stages run
+    in a background thread. Raises ValueError (RunBusy, LowDisk) before any folder when refused."""
+    pipeline, params = _checked(scene_token, pipeline, params)
+    return _spawn(_begin(Path(store), scene_token, pipeline, params))
+
+
+def _run_stages(job: _Job) -> None:
+    manifest, ctx = job.manifest, job.ctx
+    pipeline, params, run_dir = job.pipeline, job.params, ctx.run_dir
+    run_id = manifest.run_id
     for index, name in enumerate(STAGE_NAMES):
         stage = getattr(pipeline, name)
-        if index < keep:  # earlier stage of a re-run: linked from the parent, not run
-            _link_stage(parent_dir, run_dir, name)
-            manifest.stages.append(next(s for s in parent.stages if s.name == name))
-            if name in parent.metrics:
-                manifest.metrics[name] = parent.metrics[name]
+        if index < job.keep:  # earlier stage of a re-run: linked from the parent, not run
+            _link_stage(job.parent_dir, run_dir, name)
+            manifest.stages.append(
+                next(s for s in job.parent.stages if s.name == name)
+            )
+            if name in job.parent.metrics:
+                manifest.metrics[name] = job.parent.metrics[name]
             _write_manifest(run_dir, manifest)
             continue
         cancel_file = run_dir / CANCEL_FILE
@@ -336,7 +423,6 @@ def _run_locked(
         _write_manifest(run_dir, manifest)
         if result.status not in ("ok", "skipped"):
             break  # later stages stay pending: they are not in the manifest
-    return run_id
 
 
 def _load_model(path: Path | None, model: type) -> Any:
@@ -370,19 +456,15 @@ def _merge(base: BaseModel, override: Any, model: type) -> Any:
     return model.model_validate(_deep_merge(base.model_dump(mode="json"), override))
 
 
-def rerun(
+def _rerun_args(
     store: Path | str,
     parent_run_id: str,
     from_stage: str,
     pipeline: Pipeline | dict[str, Any] | None = None,
     params: Params | dict[str, Any] | None = None,
-) -> str:
-    """Re-run stages from_stage and later of a parent run in a new run folder.
-
-    Stages before from_stage are hard-linked from the parent. Returns the new run id.
-    Raises ValueError, before creating any folder, when the re-run is refused.
-    The parent folder is only read.
-    """
+) -> tuple[Any, ...]:
+    """Check a re-run request against its parent. Returns the arguments for _begin.
+    Raises ValueError, before any folder is created, when the re-run is refused."""
     if not re.fullmatch(RUN_ID_RE, parent_run_id):
         raise ValueError(f"bad run id {parent_run_id!r}")
     if from_stage not in STAGES:
@@ -414,15 +496,45 @@ def rerun(
     new_pipeline, new_params = _checked(
         parent.data.scene_token, new_pipeline, new_params
     )
-    return _execute_run(
+    return (
         store,
         parent.data.scene_token,
         new_pipeline,
         new_params,
-        parent_dir=parent_dir,
-        parent=parent,
-        from_stage=from_stage,
+        parent_dir,
+        parent,
+        from_stage,
     )
+
+
+def rerun(
+    store: Path | str,
+    parent_run_id: str,
+    from_stage: str,
+    pipeline: Pipeline | dict[str, Any] | None = None,
+    params: Params | dict[str, Any] | None = None,
+) -> str:
+    """Re-run stages from_stage and later of a parent run in a new run folder.
+
+    Stages before from_stage are hard-linked from the parent. Returns the new run id.
+    Raises ValueError, before creating any folder, when the re-run is refused.
+    The parent folder is only read.
+    """
+    return _finish(
+        _begin(*_rerun_args(store, parent_run_id, from_stage, pipeline, params))
+    )
+
+
+def rerun_async(
+    store: Path | str,
+    parent_run_id: str,
+    from_stage: str,
+    pipeline: Pipeline | dict[str, Any] | None = None,
+    params: Params | dict[str, Any] | None = None,
+) -> str:
+    """Like rerun, but returns the new run id once its folder exists; stages run in a thread.
+    Raises ValueError (RunBusy, LowDisk, or a refused re-run) before any folder when refused."""
+    return _spawn(_begin(*_rerun_args(store, parent_run_id, from_stage, pipeline, params)))
 
 
 def _exit_code(store: Path, run_id: str) -> int:
