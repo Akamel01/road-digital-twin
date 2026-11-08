@@ -21,3 +21,6 @@ web/public/showcase/
 web/node_modules/
 web/out/
 web/.next/
+
+# deploy: real env file with Access settings (copy from twin.env.example)
+deploy/twin.env

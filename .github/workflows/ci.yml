@@ -25,6 +25,9 @@ jobs:
       - name: CLI smoke test
         run: uv run twin --help
 
+      - name: Install system libraries for Open3D
+        run: sudo apt-get update && sudo apt-get install -y libegl1
+
       - name: Tests
         run: uv run pytest -q
 

@@ -5,6 +5,7 @@ twin/access.py. There is no shell access and no subprocess call; bodies are JSON
 validated by twin.contracts, never YAML.
 """
 
+import logging
 import os
 import re
 from pathlib import Path, PurePosixPath
@@ -18,10 +19,12 @@ from pydantic import BaseModel, Field
 from twin.access import Verifier, verifier_from_env
 from twin.contracts import PARAM_STAGE, STAGE_NAMES, STAGES, Manifest, Params, Pipeline
 from twin.runner import (
+    INTERRUPTED,
     LowDisk,
     RunBusy,
     cancel,
     default_store,
+    recover_interrupted,
     rerun_async,
     start_run_async,
 )
@@ -231,5 +234,8 @@ def create_app(store: Path, verifier: Verifier | None = None) -> FastAPI:
 def serve_command(store: Path | None, host: str, port: int) -> int:
     import uvicorn
 
-    uvicorn.run(create_app(store or default_store()), host=host, port=port)
+    store = store or default_store()
+    for run_id in recover_interrupted(store):  # runs cut off by a restart: stage marked failed
+        logging.getLogger("twin.api").warning("run %s: %s", run_id, INTERRUPTED)
+    uvicorn.run(create_app(store), host=host, port=port)
     return 0
