@@ -275,3 +275,60 @@ def test_all_ids_unique_across_types_and_letters_match_type():
         assert f["observed_core"] is None
         assert f["min_observed"] == 0.5
         assert "hash_tokens" not in f
+
+
+def _y_x_view(*extra, extent=None):
+    # Two intersections, Y (y -60..-40) and X (y -5..5), plus the extra road segments.
+    segs = [
+        RoadSegment("Y", box(-5, -60, 5, -40), True),
+        RoadSegment("X", box(-5, -5, 5, 5), True),
+        *extra,
+    ]
+    return MapView(segs, [], extent=extent)
+
+
+def test_segments_merge_across_a_0_3m_gap_but_not_a_2m_gap():
+    near = _y_x_view(
+        RoadSegment("A", box(-4, -40, 4, -22), False),
+        RoadSegment("B", box(-4, -21.7, 4, -5), False),  # 0.3 m gap
+    )
+    (merged,) = _by_type(_build(near), "segment")
+    assert merged["map_tokens"] == ["A", "B"]
+
+    far = _y_x_view(
+        RoadSegment("A", box(-4, -40, 4, -22), False),
+        RoadSegment("B", box(-4, -20, 4, -5), False),  # 2 m gap
+    )
+    assert sorted(f["map_tokens"] for f in _by_type(_build(far), "segment")) == [
+        ["A"],
+        ["B"],
+    ]
+
+
+def test_dead_end_segment_touching_one_intersection_is_kept():
+    view = _y_x_view(RoadSegment("D", box(-4, -100, 4, -60), False))
+    (dead,) = _by_type(_build(view), "segment")
+    assert dead["map_tokens"] == ["D"]
+    assert dead["between"] == ["Y"]
+
+
+def test_segment_cut_by_extent_edge_is_kept_and_sliver_is_dropped():
+    extent = box(-50, -150, 50, 120)
+    view = _y_x_view(
+        RoadSegment(
+            "E", box(-4, 100, 4, 130), False
+        ),  # crosses the extent edge at y=120
+        RoadSegment("F", box(20, 20, 22, 22), False),  # touches nothing: a sliver
+        extent=extent,
+    )
+    segs = _by_type(_build(view), "segment")
+    assert [f["map_tokens"] for f in segs] == [["E"]]
+    assert segs[0]["between"] == []
+    # No lanes in the view, so the centreline falls back to the rectangle midline.
+    assert segs[0]["centreline"]["type"] == "LineString"
+
+
+def test_every_segment_has_a_linestring_centreline_and_core():
+    for f in _by_type(_build(_map()), "segment"):
+        assert f["centreline"]["type"] == "LineString"
+        assert f["core"]["type"] == "Polygon"

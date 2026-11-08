@@ -7,12 +7,13 @@ Pure functions over a MapView of plain shapely geometries and tokens, so tests n
 from __future__ import annotations
 
 import hashlib
+import math
 from collections import Counter
 from dataclasses import dataclass, field
 from itertools import combinations
 
 import shapely
-from shapely.geometry import LineString, Point, Polygon, mapping
+from shapely.geometry import LineString, Point, Polygon, box, mapping
 from shapely.ops import nearest_points, substring, unary_union
 
 from twin.contracts import FacilitiesParams, IsdParams
@@ -57,6 +58,7 @@ class MapView:
     carpark_areas: list[Area] = field(
         default_factory=list
     )  # not used by intersections() yet
+    extent: Polygon | None = None  # the patch box; chains reaching its edge are kept
 
 
 def isd_required_m(params: IsdParams | None = None) -> float:
@@ -238,10 +240,23 @@ def _with_ids(records: list[dict]) -> list[dict]:
     return sorted(records, key=lambda f: f["id"])
 
 
-def _shares_edge(a: Polygon, b: Polygon) -> bool:
-    # DECISION: adjacent = the polygons share an edge of positive length. A shared corner point
-    # does not count, and there is no tolerance: a gap in the map splits a segment.
-    return a.intersection(b).length > 0
+def _adjacent(a: Polygon, b: Polygon) -> bool:
+    # DECISION: adjacent = within 0.5 m over a stretch. Each polygon is buffered 0.25 m and the
+    # overlap must exceed 0.25 m^2: a 0.3 m gap over an 8 m edge merges, a 2 m gap does not, and
+    # corner-only contact does not.
+    return a.buffer(0.25).intersection(b.buffer(0.25)).area > 0.25
+
+
+def _fallback_centreline(core: Polygon) -> LineString:
+    """Used when no lane centreline lies in the core: the midline along the long axis of the
+    core's minimum rotated rectangle."""
+    # DECISION: rectangle midline, not a lane. Only a rough line, enough for name lookup.
+    p = list(core.minimum_rotated_rectangle.exterior.coords)
+    a = math.dist(p[0], p[1])
+    b = math.dist(p[1], p[2])
+    short = (0, 2) if a <= b else (1, 3)  # the two short sides; join their midpoints
+    mids = [((p[i][0] + p[i + 1][0]) / 2, (p[i][1] + p[i + 1][1]) / 2) for i in short]
+    return LineString(mids)
 
 
 def _centreline(core: Polygon, lanes: list[Lane]) -> LineString | None:
@@ -277,17 +292,18 @@ def _centreline(core: Polygon, lanes: list[Lane]) -> LineString | None:
 
 
 def _segment_records(view: MapView) -> list[dict]:
-    """Non-intersection road segments merged into connected chains. A chain is a segment only
-    if it touches at least two intersections (spec: between two intersections)."""
+    """Non-intersection road segments merged into connected chains (adjacency per _adjacent).
+    A chain is kept if it touches an intersection or reaches the patch edge (see below)."""
     segs = [s for s in view.road_segments if not s.is_intersection]
     cores = [s for s in view.road_segments if s.is_intersection]
     adj: dict[int, set[int]] = {i: set() for i in range(len(segs))}
     for i, j in combinations(range(len(segs)), 2):
-        if _shares_edge(segs[i].polygon, segs[j].polygon):
+        if _adjacent(segs[i].polygon, segs[j].polygon):
             adj[i].add(j)
             adj[j].add(i)
 
-    # DECISION: a chain touching fewer than two intersections (dead end, loop) is not a facility.
+    # DECISION: keep a chain that touches at least one intersection (a dead end) or reaches the
+    # patch edge (cut by the extent). Drop only chains that touch neither: isolated slivers.
     records, done = [], set()
     for start in range(len(segs)):
         if start in done:
@@ -301,11 +317,12 @@ def _segment_records(view: MapView) -> list[dict]:
         done |= comp
         members = sorted((segs[i] for i in comp), key=lambda s: s.token)
         core = unary_union([s.polygon for s in members])
-        ends = sorted(c.token for c in cores if _shares_edge(core, c.polygon))
-        if len(ends) < 2:
+        ends = sorted(c.token for c in cores if _adjacent(core, c.polygon))
+        at_edge = view.extent is not None and core.intersects(view.extent.boundary)
+        if not ends and not at_edge:
             continue
         tokens = [s.token for s in members]
-        line = _centreline(core, view.lanes)
+        line = _centreline(core, view.lanes) or _fallback_centreline(core)
         records.append(
             {
                 "type": "segment",
@@ -313,7 +330,7 @@ def _segment_records(view: MapView) -> list[dict]:
                 "map_tokens": tokens,
                 "hash_tokens": tokens,
                 "core": mapping(core),
-                "centreline": mapping(line) if line is not None else None,
+                "centreline": mapping(line),
                 "between": ends,
             }
         )
@@ -428,4 +445,5 @@ def from_nuscenes_map(
         stop_lines=areas("stop_line", "polygon_token"),
         ped_crossings=areas("ped_crossing", "polygon_token"),
         carpark_areas=areas("carpark_area", "polygon_token"),
+        extent=box(*patch_box),
     )
