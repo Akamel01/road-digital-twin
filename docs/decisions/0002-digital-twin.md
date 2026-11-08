@@ -63,3 +63,9 @@ Date: 2026-11-07. Operator decisions, grilling round 3.
 22. **The UI doubles as a developer dashboard and controller.** From it the operator tweaks, tests, calibrates and evaluates, and adjusts the framework and the pipeline. Other users see the developer panel read-only. This replaces "static and read-only" in #18–#19. The details are open; see the open questions.
 23. **v1 controls (operator, 2026-11-07):** everything named for the developer panel is in v1: parameters, pipeline and framework structure, run, re-run and compare. Controls take priority: when time runs short, they are cut last.
 24. **The v1 spec** in `docs/design/twin-v1-spec.md` is now the current statement of v1.
+
+## Round 7 (2026-11-07, operator agreed with all recommendations): after the EGM review of spec revision 1
+
+25. **Pipeline structure control:** stages run in a fixed order, and each declares `requires`. The operator chooses each stage's method from a registered set, edits every parameter, and switches optional stages on or off. Free reordering is not in v1. This narrows "pipeline and framework structure" in #23.
+26. **Access:** the control API sits behind Cloudflare Access, limited to the operator's Google account. Signed-out viewers see the developer panel with its controls disabled. The public views are a pinned showcase run served as static files, so the demo stays up when the box is down.
+27. **One Boston scene, EPSG:32619.** This replaces "2–3 scenes" in #17.
