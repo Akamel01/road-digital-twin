@@ -17,6 +17,7 @@ import {
 } from "@/lib/mapdata";
 import { sightsOf, type Sight } from "@/lib/sight";
 import { typeLabel, type AreaFacility, type AreaIndex } from "@/lib/showcase";
+import { PHONE, useMedia } from "@/lib/media";
 import {
   fitView,
   frameOf,
@@ -76,6 +77,7 @@ interface Props {
 }
 
 export default function MapView({ area, facility, element, onFacility, onElement }: Props) {
+  const phone = useMedia(PHONE);
   const [loaded, setLoaded] = useState<LoadedDrive[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [layers, setLayers] = useState<Layers>(DEFAULT_LAYERS);
@@ -403,7 +405,8 @@ export default function MapView({ area, facility, element, onFacility, onElement
                       y={r.y0 - 2 / k}
                       fontSize={12 / k}
                     >
-                      {`${f.id} · ${typeLabel(f.type)}`}
+                      {/* Phone: the code only, so the labels do not collide when the area is fitted. */}
+                      {phone ? f.id : `${f.id} · ${typeLabel(f.type)}`}
                     </text>
                   );
                 })}
