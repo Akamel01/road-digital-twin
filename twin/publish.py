@@ -28,7 +28,7 @@ GREY = (120, 120, 120, 90)
 
 
 def _stage(run_dir: Path, name: str) -> Path:
-    return run_dir / f"{STAGES[name].number:02d}_{name}"
+    return run_dir / f"{STAGES[name].number}_{name}"
 
 
 def _check_size(path: Path, out: Path, max_bytes: int) -> None:

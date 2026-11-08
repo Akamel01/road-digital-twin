@@ -103,7 +103,7 @@ def test_tile_meta_places_tiles(runs, tmp_path):
     site, _ = _site(runs, tmp_path)
     area = AreaIndex.model_validate_json((site / "area.json").read_text())
     for rid in run_ids:
-        las = laspy.read(store / rid / "04_ground" / "ground.laz")
+        las = laspy.read(store / rid / "4_ground" / "ground.laz")
         minx, miny = float(las.x.min()), float(las.y.min())
         extent = max(float(las.x.max()) - minx, float(las.y.max()) - miny)
         for raster in ("lidar", "ortho", "coverage"):

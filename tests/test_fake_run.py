@@ -3,6 +3,7 @@ import re
 from pathlib import Path
 
 import ezdxf
+import ezdxf.recover
 import laspy
 import numpy as np
 import pytest
@@ -45,7 +46,7 @@ def test_run_folder_layout(out):
         for f in ("pipeline.yaml", "params.yaml", "manifest.json"):
             assert (run / f).is_file()
         for name in STAGE_NAMES:
-            folder = run / f"{STAGES[name].number:02d}_{name}"
+            folder = run / f"{STAGES[name].number}_{name}"
             for output in STAGES[name].outputs:
                 assert (folder / output).is_file(), output
 
@@ -71,7 +72,7 @@ def test_outputs_validate_against_schemas(out):
     for run in _runs(out):
         manifest = json.loads((run / "manifest.json").read_text())
         for name in STAGE_NAMES:
-            folder = run / f"{STAGES[name].number:02d}_{name}"
+            folder = run / f"{STAGES[name].number}_{name}"
             StageResult.model_validate_json((folder / "stage_result.json").read_text())
         AreaIndex.model_validate_json((out / "showcase" / "area.json").read_text())
         try:
@@ -84,7 +85,7 @@ def test_outputs_validate_against_schemas(out):
             "params": yaml.safe_load((run / "params.yaml").read_text()),
             "area_index": json.loads((out / "showcase" / "area.json").read_text()),
             "stage_result": json.loads(
-                (run / "01_load" / "stage_result.json").read_text()
+                (run / "1_load" / "stage_result.json").read_text()
             ),
         }
         for schema_name, doc in pairs.items():
@@ -94,20 +95,20 @@ def test_outputs_validate_against_schemas(out):
 
 def test_stage_files_are_readable(out):
     run = _runs(out)[0]
-    pts = np.load(run / "01_load" / "points.npz")
+    pts = np.load(run / "1_load" / "points.npz")
     assert {"x", "y", "z", "intensity", "sweep"} <= set(pts.files)
     assert len(pts["x"]) > 1000
-    las = laspy.read(run / "04_ground" / "ground.laz")
+    las = laspy.read(run / "4_ground" / "ground.laz")
     assert len(las.points) > 1000
     for name in ("markings", "crosswalks", "curbs"):
-        doc = json.loads((run / "05_features" / f"{name}.geojson").read_text())
+        doc = json.loads((run / "5_features" / f"{name}.geojson").read_text())
         assert doc["type"] == "FeatureCollection"
     assert (
-        (run / "07_profile" / "profile.csv")
+        (run / "7_profile" / "profile.csv")
         .read_text()
         .startswith("facility,s_m,z_m,n")
     )
-    assert Image.open(run / "06_colour" / "ortho.png").size == (256, 256)
+    assert Image.open(run / "6_colour" / "ortho.png").size == (256, 256)
     assert (run / "10_outputs" / "profile.pdf").read_bytes().startswith(b"%PDF")
     assert (run / "10_outputs" / "plan.pdf").read_bytes().startswith(b"%PDF")
     for dxf in ("plan.dxf", "profile.dxf"):
@@ -168,3 +169,47 @@ def test_cli_fake_run(tmp_path, capsys):
     assert main(["fake-run", "--out", str(tmp_path), "--drives", "1"]) == 0
     assert len(capsys.readouterr().out.splitlines()) == 1
     assert (tmp_path / "showcase" / "area.json").is_file()
+
+
+def test_real_outputs_stage_end_to_end_with_colour(tmp_path):
+    import logging
+    import shutil
+
+    from twin import registry
+    from twin.runner import StageContext
+
+    (run,) = write_fake_runs(tmp_path / "runs", drives=1)
+    with np.load(run / "6_colour" / "rgb.npz") as f:
+        rgb, observed = f["rgb"], f["observed"]
+    n = len(laspy.read(run / "4_ground" / "ground.laz").points) + len(
+        laspy.read(run / "4_ground" / "nonground.laz").points
+    )
+    assert rgb.shape == (n, 3) and rgb.dtype == np.uint8
+    assert observed.shape == (n,) and observed.dtype == bool
+
+    shutil.rmtree(run / "10_outputs")
+    (run / "10_outputs").mkdir()
+    ctx = StageContext(
+        run_dir=run,
+        scene_token="fake-scene-0001",
+        seed=0,
+        log=logging.getLogger("test"),
+    )
+    result = registry.lookup("outputs", "dxf-pdf")(ctx, None)
+
+    assert result.status == "ok"
+    assert result.files == [
+        "twin.laz",
+        "twin.geojson",
+        "plan.dxf",
+        "plan.pdf",
+        "profile.dxf",
+        "profile.pdf",
+    ]
+    las = laspy.read(run / "10_outputs" / "twin.laz")
+    assert las.header.point_format.id == 7
+    assert las.red.max() > 0
+    doc, auditor = ezdxf.recover.readfile(run / "10_outputs" / "plan.dxf")
+    assert not auditor.has_errors
+    sight = [e for e in doc.modelspace() if e.dxf.layer == "SIGHTLINES"]
+    assert any(e.dxftype() == "LINE" for e in sight)

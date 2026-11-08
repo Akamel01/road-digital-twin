@@ -51,9 +51,9 @@ def test_run_manifest(client, store):
 
 def test_run_file(client, store):
     rid = _ids(store)[0]
-    resp = client.get(f"/api/r/runs/{rid}/files/01_load/poses.json")
+    resp = client.get(f"/api/r/runs/{rid}/files/1_load/poses.json")
     assert resp.status_code == 200
-    assert resp.content == (store / rid / "01_load" / "poses.json").read_bytes()
+    assert resp.content == (store / rid / "1_load" / "poses.json").read_bytes()
 
 
 def test_bad_run_id_400(client):
@@ -77,9 +77,9 @@ def test_missing_file_404(client, store):
     "path",
     [
         "../manifest.json",
-        "01_load/../../manifest.json",
+        "1_load/../../manifest.json",
         "%2e%2e/manifest.json",
-        "01_load/%2e%2e/%2e%2e/manifest.json",
+        "1_load/%2e%2e/%2e%2e/manifest.json",
         "%2Fetc%2Fpasswd",
         "%2fetc%2fpasswd",
     ],
