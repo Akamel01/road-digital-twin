@@ -123,3 +123,9 @@ Date: 2026-11-07. Operator decisions, grilling round 3.
     - colour as stage 6, so the stages after it move to 7–10;
     - the UI layout and the API host;
     - the new tickets T12 (colour) and T13 (facilities).
+43. **Sight-line heights** (map ticket #15):
+    - ISD keeps eye 1.08 m and object 1.08 m (NCHRP 383, Green Book chapter 9).
+    - 0.60 m is the stopping-sight-distance object (taillight height), not an ISD target.
+    - `isd.object_height_m` stays editable for a stricter check.
+    - Per-situation presets (truck eye 2.33 m, SSD object 0.60 m, cyclist eye 1.4 m / object 0 m) come in v1.1.
+    - No standard defines a pedestrian or child target height.

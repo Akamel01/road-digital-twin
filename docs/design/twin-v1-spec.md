@@ -221,7 +221,7 @@ Notes:
 | `isd.time_gap_s` | 7.5 | 4–12 |
 | `isd.design_speed_kmh` | 50 | 20–100 |
 | `isd.eye_height_m` | 1.08 | 0.5–3 |
-| `isd.object_height_m` | 1.08 | 0.2–3 (per-situation presets pending #15) |
+| `isd.object_height_m` | 1.08 | 0.2–3 (per-situation presets in v1.1, decision 43) |
 | `isd.eye_setback_m` | 4.4 | 2–10 (used where the map has no stop line) |
 | `isd.band_m` | 0.3 | 0.05–1 |
 | `isd.coverage_window_m` | 2 | 0.5–10 |
@@ -335,7 +335,7 @@ If a scene fails the markings threshold, its runs report markings as "not extrac
 **ISD.** AASHTO Case B (stop control), in 3D against the twin's surface. Intersections: one line per leg. Access points: exit lines left and right.
 - **Sub-case and gap:** set by `isd.case` and `isd.time_gap_s`. The default is B1 for a passenger car, 7.5 s.
 - **Required distance:** 0.278 × `design_speed_kmh` × `time_gap_s`.
-- **Heights:** eye and object height default to 1.08 m. Per-situation target heights (car, headlights, pedestrian, cyclist) wait on research #15.
+- **Heights:** eye and object height default to 1.08 m. 0.60 m is the stopping-sight-distance object, not an ISD target (decision 43); a stricter run can set it from the panel.
 - **Sight line:** each leg has one, from the eye point to the object point at the required distance.
 - **Blocking:** a point blocks the line if it lies above the ground surface, below the line, and within `isd.band_m` of it horizontally. So canopy above the line doesn't block.
 - **Indeterminate:** a leg is indeterminate if any `coverage_window_m` stretch has fewer than `coverage_min_pts` ground points, or if `height_valid=false`.
