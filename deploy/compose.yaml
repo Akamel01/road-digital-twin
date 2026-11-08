@@ -26,10 +26,9 @@ services:
       retries: 3
       start_period: 30s
 
-  # Pin the image to the same tag and digest as sme_tunnel, so only the config differs.
-  # PIN_ME is a placeholder: compose fails to pull until the operator sets the real pin.
+  # Same image digest as sme_tunnel (read 2026-11-08), so only the config differs.
   twin_tunnel:
-    image: cloudflare/cloudflared:PIN_ME
+    image: cloudflare/cloudflared@sha256:cb38f3f30910a7d51545118a179b8516eb7066eac61855d62ce6ed733c54ce70
     command: tunnel --config /etc/cloudflared/config.yml run
     restart: unless-stopped
     volumes:

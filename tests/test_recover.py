@@ -56,3 +56,26 @@ def test_live_lock_holder_is_left_alone(tmp_path):
 
 def test_missing_store_is_noop(tmp_path):
     assert recover_interrupted(tmp_path / "nope") == []
+
+
+
+def test_stage_is_marked_running_while_it_runs(tmp_path, monkeypatch):
+    """A crash mid-stage leaves a `running` entry for recover_interrupted to find."""
+    from twin import registry, runner
+    from twin.contracts import STAGE_NAMES, STAGES, Params, Pipeline, StageResult
+
+    monkeypatch.setattr(registry, "_REGISTRY", {})
+    monkeypatch.setattr(runner, "free_bytes", lambda path: 100 * 1024**3)
+    seen = {}
+
+    for name in STAGE_NAMES:
+
+        def run(ctx, params, name=name):
+            manifest = Manifest.model_validate_json((ctx.run_dir / "manifest.json").read_text())
+            seen[name] = manifest.stages[-1].status
+            return StageResult(status="ok")
+
+        registry.register(name, STAGES[name].methods[0])(run)
+
+    runner.start_run(tmp_path, "scene-1", Pipeline(), Params())
+    assert seen and set(seen.values()) == {"running"}

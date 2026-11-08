@@ -401,6 +401,13 @@ def _run_stages(job: _Job) -> None:
         t0 = time.perf_counter()
         if stage.enabled:
             ctx.stage_dir(name).mkdir()
+            # Mark running first, so a restart mid-stage can fail it (recover_interrupted).
+            manifest.stages.append(
+                ManifestStage(name=name, method=stage.method, status="running",
+                              started=started, seconds=0, files=[])
+            )
+            _write_manifest(run_dir, manifest)
+            manifest.stages.pop()
             result = _run_stage(ctx, name, stage.method, params)
         else:
             result = StageResult(status="skipped", message="disabled in pipeline")
