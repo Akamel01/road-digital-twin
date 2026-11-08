@@ -427,6 +427,47 @@ def _run_stages(job: _Job) -> None:
             break  # later stages stay pending: they are not in the manifest
 
 
+INTERRUPTED = "interrupted by restart"
+
+
+def recover_interrupted(store: Path | str) -> list[str]:
+    """On API start: fail every stage left `running` by a dead process, then clear .current
+    and .run.lock. Holds the run lock while it works, so a live run is never touched; when
+    another run holds the lock, nothing changes. Returns the ids of the runs changed."""
+    store = Path(store)
+    if not store.is_dir():
+        return []
+    lock = FileLock(str(store / LOCK_FILE), thread_local=False)
+    try:
+        lock.acquire(timeout=0)
+    except Timeout:
+        return []  # a live run holds the lock
+    changed = []
+    try:
+        for folder in sorted(store.iterdir()):
+            path = folder / "manifest.json"
+            if not (re.fullmatch(RUN_ID_RE, folder.name) and path.is_file()):
+                continue
+            manifest = Manifest.model_validate_json(path.read_text())
+            stuck = [s for s in manifest.stages if s.status == "running"]
+            if not stuck:
+                continue
+            for stage in stuck:
+                stage.status = "failed"
+                # ManifestStage has no message field: the message goes in the stage's metrics.
+                manifest.metrics[stage.name] = {
+                    **manifest.metrics.get(stage.name, {}),
+                    "message": INTERRUPTED,
+                }
+            _write_manifest(folder, manifest)
+            changed.append(manifest.run_id)
+        (store / CURRENT_FILE).unlink(missing_ok=True)
+        (store / LOCK_FILE).unlink(missing_ok=True)
+    finally:
+        lock.release()
+    return changed
+
+
 def _load_model(path: Path | None, model: type) -> Any:
     if path is None:
         return model()

@@ -1,0 +1,22 @@
+# Keep the build context small and free of data, runs and local tooling.
+.git
+.github
+.claude
+.venv
+.ruff_cache
+.pytest_cache
+__pycache__
+*.py[cod]
+web/
+prototypes/
+docs/
+tests/
+runs/
+outputs/
+data/
+deploy/twin.env
+*.las
+*.laz
+*.pcd
+*.ply
+*.bin

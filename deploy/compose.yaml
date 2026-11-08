@@ -1,0 +1,41 @@
+# Twin control API and its tunnel. Runs on the box next to Librarian's stack.
+# This file never touches sme_* containers, volumes or sme_tunnel.
+# Bring up only this file's services: docker compose -f deploy/compose.yaml up -d --build twin-api
+# Build context is the repo root (..); the env file deploy/twin.env is gitignored (see twin.env.example).
+
+services:
+  twin-api:
+    build: ..
+    image: twin-api:local
+    restart: unless-stopped
+    cpus: "8"
+    mem_limit: 12g
+    env_file: twin.env
+    environment:
+      TWIN_ACCESS_TEAM: papyrus
+    volumes:
+      - /data/twin-runs:/data/twin-runs
+      - /data/nuscenes:/data/nuscenes:ro
+      - /data/osm:/data/osm:ro
+    networks:
+      - twin
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/api/r/registry', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Pin the image to the same tag and digest as sme_tunnel, so only the config differs.
+  # PIN_ME is a placeholder: compose fails to pull until the operator sets the real pin.
+  twin_tunnel:
+    image: cloudflare/cloudflared:PIN_ME
+    command: tunnel --config /etc/cloudflared/config.yml run
+    restart: unless-stopped
+    volumes:
+      - /etc/twin-tunnel/:/etc/cloudflared/:ro
+    networks:
+      - twin
+
+networks:
+  twin: {}

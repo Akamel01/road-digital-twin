@@ -42,13 +42,13 @@ Run on the box over `ssh akamel-linux`. Do not run these on the Mac.
 
    The output gives the tunnel UUID (`<tunnel-id>` below) and a credentials file at `~/.cloudflared/<tunnel-id>.json`. Check with `cloudflared tunnel list`. Source: https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/local-management/create-local-tunnel/
 
-3. Put the credentials file and config in a directory that only the `twin` tunnel uses, for example `/opt/twin-tunnel/`. Do not touch `/etc/cloudflared/`, which is Librarian's.
+3. Put the credentials file and config in a directory that only the `twin` tunnel uses, for example `/etc/twin-tunnel/`. Do not touch `/etc/cloudflared/`, which is Librarian's.
 
-4. Write `/opt/twin-tunnel/config.yml`. The `ingress` block sends the API hostname to the API container, and a final rule answers everything else with 404. The `ingress` and catch-all syntax comes from Cloudflare's configuration file reference (https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/local-management/configuration-file/). That page was not fetched while writing this runbook. Check the syntax there before the first run.
+4. Write `/etc/twin-tunnel/config.yml`. The `ingress` block sends the API hostname to the API container, and a final rule answers everything else with 404. The `ingress` and catch-all syntax comes from Cloudflare's configuration file reference (https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/local-management/configuration-file/). That page was not fetched while writing this runbook. Check the syntax there before the first run.
 
    ```yaml
    tunnel: <tunnel-id>
-   credentials-file: /etc/cloudflared/twin/<tunnel-id>.json
+   credentials-file: /etc/cloudflared/<tunnel-id>.json
 
    ingress:
      - hostname: twin-api.papyrus-ai.net
@@ -65,7 +65,7 @@ Run on the box over `ssh akamel-linux`. Do not run these on the Mac.
        command: tunnel --config /etc/cloudflared/config.yml run
        restart: unless-stopped
        volumes:
-         - /opt/twin-tunnel:/etc/cloudflared:ro
+         - /etc/twin-tunnel/:/etc/cloudflared/:ro
        networks:
          - twin
    ```
@@ -220,11 +220,55 @@ Each step is separate. None of them touches `sme_*`. Run them in this order. Eac
    cloudflared tunnel delete twin
    ```
 
-   Operator approves. Then delete `/opt/twin-tunnel/`.
+   Operator approves. Then delete `/etc/twin-tunnel/`.
 
 5. **Optional: disable Zero Trust** for the team. Operator decides. Disabling it is not needed to roll back the API.
 
 After rollback, check `docker ps` still shows `sme_tunnel` up, and `https://twin.papyrus-ai.net` (Pages) still loads.
+
+## 7. Deploy the API container
+
+Built from the repo's `Dockerfile` and started by `deploy/compose.yaml`. Run these on the box, in this order. **Not run yet: each command needs operator approval before it is run on the box.**
+
+1. Check free disk. Hold when less than 10 GB is free (operator, 2026-10-26):
+
+   ```sh
+   df -h /
+   ```
+
+2. Create the env file from the example, and fill in the two values from section 3 step 6. The file is gitignored:
+
+   ```sh
+   cp deploy/twin.env.example deploy/twin.env
+   ```
+
+3. Give the non-root container user (uid 10001) the run store. The bind mount is owned by root otherwise:
+
+   ```sh
+   sudo chown 10001:10001 /data/twin-runs
+   ```
+
+   Only the operator runs `sudo`, as the box policy says.
+
+4. Build and start only the API. Never `docker compose down` or `docker volume prune` on this box:
+
+   ```sh
+   docker compose -f deploy/compose.yaml up -d --build twin-api
+   docker compose -f deploy/compose.yaml logs --tail 50 twin-api
+   ```
+
+   On start the API marks any stage left `running` by a restart as `failed` ("interrupted by restart") and clears `.current` and `.run.lock`. The log shows one warning per run changed.
+
+5. Check the health status and that Librarian is still up:
+
+   ```sh
+   docker ps --filter name=twin-api --format '{{.Names}} {{.Status}}'
+   docker ps --filter name=sme_tunnel --format '{{.Names}} {{.Status}}'
+   ```
+
+6. The tunnel (`twin_tunnel`) is section 1, step 6. Its image tag is a placeholder in `deploy/compose.yaml`: set it to the `sme_tunnel` tag and digest before starting it.
+
+The API container is capped at 8 CPUs and 12 GB of memory. It mounts `/data/nuscenes` and `/data/osm` read-only.
 
 ## Not verified
 
