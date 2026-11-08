@@ -237,3 +237,66 @@ def test_env_builds_access_verifier(monkeypatch):
     assert verifier.issuer == "https://papyrus.cloudflareaccess.com"
     assert verifier.aud == "aud-tag" and verifier.operator_email == "op@example.com"
     assert isinstance(DevNoAuth(), DevNoAuth)
+
+
+# ---- sign-in helpers for the developer panel (ticket 13b)
+
+
+def test_whoami_needs_token(client):
+    assert client.get("/api/w/whoami").status_code == 401
+
+
+def test_whoami_returns_operator_email(client, auth):
+    resp = client.get("/api/w/whoami", headers=auth)
+    assert resp.status_code == 200
+    assert resp.json() == {"email": "operator@example.com"}
+
+
+def test_signin_redirects_to_panel_page(client, auth):
+    target = f"{ALLOWED_ORIGIN}/dev/?run=1"
+    resp = client.get("/api/w/signin", params={"next": target}, headers=auth, follow_redirects=False)
+    assert resp.status_code == 302
+    assert resp.headers["location"] == target
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "https://evil.example/",
+        "https://twin.papyrus-ai.net.evil.example/",
+        "https://twin.papyrus-ai.net@evil.example/",
+        "https://twin.papyrus-ai.netx/",
+        "http://twin.papyrus-ai.net/",
+        "//evil.example/",
+        "/dev",
+        "javascript:alert(1)",
+        "https://twin.papyrus-ai.net/é",  # non-ASCII would break the Location header
+        "https://twin.papyrus-ai.net/\nSet-Cookie: x=1",
+        "",
+    ],
+)
+def test_signin_refuses_other_targets(client, auth, target):
+    resp = client.get("/api/w/signin", params={"next": target}, headers=auth, follow_redirects=False)
+    assert resp.status_code == 400
+    assert "location" not in resp.headers
+
+
+def test_signin_needs_token(client):
+    resp = client.get(
+        "/api/w/signin", params={"next": f"{ALLOWED_ORIGIN}/dev/"}, follow_redirects=False
+    )
+    assert resp.status_code == 401
+
+
+def test_signin_extra_origin_only_when_env_set(store, access, monkeypatch, auth):
+    local = "http://127.0.0.1:3000"
+    target = f"{local}/dev/"
+    monkeypatch.delenv("TWIN_EXTRA_ORIGIN", raising=False)
+    client = TestClient(create_app(store, access.verifier))
+    resp = client.get("/api/w/signin", params={"next": target}, headers=auth, follow_redirects=False)
+    assert resp.status_code == 400
+
+    monkeypatch.setenv("TWIN_EXTRA_ORIGIN", local)
+    client = TestClient(create_app(store, access.verifier))
+    resp = client.get("/api/w/signin", params={"next": target}, headers=auth, follow_redirects=False)
+    assert resp.status_code == 302 and resp.headers["location"] == target

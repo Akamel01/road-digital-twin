@@ -12,11 +12,11 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 from twin.access import Verifier, verifier_from_env
-from twin.contracts import STAGE_NAMES, STAGES, Manifest, Params, Pipeline
+from twin.contracts import PARAM_STAGE, STAGE_NAMES, STAGES, Manifest, Params, Pipeline
 from twin.runner import (
     LowDisk,
     RunBusy,
@@ -134,6 +134,7 @@ def create_app(store: Path, verifier: Verifier | None = None) -> FastAPI:
                 for name in STAGE_NAMES
             ],
             "params_schema": Params.model_json_schema(),
+            "param_stage": PARAM_STAGE,  # top-level param key -> stage that uses it (None: setup)
         }
 
     @app.get("/api/r/runs")
@@ -187,6 +188,18 @@ def create_app(store: Path, verifier: Verifier | None = None) -> FastAPI:
         ]
 
     write = APIRouter(prefix="/api/w", dependencies=[Depends(verifier.verify)])
+    next_prefixes = tuple(f"{o.rstrip('/')}/" for o in (ALLOWED_ORIGIN, *extra))
+
+    @write.get("/whoami")
+    def whoami(email: str = Depends(verifier.verify)) -> dict[str, str]:
+        return {"email": email}
+
+    @write.get("/signin")
+    def signin(next_url: str = Query(..., alias="next")) -> RedirectResponse:
+        # Open-redirect guard: only the panel origin (or a dev-only extra origin) may be the target.
+        if not next_url.startswith(next_prefixes) or not next_url.isascii() or not next_url.isprintable():
+            raise HTTPException(400, "next must be on the panel origin")
+        return RedirectResponse(next_url, status_code=302)
 
     @write.post("/runs", status_code=202)
     def new_run(body: NewRun) -> dict[str, str]:
