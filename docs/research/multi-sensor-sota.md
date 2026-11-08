@@ -17,7 +17,7 @@ Method inventory: depth buffer/Z-buffer per image (operator choice, Apache-2.0 i
 | 3D Gaussian Splatting [kerbl-2023-3dgs] (base) | non-commercial research (repo [gaussian-splatting-repo]) | Research | Adapter (COLMAP poses) | PSNR/SSIM on held-out views (image quality, not geometry) | Neural rendering of colour, not occlusion logic | Cameras-only v1.1 candidate |
 | Street Gaussians [yan-2024-street-gaussians] | Project Registration License 1.0 ([street-gaussians-repo]) | Research | No (paper uses Waymo, KITTI) | PSNR/SSIM (image quality, not geometry) | Dynamic urban scenes | Not on nuScenes |
 | DrivingGaussian [zhou-2023-drivinggaussian] | None (no LICENSE; all rights reserved) ([drivinggaussian-repo]) | Research | Yes (paper uses nuScenes) | PSNR/SSIM (image quality, not geometry) | Strongest camera+lidar fit | Licence blocks reuse |
-| OmniRe [chen-2024-omnire] | NVIDIA licence, non-commercial ([emernerf-repo] adjacent) | Research | Yes (urban logs) | PSNR/SSIM (image quality, not geometry) | All dynamic objects | Licence blocks reuse |
+| OmniRe [chen-2024-omnire] | not reported in this pass | Research | Not evaluated | PSNR/SSIM (image quality, not geometry) | All dynamic objects | Licence blocks reuse |
 | EmerNeRF [yang-2023-emernerf] | NVIDIA, non-commercial | Research | Yes | PSNR/SSIM (image quality, not geometry) | Static/dynamic self-supervision | Licence blocks reuse |
 | HUGS [zhou-2024-hugs] | custom non-commercial ([hugs-repo]) | Research | RGB-only focus | PSNR/SSIM (image quality, not geometry) | Urban understanding | RGB-only, no lidar prior |
 | TSDF/voxel fusion [curless-1996-tsdf] | paper (method) | Mature (1996) | Adapter | volumetric reconstruction error (not PSNR) | Volumetric colour/occupancy fusion | Reusable for fusion |
@@ -31,9 +31,9 @@ nuScenes has no per-point timestamps (spec section 6). Adapter required for R3LI
 
 | Method | Licence | Maturity | Runs on nuScenes | Reported accuracy | Relevance to colour-stage occlusion | Relevance to v1.1 |
 |---|---|---|---|---|---|---|
-| R3LIVE [r3live-2021] ([r3live-repo]) | check repo licence (GitHub) | Research | Adapter (IMU + per-point timestamps required) | not reported in this pass | Provides poses for colouring | Pose source for cameras-only |
-| FAST-LIVO2 [fast-livo2-repo] | check repo licence | Research | Adapter (IMU + per-point timestamps required) | not reported in this pass | Provides poses | Pose source |
-| LVI-SAM [lvi-sam-2021] ([lvi-sam-repo]) | check repo licence | Research | Adapter (IMU + per-point timestamps required) | not reported in this pass | Provides poses | Pose source |
+| R3LIVE [r3live-2021] ([r3live-repo]) | GPL-2.0 | Research | Adapter (IMU + per-point timestamps required) | not reported in this pass | Provides poses for colouring | Pose source for cameras-only |
+| FAST-LIVO2 [fast-livo2-repo] | GPL-2.0 | Research | Adapter (IMU + per-point timestamps required) | not reported in this pass | Provides poses | Pose source |
+| LVI-SAM [lvi-sam-2021] ([lvi-sam-repo]) | BSD-3-Clause | Research | Adapter (IMU + per-point timestamps required) | not reported in this pass | Provides poses | Pose source |
 | COLMAP [schonberger-2016-colmap] ([colmap-repo]) | BSD-3-Clause | Mature | Not evaluated here (SfM/MVS from images) | not reported in this pass | Pose + sparse points | Drone/cameras-only base |
 
 ## 3. Road-surface / mesh reconstruction (Q1/Q5)
@@ -42,8 +42,8 @@ Ticket-named (non-substitutable): RoMe [rome-2024] ([rome-repo]), StreetSurf [st
 
 | Method | Licence | Maturity | Runs on nuScenes | Reported accuracy | Relevance to colour-stage occlusion | Relevance to v1.1 |
 |---|---|---|---|---|---|---|
-| RoMe [rome-2024] ([rome-repo]) | check repo licence | Research | check source | not reported in this pass | Mesh reconstruction | Road-surface candidate |
-| StreetSurf [streetsurf-2023] | check source | Research | check source | not reported in this pass | Street surface modelling | Road-surface candidate |
+| RoMe [rome-2024] ([rome-repo]) | MIT | Research | check source | not reported in this pass | Mesh reconstruction | Road-surface candidate |
+| StreetSurf [streetsurf-2023] | not reported in this pass | Research | check source | not reported in this pass | Street surface modelling | Road-surface candidate |
 | DrivingGaussian [zhou-2023-drivinggaussian] | None (all rights reserved) | Research | Yes | PSNR/SSIM (image, not geometry) | Colour + geometry | Licence blocks reuse |
 | Street Gaussians [yan-2024-street-gaussians] | Project Registration License 1.0 | Research | No | PSNR/SSIM (image, not geometry) | Dynamic scenes | Not on nuScenes |
 | EmerNeRF [yang-2023-emernerf] | NVIDIA non-commercial | Research | Yes | PSNR/SSIM (image, not geometry) | Static/dynamic fields | Licence blocks reuse |
@@ -55,8 +55,8 @@ Ticket-named (non-substitutable): RoMe [rome-2024] ([rome-repo]), StreetSurf [st
 | Depth Anything [yang-2024-depth-anything] ([depth-anything-repo]) | Apache-2.0 | Research | Not evaluated | relative depth only (no metric claim in abstract) | Depth prior | Cameras-only (relative) |
 | DUSt3R [wang-2023-dust3r] ([dust3r-repo]) | CC BY-NC-SA 4.0 | Research | Not evaluated | not reported in this pass | Pose-free reconstruction | Licence blocks reuse |
 | VGGT [wang-2025-vggt] ([vggt-repo]) | custom licence | Research | Not evaluated | under one second per reconstruction (abstract) | Feed-forward depth/poses | Licence blocks reuse |
-| SurroundDepth [wei-2022-surrounddepth] | check source | Research | Not evaluated | not reported in this pass | Surround-camera depth | Cameras-only |
-| NeuralSim [neuralsim-repo] | check repo licence | Research | check source | not reported in this pass | Neural simulation | Adjacent |
+| SurroundDepth [wei-2022-surrounddepth] | not reported in this pass | Research | Not evaluated | not reported in this pass | Surround-camera depth | Cameras-only |
+| NeuralSim [neuralsim-repo] | MIT | Research | check source | not reported in this pass | Neural simulation | Adjacent |
 
 ## 4. Extrinsic / time calibration (Q1)
 
@@ -68,8 +68,8 @@ Ticket-named (non-substitutable): RoMe [rome-2024] ([rome-repo]), StreetSurf [st
 | Target-based | n/a (method) | Mature | Adapter | not reported in this pass | Board-based extrinsics | All stages |
 | Motion-based | n/a (method) | Mature | Adapter | not reported in this pass | Ego-motion calibration | All stages |
 | Learning-based | n/a (method) | Research | Adapter | not reported in this pass | Data-driven calibration | Cameras-only |
-| Calibration survey [calib-survey-2022] | check source | Review | n/a (survey) | not reported in this pass | Method taxonomy | Method selection |
-| Besl & McKay ICP [besl-1992-icp] | check source | Mature (1992) | Adapter | not reported in this pass | Registration verification | Merging drives |
+| Calibration survey [calib-survey-2022] | not reported in this pass | Review | n/a (survey) | not reported in this pass | Method taxonomy | Method selection |
+| Besl & McKay ICP [besl-1992-icp] | not reported in this pass | Mature (1992) | Adapter | not reported in this pass | Registration verification | Merging drives |
 
 ## 5. Mobile mapping for audit-grade accuracy (Q3/Q7)
 
@@ -79,9 +79,9 @@ Survey-grade vs AV-log-grade. The accuracy gap between survey-grade mobile mappi
 |---|---|---|---|---|---|---|
 | Leica Pegasus [leica-pegasus-product] | commercial product | Commercial | No (hardware) | not reported in this pass (product page, not evaluation) | Survey-grade reference | Vancouver/audit reference |
 | RIEGL mobile scanning [riegl-mobile-scanning-product] | commercial product | Commercial | No (hardware) | not reported in this pass | Survey-grade reference | Audit reference |
-| Toronto-3D [tan-2020-toronto3d] | check dataset terms | Dataset | No | not reported in this pass | MLS feature training | Lidar-only features |
-| DALES [varney-2020-dales] | check dataset terms | Dataset | No (airborne) | not reported in this pass | Airborne features | Vancouver airborne |
-| RandLA-Net [hu-2019-randla-net] ([randla-net-repo]) | CC BY-NC-SA 4.0 | Research | Adapter | not reported in this pass | Point-cloud segmentation | Licence blocks reuse |
+| Toronto-3D [tan-2020-toronto3d] | not reported in this pass | Dataset | No | not reported in this pass | MLS feature training | Lidar-only features |
+| DALES [varney-2020-dales] | not reported in this pass | Dataset | No (airborne) | not reported in this pass | Airborne features | Vancouver airborne |
+| RandLA-Net [hu-2019-randla-net] ([randla-net-repo]) | CC-BY-NC-SA-4.0 | Research | Adapter | not reported in this pass | Point-cloud segmentation | Licence blocks reuse |
 | Vancouver airborne lidar [vancouver-lidar-2022] | open data | Dataset | No (airborne, Vancouver) | not reported in this pass | Height-check template | Vancouver lidar-only |
 
 E-3 (spec R1 wording tension, carried verbatim): Vancouver airborne lidar is a methodology/height-check template, not Boston ground truth. The note does not silently contradict the spec; operator to reconcile spec wording separately.
@@ -93,5 +93,3 @@ v1.1 Vancouver airborne lidar-only: methodology/height-check template only (see 
 ## Recommendation
 
 E-4 evidence bar: a reopen of decision 38 requires a "clearly better, licence-clean method". On current evidence, option (a) (depth buffer/Z-buffer per image, Apache-2.0 in-house) stands. Neural rendering methods (3DGS/Street Gaussians/DrivingGaussian/OmniRe/EmerNeRF/HUGS) report PSNR/SSIM, which measure rendered image quality, not geometry accuracy, and carry non-commercial or no-licence terms that block reuse in an Apache-2.0 repo. Licence-clean candidates (gsplat, COLMAP, Metric3D v2, Depth Anything) do not themselves solve occlusion and are supporting components, not replacements. No cited source demonstrates a clearly better, licence-clean colour-stage occlusion method on nuScenes geometry. Option (a) stands. Sources: [katz-2007-hpr], [curless-1996-tsdf], [rome-2024], [streetsurf-2023], [r3live-2021], [lvi-sam-2021], [b2f-map-2026], [calib-survey-2022], [besl-1992-icp], [rome-repo], [neuralsim-repo], [r3live-repo], [fast-livo2-repo], [lvi-sam-repo], [b2f-map-repo], [vancouver-lidar-2022].
-EOF
-echo done
