@@ -15,3 +15,9 @@ outputs/
 *.pcd
 *.ply
 *.bin
+
+# web app: generated showcase bundle and build output
+web/public/showcase/
+web/node_modules/
+web/out/
+web/.next/
