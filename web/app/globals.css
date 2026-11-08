@@ -455,11 +455,42 @@ button:focus-visible {
 .strip {
   flex: none;
   height: 96px;
+  display: flex;
+  min-width: 0;
+}
+
+.prof {
+  flex: 1;
+  min-width: 0;
   padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+}
+
+.prof svg {
+  display: block;
+  margin-top: 4px;
+  flex: 1;
+  min-height: 0;
+}
+
+.prof .empty {
+  flex: 1;
   display: grid;
   place-items: center;
-  color: var(--on-glass-3);
   font-size: 13px;
+  color: var(--on-glass-3);
+  text-align: center;
+}
+
+.prof .axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 2px;
+  font: 600 10.5px/1.2 var(--text);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--on-glass-3);
 }
 
 .legal {
@@ -484,14 +515,211 @@ button:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  transition:
+    transform 220ms var(--ease-out),
+    opacity 220ms var(--ease-out);
 }
 
+/* The side panel hides with the \ key; the map takes the width back. */
+.app.collapsed .rail {
+  transform: translateX(calc(100% + var(--gut)));
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+.app.collapsed .main {
+  right: var(--gut);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rail {
+    transition: none;
+  }
+}
+
+.railbtn {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border: 0;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  color: var(--on-glass-2);
+  cursor: pointer;
+}
+
+.railbtn:hover {
+  background: var(--glass-clear-strong);
+}
+
+.railbtn svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Pipeline summary: compact (one row per step) or maximised (every step, with its text and figures). */
 .sum {
   flex: none;
   padding: 12px 14px;
   color: var(--on-glass-2);
   font-size: 12.5px;
   line-height: 1.45;
+  cursor: pointer;
+  transition: background-color 150ms ease-out;
+}
+
+.sum:hover {
+  background: rgb(255 255 255 / 0.04);
+}
+
+.sum.max {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  cursor: default;
+}
+
+.sum .hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sum .sumbtn {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border: 0;
+  border-radius: 8px;
+  background: var(--glass-clear);
+  color: inherit;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.sum button.sumbtn:hover {
+  background: var(--glass-clear-strong);
+}
+
+.sum .sumbtn svg {
+  width: 12px;
+  height: 12px;
+}
+
+.sum ol {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.sum li {
+  display: grid;
+  grid-template-columns: 20px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 0;
+  font-size: 12.5px;
+}
+
+.sum li + li {
+  border-top: 1px solid rgb(255 255 255 / 0.07);
+}
+
+.sum li > i {
+  font-style: normal;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--glass-clear);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.sum li > b {
+  font: 700 13px/1 var(--display);
+  white-space: nowrap;
+}
+
+.sum li > b small {
+  font: 500 11px/1 var(--text);
+  color: var(--on-glass-3);
+  margin-left: 3px;
+}
+
+.sum.max li {
+  display: block;
+  padding: 12px 0;
+}
+
+.sum.max .t {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.sum.max li p {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--on-glass-2);
+}
+
+.sum.max .figs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 8px;
+}
+
+.sum.max .figs b {
+  display: block;
+  font: 700 20px/1.1 var(--display);
+}
+
+.sum.max .figs span {
+  font-size: 11px;
+  color: var(--on-glass-3);
+}
+
+/* Shrunk inspector: a bar that restores the panel when the summary is shrunk. */
+.mini {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 16px;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+}
+
+.mini:hover {
+  background: #dde3e6;
+}
+
+.mini b {
+  font: 700 14px/1.2 var(--display);
+}
+
+.mini span {
+  font-size: 11.5px;
+  color: var(--ink-2);
+}
+
+.mini svg {
+  width: 12px;
+  height: 12px;
+  flex: none;
 }
 
 .sum .over {
@@ -555,6 +783,21 @@ button:focus-visible {
   color: #7a5313;
 }
 
+.tag.ok {
+  background: #d3e6d6;
+  color: #2f5e3a;
+}
+
+.tag.bad {
+  background: #f2d0c4;
+  color: #8a3415;
+}
+
+.tag.ind {
+  background: var(--chip);
+  color: #272d2f;
+}
+
 .idx {
   list-style: none;
   margin: 6px 0 0;
@@ -613,12 +856,6 @@ button:focus-visible {
   margin-top: 14px;
 }
 
-.lead {
-  margin: 8px 0 0;
-  font-size: 12.5px;
-  color: var(--ink-2);
-}
-
 .big {
   font: 700 36px/1 var(--display);
   letter-spacing: -0.02em;
@@ -628,6 +865,260 @@ button:focus-visible {
 .big small {
   font-size: 16px;
   color: var(--ink-2);
+}
+
+/* ---------- 12c inspector: tables, trace, downloads ---------- */
+.lead {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-top: 8px;
+  color: var(--ink-2);
+}
+
+.lead .big {
+  margin-top: 0;
+  font: 700 36px/1 var(--display);
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.lead .big small {
+  font-size: 16px;
+  color: var(--ink-2);
+}
+
+.lead .sub {
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.claims {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.claims div {
+  padding: 7px 8px;
+  border-radius: 10px;
+  background: #dde3e6;
+  min-width: 0;
+}
+
+.claims b {
+  display: block;
+  font: 700 14px/1.2 var(--display);
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.claims span {
+  display: block;
+  margin-top: 2px;
+  font-size: 10.5px;
+  line-height: 1.2;
+  color: var(--ink-2);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 10px;
+}
+
+.chip {
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: var(--chip);
+  color: #272d2f;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.chips-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.insp table {
+  width: 100%;
+  margin-top: 4px;
+  border-collapse: collapse;
+  color: var(--ink);
+}
+
+.insp th,
+.insp td {
+  padding: 5px 0;
+  text-align: left;
+  font-size: 12px;
+  vertical-align: middle;
+}
+
+.insp th {
+  padding-bottom: 6px;
+  font: 600 10px/1 var(--text);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.insp td + td,
+.insp th + th {
+  text-align: right;
+  padding-left: 8px;
+  white-space: nowrap;
+}
+
+.insp th,
+.insp td {
+  font-variant-numeric: tabular-nums;
+}
+
+.insp tr + tr td {
+  border-top: 1px solid #d3d9dc;
+}
+
+.insp tr.own td {
+  font-weight: 600;
+}
+
+.insp td small {
+  display: block;
+  margin-top: 1px;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+.rowbtn {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rowbtn:hover {
+  text-decoration: underline;
+}
+
+.note {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--ink-2);
+}
+
+.trace {
+  position: relative;
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.trace::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 7px;
+  bottom: 7px;
+  width: 2px;
+  background: #cdd3d6;
+}
+
+.trace li {
+  position: relative;
+  padding: 0 0 9px 22px;
+}
+
+.trace li::before {
+  content: "";
+  position: absolute;
+  left: 1px;
+  top: 3px;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--panel-light);
+  border: 2px solid #9aa3a7;
+}
+
+.trace li:first-child::before {
+  background: var(--ink);
+  border-color: var(--ink);
+}
+
+.trace b {
+  display: block;
+  font-size: 12.5px;
+}
+
+.trace span {
+  font-size: 11.5px;
+  color: var(--ink-2);
+}
+
+.dls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: #000;
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.btn:hover {
+  background: #262626;
+}
+
+.jump {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: auto;
+  padding-top: 12px;
+}
+
+.jump button {
+  border: 0;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: var(--chip);
+  color: #272d2f;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.jump button:hover {
+  background: #c9d0d4;
+}
+
+.jump button[aria-current="true"] {
+  background: #000;
+  color: #fff;
 }
 
 /* ---------- narrow screens: interim layout until issue #11 ---------- */

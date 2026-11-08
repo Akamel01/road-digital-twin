@@ -39,6 +39,7 @@ from twin.contracts import (
     Pipeline,
     StageResult,
 )
+from twin.publish import PUBLIC_FILES
 from twin.runner import StageContext
 from twin.tiles import write_tiles
 
@@ -717,10 +718,10 @@ def _write_run(out: Path, index: int, showcase: Path) -> str:
     )
     write_tiles(showcase, run_id, ctx.rasters, _raster_bbox())
     (showcase / run_id).mkdir(parents=True, exist_ok=True)
-    shutil.copy(
-        run_dir / "10_outputs" / "twin.geojson", showcase / run_id / "twin.geojson"
-    )
+    for name in (*PUBLIC_FILES, "twin.laz"):  # what publish copies; LAZ is not thinned here
+        shutil.copy(run_dir / "10_outputs" / name, showcase / run_id / name)
     shutil.copy(run_dir / "manifest.json", showcase / run_id / "manifest.json")
+    shutil.copy(run_dir / "7_profile" / "profile.csv", showcase / run_id / "profile.csv")
     return run_id
 
 
