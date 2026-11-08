@@ -9,12 +9,15 @@ from __future__ import annotations
 import hashlib
 from collections import Counter
 from dataclasses import dataclass, field
+from itertools import combinations
 
 import shapely
 from shapely.geometry import LineString, Point, Polygon, mapping
-from shapely.ops import nearest_points, substring
+from shapely.ops import nearest_points, substring, unary_union
 
-from twin.contracts import IsdParams
+from twin.contracts import FacilitiesParams, IsdParams
+
+LETTERS = {"intersection": "I", "segment": "S", "access_point": "A"}
 
 
 @dataclass
@@ -132,7 +135,7 @@ def _arm_representatives(lanes: list[Lane]) -> list[Lane]:
     return sorted(reps, key=lambda ln: ln.token)
 
 
-def intersections(
+def _intersection_records(
     view: MapView, required_isd_m: float, eye_setback_m: float
 ) -> list[dict]:
     lanes = {lane.token: lane for lane in view.lanes}
@@ -202,21 +205,169 @@ def intersections(
             }
         )
 
-    # ID hashes the core road_segment token only, so changing approach lanes keeps the ID.
-    ids = _short_ids({b["token"]: _digest([b["token"]]) for b in built})
-    out = [
+    return [
         {
-            "id": f"I-{ids[b['token']]}",
             "type": "intersection",
             "name": None,
             "map_tokens": b["map_tokens"],
+            # ID hashes the core road_segment token only, so changing approach lanes keeps the ID.
+            "hash_tokens": [b["token"]],
             "core": mapping(b["core"]),
             "legs": b["legs"],
             "eye_points": b["eye_points"],
         }
         for b in built
     ]
-    return sorted(out, key=lambda f: f["id"])
+
+
+def intersections(
+    view: MapView, required_isd_m: float, eye_setback_m: float
+) -> list[dict]:
+    return _with_ids(_intersection_records(view, required_isd_m, eye_setback_m))
+
+
+def _with_ids(records: list[dict]) -> list[dict]:
+    """Give every facility its ID. Collisions are resolved across all types at once, so an
+    extended ID never clashes with another facility's ID. Each record's `hash_tokens` drive the
+    hash and are dropped from the output."""
+    hashes = {i: _digest(r["hash_tokens"]) for i, r in enumerate(records)}
+    short = _short_ids(hashes)
+    for i, r in enumerate(records):
+        r["id"] = f"{LETTERS[r['type']]}-{short[i]}"
+        del r["hash_tokens"]
+    return sorted(records, key=lambda f: f["id"])
+
+
+def _shares_edge(a: Polygon, b: Polygon) -> bool:
+    # DECISION: adjacent = the polygons share an edge of positive length. A shared corner point
+    # does not count, and there is no tolerance: a gap in the map splits a segment.
+    return a.intersection(b).length > 0
+
+
+def _centreline(core: Polygon, lanes: list[Lane]) -> LineString | None:
+    """Longest connected chain of lane centrelines inside `core`, in the direction of travel.
+    DECISION: a lane is inside if its midpoint is covered by the core (as in from_nuscenes_map).
+    DECISION: chains follow outgoing links, so opposite-direction lanes form their own chain and
+    only the longest one is kept. At a fork the first successor by token order is followed."""
+    inside = {
+        ln.token: ln
+        for ln in lanes
+        if core.covers(ln.centreline.interpolate(0.5, normalized=True))
+    }
+    has_pred = {t for ln in inside.values() for t in ln.outgoing if t in inside}
+    best: list[Lane] = []
+    best_len = -1.0
+    for start in sorted(t for t in inside if t not in has_pred):
+        chain, token, seen = [], start, set()
+        while token in inside and token not in seen:
+            seen.add(token)
+            chain.append(inside[token])
+            nxt = sorted(t for t in inside[token].outgoing if t in inside)
+            token = nxt[0] if nxt else None
+        length = sum(ln.centreline.length for ln in chain)
+        if length > best_len:
+            best, best_len = chain, length
+    if not best:
+        return None
+    pts: list[tuple[float, float]] = []
+    for ln in best:
+        coords = [tuple(c[:2]) for c in ln.centreline.coords]
+        pts.extend(coords[1:] if pts and pts[-1] == coords[0] else coords)
+    return LineString(pts)
+
+
+def _segment_records(view: MapView) -> list[dict]:
+    """Non-intersection road segments merged into connected chains. A chain is a segment only
+    if it touches at least two intersections (spec: between two intersections)."""
+    segs = [s for s in view.road_segments if not s.is_intersection]
+    cores = [s for s in view.road_segments if s.is_intersection]
+    adj: dict[int, set[int]] = {i: set() for i in range(len(segs))}
+    for i, j in combinations(range(len(segs)), 2):
+        if _shares_edge(segs[i].polygon, segs[j].polygon):
+            adj[i].add(j)
+            adj[j].add(i)
+
+    # DECISION: a chain touching fewer than two intersections (dead end, loop) is not a facility.
+    records, done = [], set()
+    for start in range(len(segs)):
+        if start in done:
+            continue
+        comp, stack = set(), [start]
+        while stack:
+            i = stack.pop()
+            if i not in comp:
+                comp.add(i)
+                stack.extend(adj[i] - comp)
+        done |= comp
+        members = sorted((segs[i] for i in comp), key=lambda s: s.token)
+        core = unary_union([s.polygon for s in members])
+        ends = sorted(c.token for c in cores if _shares_edge(core, c.polygon))
+        if len(ends) < 2:
+            continue
+        tokens = [s.token for s in members]
+        line = _centreline(core, view.lanes)
+        records.append(
+            {
+                "type": "segment",
+                "name": None,
+                "map_tokens": tokens,
+                "hash_tokens": tokens,
+                "core": mapping(core),
+                "centreline": mapping(line) if line is not None else None,
+                "between": ends,
+            }
+        )
+    return records
+
+
+def _access_records(view: MapView) -> list[dict]:
+    """One access point per carpark area within 1 m of a road segment, map-derived."""
+    records = []
+    for carpark in sorted(view.carpark_areas, key=lambda a: a.token):
+        near = sorted(
+            (
+                s
+                for s in view.road_segments
+                if carpark.polygon.buffer(1.0).intersects(s.polygon)
+            ),
+            key=lambda s: s.token,
+        )
+        if not near:
+            continue
+        # Core: carpark where it lies within 5 m of the touching road edges.
+        edge = unary_union([s.polygon.boundary for s in near])
+        core = carpark.polygon.intersection(edge.buffer(5.0))
+        if core.is_empty:
+            continue  # DECISION: a carpark wholly inside the road with no edge in reach is dropped.
+        records.append(
+            {
+                "type": "access_point",
+                "name": None,
+                "source": "map-derived",
+                "map_tokens": sorted([carpark.token] + [s.token for s in near]),
+                "hash_tokens": [carpark.token],
+                "core": mapping(core),
+            }
+        )
+    return records
+
+
+def build_facilities(
+    view: MapView, isd_params: IsdParams, facilities_params: FacilitiesParams
+) -> list[dict]:
+    """All facilities for one map view: intersections, segments and access points, with IDs
+    unique across types. `observed_core` is a placeholder for the ground stage to fill."""
+    records = _intersection_records(
+        view, isd_required_m(isd_params), isd_params.eye_setback_m
+    )
+    records += _segment_records(view)
+    records += _access_records(view)
+    for r in records:
+        r["observed_core"] = None
+        # DECISION: carried per facility so the ground stage can mark "not scanned enough"
+        # without reloading params.
+        r["min_observed"] = facilities_params.min_observed
+    return _with_ids(records)
 
 
 def from_nuscenes_map(
