@@ -77,6 +77,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path(os.environ.get("NUSCENES_ROOT", "/data/nuscenes")),
     )
+    publish = sub.add_parser("publish", help="copy runs into a showcase folder")
+    publish.add_argument("run_ids", nargs="+", metavar="run-id")
+    publish.add_argument("--out", type=Path, required=True, help="showcase folder")
+    publish.add_argument(
+        "--store", type=Path, help="run store (default: $TWIN_RUNS or /data/twin-runs)"
+    )
     fake = sub.add_parser("fake-run", help="write synthetic runs and a showcase bundle")
     fake.add_argument("--out", type=Path, default=Path("runs"))
     fake.add_argument("--drives", type=int, choices=(1, 2), default=2)
@@ -100,6 +106,10 @@ def main(argv: list[str] | None = None) -> int:
         from twin.select import run_select
 
         return run_select(args.dataroot, args.min_density, args.min_contrast)
+    if args.command == "publish":
+        from twin.publish import publish_command
+
+        return publish_command(args.run_ids, args.out, args.store)
     if args.command == "fake-run":
         from twin.fake_run import write_fake_runs
 
