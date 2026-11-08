@@ -1121,38 +1121,6 @@ button:focus-visible {
   color: #fff;
 }
 
-/* ---------- narrow screens: interim layout until issue #11 ---------- */
-@media (max-width: 980px) {
-  html,
-  body {
-    overflow: auto;
-  }
-  .app {
-    position: static;
-  }
-  .top {
-    position: static;
-    margin: 14px;
-    height: auto;
-    flex-wrap: wrap;
-  }
-  .main,
-  .rail {
-    position: static;
-    width: auto;
-    margin: 0 14px 12px;
-  }
-  .main {
-    height: 75vh;
-  }
-  .rail {
-    height: auto;
-  }
-  .insp {
-    overflow: visible;
-  }
-}
-
 .app {
   position: fixed;
   inset: 0;
@@ -1164,4 +1132,274 @@ button:focus-visible {
 
 .app > .rail {
   z-index: 1;
+}
+
+/* ---------- tablet and phone (issue #11): touch targets of at least 44 px ---------- */
+@media (max-width: 1279px) {
+  .top {
+    height: 44px;
+  }
+
+  .top a,
+  .crumbs button,
+  .mapctl .hd,
+  .back,
+  .jump button,
+  .idx button,
+  .rowbtn,
+  .btn {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  .top a {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .railbtn,
+  .zoom button,
+  .sum .sumbtn {
+    width: 44px;
+    height: 44px;
+  }
+
+  .tg,
+  .an,
+  .btn {
+    height: 44px;
+  }
+
+  .rowbtn {
+    display: inline-flex;
+    align-items: center;
+  }
+}
+
+/* ---------- tablet (768 to 1279 px): the side panel is an overlay, shown and hidden by the \ toggle ---------- */
+@media (min-width: 768px) and (max-width: 1279px) {
+  .main {
+    right: var(--gut); /* the map keeps the full width under the overlay */
+  }
+
+  .rail {
+    bottom: calc(96px + var(--gut) + 10px); /* the overlay stops above the profile strip */
+  }
+
+  .rail {
+    box-shadow: 0 12px 40px rgb(0 0 0 / 0.35);
+  }
+
+  .legal {
+    right: auto;
+    left: 12px;
+    bottom: 34px;
+    max-width: none;
+    text-align: left;
+  }
+}
+
+/* ---------- phone (under 768 px): the map fills the screen, the right column is a bottom sheet ---------- */
+@media (max-width: 767px) {
+  .app {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .top {
+    position: static;
+    flex: none;
+    margin: 12px 16px 0;
+  }
+
+  .brand,
+  .railbtn,
+  .crumb-hide,
+  .crumbs i {
+    display: none;
+  }
+
+  .crumbs {
+    font-size: 14px;
+  }
+
+  .crumbs button {
+    max-width: 60%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .crumbs .crumb-up::before {
+    content: "\2039\00a0"; /* a back chevron: the crumb is the way up */
+  }
+
+  .main {
+    position: relative;
+    top: auto;
+    left: auto;
+    right: auto;
+    bottom: auto;
+    flex: 1 1 auto;
+    min-height: 0;
+    margin-top: 10px;
+  }
+
+  .vp {
+    border-radius: 0;
+  }
+
+  .legal {
+    top: 8px;
+    right: 12px;
+    left: 12px;
+    bottom: auto;
+    max-width: none;
+    font-size: 9.5px;
+    text-align: left;
+  }
+
+  .mapctl {
+    top: 56px;
+    left: 12px;
+    z-index: 3; /* the open Layers popover floats above the sheet */
+  }
+
+  .mapctl.min {
+    width: auto;
+    border-radius: 999px;
+  }
+
+  .mapctl.min .hd {
+    width: auto;
+    min-height: 44px;
+    padding: 0 14px;
+    gap: 10px;
+  }
+
+  .zoom {
+    top: 56px;
+    right: 12px;
+  }
+
+  /* The sheet: one fixed box 88 % of the screen tall. Its translate sets the state (see SheetHead.tsx: PEEK_PX). */
+  .rail {
+    top: auto;
+    left: 16px;
+    right: 16px;
+    bottom: 0;
+    width: auto;
+    height: 88dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: none;
+    gap: 10px;
+    padding-bottom: 16px;
+    transition: transform 240ms var(--ease-out);
+  }
+
+  .rail[data-sheet="peek"] {
+    transform: translateY(calc(100% - 72px));
+  }
+
+  .rail[data-sheet="half"] {
+    transform: translateY(calc(100% - 50dvh));
+  }
+
+  .rail[data-sheet="full"] {
+    transform: none;
+  }
+
+  .rail[data-sheet="peek"] > :not(.sheetgrip) {
+    visibility: hidden;
+  }
+
+  .rail > * {
+    flex: none;
+  }
+
+  .rail .sum.max {
+    flex: none;
+    overflow: visible;
+  }
+
+  .rail .insp {
+    overflow: visible;
+  }
+
+  .rail .strip {
+    height: 132px;
+  }
+
+  .rail .prof {
+    flex: none;
+  }
+
+  .rail .prof svg {
+    flex: none;
+  }
+
+  .rail .insp .jump {
+    margin-top: 0;
+  }
+
+  .sheetgrip {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    gap: 8px;
+    width: 100%;
+    height: 72px;
+    padding: 10px 14px 0;
+    border: 0;
+    color: var(--on-glass);
+    text-align: left;
+    cursor: pointer;
+    touch-action: none;
+  }
+
+  .grab {
+    align-self: center;
+    width: 36px;
+    height: 5px;
+    border-radius: 3px;
+    background: rgb(255 255 255 / 0.45);
+  }
+
+  .peekline {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .peekline b {
+    min-width: 0;
+    overflow: hidden;
+    font: 700 15px/1.2 var(--display);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .peekline .num {
+    flex: none;
+    font: 700 15px/1 var(--display);
+    white-space: nowrap;
+  }
+
+  .peekline small {
+    margin-left: 4px;
+    font: 500 11px/1 var(--text);
+    color: var(--on-glass-3);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rail {
+    transition: none;
+  }
 }
