@@ -38,6 +38,7 @@ from twin.contracts import (
     Pipeline,
     StageResult,
 )
+from twin.tiles import write_tiles
 
 RUN_DATE = "20261108"
 START = datetime(2026, 11, 8, 9, 0, 0)
@@ -54,8 +55,6 @@ PAINT_RGB = (236, 236, 228)
 RASTER_CELLS = 256
 RASTER_M = 0.25  # cell size of the base raster
 RASTER_ORIGIN = (-12.0, -12.0)  # local x, y of the lower-left cell corner
-TILE = 256
-MAX_ZOOM = 2
 SOURCE_LINE = "Source: synthetic fixture (fake-run), not nuScenes data"
 LICENCE_LINE = "Licence: CC BY-NC-SA 4.0 for derived outputs"
 
@@ -163,6 +162,14 @@ class _Ctx:
     facilities: list[FacilitySpec]
     observed: dict[str, float]
     rasters: dict[str, np.ndarray] = field(default_factory=dict)
+
+
+def _raster_bbox() -> tuple[float, float, float, float]:
+    """UTM 19N extent of the base raster (EPSG:32619, metres)."""
+    x0 = ORIGIN_E + RASTER_ORIGIN[0]
+    y0 = ORIGIN_N + RASTER_ORIGIN[1]
+    size = RASTER_CELLS * RASTER_M
+    return (x0, y0, x0 + size, y0 + size)
 
 
 def _run_id(index: int) -> str:
@@ -676,30 +683,6 @@ def _code() -> ManifestCode:
     return ManifestCode(git_sha=sha, dirty=dirty, lockfile_sha256=digest)
 
 
-def _write_tiles(showcase: Path, run_id: str, rasters: dict[str, np.ndarray]) -> None:
-    for name, base in rasters.items():
-        img0 = Image.fromarray(base)
-        for z in range(MAX_ZOOM + 1):
-            side = TILE * 2**z
-            img = img0.resize((side, side), Image.Resampling.NEAREST)
-            for tx in range(2**z):
-                for ty in range(2**z):
-                    path = (
-                        showcase
-                        / "tiles"
-                        / run_id
-                        / name
-                        / str(z)
-                        / str(tx)
-                        / f"{ty}.webp"
-                    )
-                    path.parent.mkdir(parents=True, exist_ok=True)
-                    tile = img.crop(
-                        (tx * TILE, ty * TILE, (tx + 1) * TILE, (ty + 1) * TILE)
-                    )
-                    tile.save(path, "WEBP", lossless=True)
-
-
 def _write_run(out: Path, index: int, showcase: Path) -> str:
     spec = DRIVE_SPECS[index]
     run_id = _run_id(index)
@@ -765,7 +748,7 @@ def _write_run(out: Path, index: int, showcase: Path) -> str:
     (run_dir / "params.yaml").write_text(
         yaml.safe_dump(params.model_dump(mode="json"), sort_keys=False)
     )
-    _write_tiles(showcase, run_id, ctx.rasters)
+    write_tiles(showcase, run_id, ctx.rasters, _raster_bbox())
     (showcase / run_id).mkdir(parents=True, exist_ok=True)
     shutil.copy(
         run_dir / "10_outputs" / "twin.geojson", showcase / run_id / "twin.geojson"
@@ -777,7 +760,10 @@ def _write_run(out: Path, index: int, showcase: Path) -> str:
 def _area(run_ids: list[str]) -> AreaIndex:
     drives = [
         Drive(
-            run_id=rid, scene_token=DRIVE_SPECS[i].scene_token, name=DRIVE_SPECS[i].name
+            run_id=rid,
+            scene_token=DRIVE_SPECS[i].scene_token,
+            name=DRIVE_SPECS[i].name,
+            bbox=list(_raster_bbox()),
         )
         for i, rid in enumerate(run_ids)
     ]

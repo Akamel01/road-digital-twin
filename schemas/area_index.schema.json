@@ -63,6 +63,23 @@
     "Drive": {
       "additionalProperties": false,
       "properties": {
+        "bbox": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 4,
+              "minItems": 4,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bbox"
+        },
         "name": {
           "title": "Name",
           "type": "string"
