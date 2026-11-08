@@ -153,7 +153,7 @@
     "title": "SplatAD: Real-Time Lidar and Camera Rendering with 3D Gaussian Splatting for Autonomous Driving",
     "authors": [
       "Hess, Georg",
-      "Lindström, Carl",
+      "Lindstr\u00f6m, Carl",
       "Fatemi, Maryam",
       "Petersson, Christoffer",
       "Svensson, Lennart"
@@ -508,7 +508,7 @@
     "title": "Assessing road roughness using UAV-derived dense point clouds",
     "authors": [
       "POLAT, Nizar",
-      "AKÇA, Şeyma"
+      "AK\u00c7A, \u015eeyma"
     ],
     "year": 2023,
     "venue": "Mersin Photogrammetry Journal",
@@ -731,10 +731,10 @@
     "type": "paper",
     "title": "Framework for 3D Point Cloud Modelling Aimed at Road Sight Distance Estimations",
     "authors": [
-      "González-Gómez, Keila",
+      "Gonz\u00e1lez-G\u00f3mez, Keila",
       "Iglesias, Luis",
-      "Rodríguez-Solano, Roberto",
-      "Castro, María"
+      "Rodr\u00edguez-Solano, Roberto",
+      "Castro, Mar\u00eda"
     ],
     "year": 2019,
     "venue": "Remote Sensing",
@@ -755,7 +755,7 @@
       "Holgado-Barco, Alberto",
       "Gonzalez-Aguilera, Diego",
       "Arias-Sanchez, Pedro",
-      "Martinez-Sanchez, Joaquín"
+      "Martinez-Sanchez, Joaqu\u00edn"
     ],
     "year": 2014,
     "venue": "ISPRS Journal of Photogrammetry and Remote Sensing",
@@ -813,7 +813,7 @@
     "authors": [
       "Kilani, Omar",
       "Gouda, Maged",
-      "Weiß, Jonas",
+      "Wei\u00df, Jonas",
       "El-Basyouny, Karim"
     ],
     "year": 2021,
@@ -1177,5 +1177,278 @@
     ],
     "relevance": 1,
     "checked": "2026-11-07"
+  },
+  {
+    "id": "katz-2007-hpr",
+    "type": "paper",
+    "title": "Direct visibility of point sets",
+    "authors": [
+      "Sagi Katz",
+      "Ayellet Tal",
+      "Ronen Basri"
+    ],
+    "year": 2007,
+    "venue": "ACM Transactions on Graphics",
+    "doi": "10.1145/1275808.1276407",
+    "url": "https://dl.acm.org/doi/10.1145/1275808.1276407",
+    "questions": [
+      8
+    ],
+    "relevance": 2,
+    "open_access": false
+  },
+  {
+    "id": "curless-1996-tsdf",
+    "type": "paper",
+    "title": "A volumetric method for building complex models from range images",
+    "authors": [
+      "Brian Curless",
+      "Marc Levoy"
+    ],
+    "year": 1996,
+    "venue": "SIGGRAPH",
+    "doi": "10.1145/237170.237269",
+    "url": "https://dl.acm.org/doi/10.1145/237170.237269",
+    "questions": [
+      1,
+      5
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "rome-2024",
+    "type": "paper",
+    "title": "RoMe: Towards Large Scale Road Surface Reconstruction via Mesh Representation",
+    "authors": [
+      "Ruohong Mei",
+      "Wei Sui",
+      "Jiaxin Zhang",
+      "Xue Qin",
+      "Gang Wang",
+      "Tao Peng",
+      "Tao Chen",
+      "Cong Yang"
+    ],
+    "year": 2024,
+    "venue": "IEEE Transactions on Intelligent Vehicles",
+    "url": "https://arxiv.org/abs/2306.11368",
+    "questions": [
+      1,
+      5
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "streetsurf-2023",
+    "type": "paper",
+    "title": "StreetSurf: Extending Multi-view Implicit Surface Reconstruction to Street Views",
+    "authors": [
+      "Jianfei Guo",
+      "Nianchen Deng",
+      "Xinyang Li",
+      "Yeqi Bai",
+      "Botian Shi",
+      "Chiyu Wang",
+      "Chenjing Ding",
+      "Dongliang Wang",
+      "Yikang Li"
+    ],
+    "year": 2023,
+    "venue": "arXiv",
+    "url": "https://arxiv.org/abs/2306.04988",
+    "questions": [
+      1,
+      5
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "r3live-2021",
+    "type": "paper",
+    "title": "R3LIVE: A Robust, Real-time, RGB-colored, LiDAR-Inertial-Visual tightly-coupled state Estimation and mapping package",
+    "authors": [
+      "Jiarong Lin",
+      "Fu Zhang"
+    ],
+    "year": 2021,
+    "venue": "arXiv",
+    "url": "https://arxiv.org/abs/2112.12148",
+    "questions": [
+      1
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "lvi-sam-2021",
+    "type": "paper",
+    "title": "LVI-SAM: Tightly-coupled Lidar-Visual-Inertial Odometry via Smoothing and Mapping",
+    "authors": [
+      "Tixiao Shan",
+      "Brendan Englot",
+      "Drew Meyers",
+      "Wei Wang",
+      "Carlo Ratti",
+      "Daniela Rus"
+    ],
+    "year": 2021,
+    "venue": "arXiv",
+    "url": "https://arxiv.org/abs/2104.10832",
+    "questions": [
+      1
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "b2f-map-2026",
+    "type": "paper",
+    "title": "B2F-Map: Crowd-sourced Mapping with Bayesian B-spline Fusion",
+    "authors": [
+      "Yiping Xie",
+      "Yuxuan Xia",
+      "Erik Stenborg",
+      "Junsheng Fu",
+      "Axel Beauvisage",
+      "Gabriel Garcia",
+      "Tianyu Wu",
+      "Gustaf Hendeby"
+    ],
+    "year": 2026,
+    "venue": "ICRA",
+    "url": "https://arxiv.org/abs/2603.01673",
+    "questions": [
+      3,
+      7
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "calib-survey-2022",
+    "type": "paper",
+    "title": "Automatic targetless LiDAR\u2013camera calibration: a survey",
+    "authors": [
+      "Xingchen Li",
+      "Yuxuan Xiao",
+      "Beibei Wang",
+      "Haojie Ren",
+      "Yanyong Zhang",
+      "Jianmin Ji"
+    ],
+    "year": 2022,
+    "venue": "Artificial Intelligence Review",
+    "doi": "10.1007/s10462-022-10317-y",
+    "url": "https://link.springer.com/article/10.1007/s10462-022-10317-y",
+    "questions": [
+      1
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "besl-1992-icp",
+    "type": "paper",
+    "title": "A method for registration of 3-D shapes",
+    "authors": [
+      "Paul J. Besl",
+      "Neil D. McKay"
+    ],
+    "year": 1992,
+    "venue": "IEEE Transactions on Pattern Analysis and Machine Intelligence",
+    "doi": "10.1109/34.121791",
+    "url": "https://ieeexplore.ieee.org/document/121791",
+    "questions": [
+      1,
+      3
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "rome-repo",
+    "type": "repo",
+    "title": "RoMe repository",
+    "url": "https://github.com/DRosemei/RoMe",
+    "stars": 279,
+    "licence": "MIT",
+    "last_push": "2025-01-19",
+    "questions": [
+      1,
+      5
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "neuralsim-repo",
+    "type": "repo",
+    "title": "neuralsim repository (StreetSurf implementation)",
+    "url": "https://github.com/PJLab-ADG/neuralsim",
+    "stars": 671,
+    "licence": "MIT",
+    "last_push": "2024-03-14",
+    "questions": [
+      1,
+      5
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "r3live-repo",
+    "type": "repo",
+    "title": "R3LIVE repository",
+    "url": "https://github.com/hku-mars/r3live",
+    "stars": 2488,
+    "licence": "GPL-2.0",
+    "last_push": "2025-12-04",
+    "questions": [
+      1
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "fast-livo2-repo",
+    "type": "repo",
+    "title": "FAST-LIVO2 repository",
+    "url": "https://github.com/hku-mars/FAST-LIVO2",
+    "stars": 4848,
+    "licence": "GPL-2.0",
+    "last_push": "2026-03-08",
+    "questions": [
+      1
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "lvi-sam-repo",
+    "type": "repo",
+    "title": "LVI-SAM repository",
+    "url": "https://github.com/TixiaoShan/LVI-SAM",
+    "stars": 1894,
+    "licence": "BSD-3-Clause",
+    "last_push": "2022-12-17",
+    "questions": [
+      1
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "b2f-map-repo",
+    "type": "repo",
+    "title": "B2F-Map repository",
+    "url": "https://github.com/yiping-xie/B2F-Map",
+    "stars": 0,
+    "licence": "not reported in this pass",
+    "last_push": "not reported in this pass",
+    "questions": [
+      3,
+      7
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "vancouver-lidar-2022",
+    "type": "dataset",
+    "title": "City of Vancouver LiDAR 2022",
+    "url": "https://opendata.vancouver.ca/explore/dataset/lidar-2022/",
+    "questions": [
+      3
+    ],
+    "relevance": 2
   }
 ]

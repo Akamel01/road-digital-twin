@@ -102,3 +102,22 @@ Every source is an entry in [`sources.yaml`](sources.yaml). Citations use the en
 | gsplat [gsplat-repo] | Rendering library for Gaussian splats | Apache-2.0 | 2026-09-19 | Not stated | Not evaluated here |
 
 Weakest coverage: vertical profile (section 6, one paper), camera-only accuracy versus lidar (section 2, no quantitative source), and digital twins for audits (section 7, no direct source).
+
+## See also: multi-sensor state of the art (ticket #13)
+
+[katz-2007-hpr]
+[curless-1996-tsdf]
+[rome-2024]
+[streetsurf-2023]
+[r3live-2021]
+[lvi-sam-2021]
+[b2f-map-2026]
+[calib-survey-2022]
+[besl-1992-icp]
+[rome-repo]
+[neuralsim-repo]
+[r3live-repo]
+[fast-livo2-repo]
+[lvi-sam-repo]
+[b2f-map-repo]
+[vancouver-lidar-2022]
