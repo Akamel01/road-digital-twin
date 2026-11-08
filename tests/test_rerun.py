@@ -84,7 +84,7 @@ def test_earlier_params_change_refused_naming_stage(tmp_path, stubs):
         runner.rerun(
             tmp_path, parent_id, "ground", params={"mask": {"box_margin_m": 0.5}}
         )
-    assert len(list(tmp_path.iterdir())) == 1
+    assert len([p for p in tmp_path.iterdir() if p.is_dir()]) == 1
     assert calls["load"] == 1
 
 
@@ -121,7 +121,7 @@ def test_refused_when_parent_earlier_stage_failed(tmp_path, stubs):
     parent_id = runner.start_run(tmp_path, "scene-1", Pipeline(), Params())
     with pytest.raises(ValueError, match="stage mask is failed"):
         runner.rerun(tmp_path, parent_id, "ground")
-    assert len(list(tmp_path.iterdir())) == 1
+    assert len([p for p in tmp_path.iterdir() if p.is_dir()]) == 1
 
 
 def test_cli_rerun_prints_id_and_exit_codes(tmp_path, stubs, capsys):

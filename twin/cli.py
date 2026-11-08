@@ -13,7 +13,7 @@ from twin.contracts import (
     Pipeline,
     StageResult,
 )
-from twin.runner import rerun_command, run_command
+from twin.runner import cancel_command, rerun_command, run_command
 
 SCHEMA_MODELS = {
     "params": Params,
@@ -69,6 +69,11 @@ def build_parser() -> argparse.ArgumentParser:
     rerun.add_argument(
         "--store", type=Path, help="run store (default: $TWIN_RUNS or /data/twin-runs)"
     )
+    cancel = sub.add_parser("cancel", help="stop a run before its next stage")
+    cancel.add_argument("run_id", help="run id")
+    cancel.add_argument(
+        "--store", type=Path, help="run store (default: $TWIN_RUNS or /data/twin-runs)"
+    )
     select = sub.add_parser("select", help="list Boston drives with go/no-go")
     select.add_argument("--min-density", type=float, default=None)
     select.add_argument("--min-contrast", type=float, default=None)
@@ -96,6 +101,8 @@ def main(argv: list[str] | None = None) -> int:
         return rerun_command(
             args.run_id, args.from_stage, args.pipeline, args.params, args.store
         )
+    if args.command == "cancel":
+        return cancel_command(args.run_id, args.store)
     if args.command == "select":
         from twin.select import run_select
 
