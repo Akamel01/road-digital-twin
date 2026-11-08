@@ -69,8 +69,30 @@ _Avoid_: missing, no data, hole
 
 ### People
 
+**Facility**:
+A unit of road the twin reports on: an Intersection, a Segment or an Access point. Every check result belongs to one facility.
+_Avoid_: site, location, asset
+
+**Intersection**:
+A facility made of the HD map's intersection area plus each leg out to its required sight distance.
+
+**Leg**:
+One road arm of an intersection, the approach a driver waits on. Sight distance is checked per leg.
+_Avoid_: approach (when you mean the whole arm), branch
+
+**Segment**:
+A facility for the road between two intersections, taken as one unit.
+_Avoid_: link, road piece
+
+**Access point**:
+A facility where a driveway or lot entrance meets the road.
+_Avoid_: driveway (too narrow), entrance
+
+**Not scanned enough**:
+A facility whose core is less than half observed. It is listed so the gap shows, but it has no metrics.
+
 **Operator**:
-The project owner and only admin. He sets the methodology.
+The project owner and only admin. They set the methodology.
 _Avoid_: user, admin, developer
 
 **Viewer**:

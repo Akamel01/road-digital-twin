@@ -107,3 +107,12 @@ Date: 2026-11-07. Operator decisions, grilling round 3.
     - Zero Trust team `papyrus`; sessions last 24 h.
     - The panel has a sign-in button.
     - The operator enables Zero Trust and creates the `cloudflare-zt-token`; Claude configures the rest, showing each change first.
+40. **Facility definitions** (map ticket #12):
+    - **Intersection:** the map's intersection polygon, plus each leg out to its required sight distance, stopping where the next facility begins. The eye point is on the map's stop line where one exists; otherwise 4.4 m back from the core edge.
+    - **Segment:** the non-intersection map pieces between two intersections, merged into one segment.
+    - **Access point:** in v1, map-derived, where a parking area meets the drivable road, and labelled so. In v1.1, twin-derived from curb gaps with a dropped curb, scored against the map-derived ones.
+    - **Names:** street names from OpenStreetMap, fetched once, with ODbL attribution.
+    - **IDs:** a type letter plus a short hash of the map tokens, for example `I-3fa9`.
+    - **Checks:** intersection: ISD per leg and a profile per approach. Segment: profile only. Access point: exit ISD left and right, plus a profile.
+    - **Coverage:** every facility in the area is listed. One whose core is less than 50% observed is greyed out, labelled "not scanned enough", and shows no metrics.
+    - **Sight lines are 3D** against the twin's surface (as in the spec). The target height per situation (car, headlights, pedestrian, cyclist) waits on research ticket #15. Until then, the defaults stay at 1.08 m.
