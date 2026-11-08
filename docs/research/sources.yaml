@@ -153,7 +153,7 @@
     "title": "SplatAD: Real-Time Lidar and Camera Rendering with 3D Gaussian Splatting for Autonomous Driving",
     "authors": [
       "Hess, Georg",
-      "Lindström, Carl",
+      "Lindstr\u00f6m, Carl",
       "Fatemi, Maryam",
       "Petersson, Christoffer",
       "Svensson, Lennart"
@@ -508,7 +508,7 @@
     "title": "Assessing road roughness using UAV-derived dense point clouds",
     "authors": [
       "POLAT, Nizar",
-      "AKÇA, Şeyma"
+      "AK\u00c7A, \u015eeyma"
     ],
     "year": 2023,
     "venue": "Mersin Photogrammetry Journal",
@@ -731,10 +731,10 @@
     "type": "paper",
     "title": "Framework for 3D Point Cloud Modelling Aimed at Road Sight Distance Estimations",
     "authors": [
-      "González-Gómez, Keila",
+      "Gonz\u00e1lez-G\u00f3mez, Keila",
       "Iglesias, Luis",
-      "Rodríguez-Solano, Roberto",
-      "Castro, María"
+      "Rodr\u00edguez-Solano, Roberto",
+      "Castro, Mar\u00eda"
     ],
     "year": 2019,
     "venue": "Remote Sensing",
@@ -755,7 +755,7 @@
       "Holgado-Barco, Alberto",
       "Gonzalez-Aguilera, Diego",
       "Arias-Sanchez, Pedro",
-      "Martinez-Sanchez, Joaquín"
+      "Martinez-Sanchez, Joaqu\u00edn"
     ],
     "year": 2014,
     "venue": "ISPRS Journal of Photogrammetry and Remote Sensing",
@@ -813,7 +813,7 @@
     "authors": [
       "Kilani, Omar",
       "Gouda, Maged",
-      "Weiß, Jonas",
+      "Wei\u00df, Jonas",
       "El-Basyouny, Karim"
     ],
     "year": 2021,
@@ -1268,5 +1268,107 @@
     ],
     "relevance": 1,
     "checked": "2026-11-07"
+  },
+  {
+    "id": "aashto-green-book-2018",
+    "type": "standard",
+    "title": "A Policy on Geometric Design of Highways and Streets (Green Book), 7th ed., 2018",
+    "url": "https://store.transportation.org/item/collectiondetail/1773",
+    "open_access": false,
+    "questions": [
+      6,
+      7
+    ],
+    "relevance": 3
+  },
+  {
+    "id": "nchrp-383",
+    "type": "paper",
+    "title": "Intersection Sight Distance",
+    "authors": [
+      "Harwood, Douglas W.",
+      "Mason, John M.",
+      "Brydia, Robert E.",
+      "Pietrucha, Martin T.",
+      "Gittings, Gary L."
+    ],
+    "year": 1996,
+    "venue": "NCHRP Report 383",
+    "url": "https://trid.trb.org/view/481444",
+    "open_access": false,
+    "questions": [
+      6,
+      7
+    ],
+    "relevance": 3
+  },
+  {
+    "id": "aashto-bike-guide",
+    "type": "standard",
+    "title": "Guide for the Development of Bicycle Facilities (AASHTO Bike Guide), 4th/5th ed.",
+    "url": "https://store.transportation.org/Common/DownloadContentFiles?id=2475",
+    "open_access": false,
+    "questions": [
+      6,
+      7
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "fhwa-idrm-2003",
+    "type": "standard",
+    "title": "IHSDM Intersection Diagnostic Review Model (FHWA-RD-02-045)",
+    "url": "https://www.fhwa.dot.gov/publications/research/safety/ihsdm/02045/3.cfm",
+    "open_access": true,
+    "questions": [
+      6,
+      7
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "nchrp-15-75",
+    "type": "paper",
+    "title": "Acceleration, Deceleration, and Stopping Sight Distance Criteria for Geometric Design of Highways and Streets",
+    "authors": [
+      "Savolainen, Peter T.",
+      "Gates, Timothy J.",
+      "Megat Johari, Megat Usamah",
+      "Bamney, Anshu",
+      "Jashami, Hisham"
+    ],
+    "year": 2023,
+    "venue": "NCHRP Research Report",
+    "url": "https://trid.trb.org/View/2334606",
+    "open_access": false,
+    "questions": [
+      6,
+      7
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "ohio-dot-ldm",
+    "type": "standard",
+    "title": "Ohio DOT Location and Design Manual, Volume 1 (sight distance, sections 201/203)",
+    "url": "https://dam.assets.ohio.gov/image/upload/transportation.ohio.gov/roadway/ld1/archive/2020-07-LD1.pdf",
+    "open_access": true,
+    "questions": [
+      6,
+      7
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "iowa-sudas",
+    "type": "standard",
+    "title": "Iowa SUDAS Design Manual (sight distance)",
+    "url": "https://iowasudas.org/",
+    "open_access": true,
+    "questions": [
+      6,
+      7
+    ],
+    "relevance": 2
   }
 ]
