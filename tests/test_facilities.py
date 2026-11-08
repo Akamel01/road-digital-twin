@@ -64,6 +64,21 @@ def _x_facility(facs):
     return next(f for f in facs if "X" in f["map_tokens"])
 
 
+def _with_side_lanes(view):
+    # Two more lanes on the same arm (R_A2) as A1, one either side of it.
+    for token, x in (("A1b", 1.0), ("A1c", -1.0)):
+        view.lanes.append(
+            Lane(
+                token,
+                LineString([(x, -40), (x, -5)]),
+                "R_A2",
+                incoming=["CONY"],
+                outgoing=["CON1"],
+            )
+        )
+    return view
+
+
 def test_isd_required_matches_formula_for_defaults():
     assert ISD == pytest.approx(0.278 * 50.0 * 7.5)
     assert ISD == pytest.approx(104.25)
@@ -82,6 +97,40 @@ def test_ids_identical_across_builds_and_token_order():
     for f in first:
         assert re.fullmatch(r"I-[0-9a-f]{4}", f["id"])
         assert f["name"] is None and f["type"] == "intersection"
+
+
+def test_three_lane_arm_gives_one_leg_on_middle_lane():
+    facs = intersections(_with_side_lanes(_view()), ISD, SETBACK)
+    x = _x_facility(facs)
+    assert len(x["legs"]) == 1
+    assert x["legs"][0]["approach"] == "A1"  # closest to the arm's mean midpoint
+    assert len(x["eye_points"]) == 1
+
+
+def test_id_unchanged_when_approach_lanes_change():
+    base = _x_facility(intersections(_view(), ISD, SETBACK))
+    more = _x_facility(intersections(_with_side_lanes(_view()), ISD, SETBACK))
+    assert base["id"] == more["id"]
+    assert base["map_tokens"] != more["map_tokens"]
+
+
+def test_id_hashes_core_token_only():
+    x = _x_facility(intersections(_view(), ISD, SETBACK))
+    assert x["id"] == "I-" + hashlib.sha1(b"X").hexdigest()[:4]
+
+
+def test_clashing_ids_extend_others_stay_four(monkeypatch):
+    from twin import facilities
+
+    fixed = {"X": "aaaa1" + "0" * 35, "Y": "aaaa2" + "0" * 35, "Z": "bbbb3" + "0" * 35}
+    monkeypatch.setattr(facilities, "_digest", lambda toks: fixed[toks[0]])
+    view = _view()
+    view.road_segments.append(RoadSegment("Z", box(50, 50, 60, 60), True))
+    by_core = {
+        next(t for t in f["map_tokens"] if t in ("X", "Y", "Z")): f["id"]
+        for f in intersections(view, ISD, SETBACK)
+    }
+    assert by_core == {"X": "I-aaaa1", "Y": "I-aaaa2", "Z": "I-bbbb"}
 
 
 def test_leg_stops_at_next_intersection_core():

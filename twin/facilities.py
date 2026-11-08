@@ -7,6 +7,7 @@ Pure functions over a MapView of plain shapely geometries and tokens, so tests n
 from __future__ import annotations
 
 import hashlib
+from collections import Counter
 from dataclasses import dataclass, field
 
 import shapely
@@ -61,18 +62,28 @@ def isd_required_m(params: IsdParams | None = None) -> float:
     return 0.278 * p.design_speed_kmh * p.time_gap_s
 
 
+def _digest(map_tokens: list[str]) -> str:
+    return hashlib.sha1(",".join(sorted(map_tokens)).encode()).hexdigest()
+
+
 def facility_id(type_letter: str, map_tokens: list[str], length: int = 4) -> str:
-    digest = hashlib.sha1(",".join(sorted(map_tokens)).encode()).hexdigest()
-    return f"{type_letter}-{digest[:length]}"
+    return f"{type_letter}-{_digest(map_tokens)[:length]}"
 
 
 def _short_ids(hashes: dict[str, str]) -> dict[str, str]:
-    # DECISION: "collisions extend the hash" read as: use the shortest prefix (min 4) that makes
-    # every id in this build unique. Applies to all ids in the build, not only the clashing ones.
+    """Each id is its first 4 hex; only ids that clash are extended (5, 6, ... hex) until unique."""
+    out = {k: h[:4] for k, h in hashes.items()}
+    pending = {
+        k for k in hashes if sum(v[:4] == hashes[k][:4] for v in hashes.values()) > 1
+    }
     n = 4
-    while len({h[:n] for h in hashes.values()}) < len(hashes) and n < 40:
+    while pending and n < 40:
         n += 1
-    return {k: h[:n] for k, h in hashes.items()}
+        counts = Counter(hashes[k][:n] for k in pending)
+        for k in pending:
+            out[k] = hashes[k][:n]
+        pending = {k for k in pending if counts[hashes[k][:n]] > 1}
+    return out
 
 
 def _coords(geom) -> list[tuple[float, float]]:
@@ -96,6 +107,31 @@ def _walk_back(lanes: dict[str, Lane], start: str, length: float) -> LineString:
     return LineString(pts)
 
 
+def _arm_representatives(lanes: list[Lane]) -> list[Lane]:
+    """One lane per road arm. Arm = lanes sharing a road_segment; the representative is the lane
+    whose midpoint is nearest the arm's mean midpoint (ties by token)."""
+    arms: dict[str, list[Lane]] = {}
+    # DECISION: arm = road_segment token (road_block not used). Lanes lacking one are their own arm.
+    for lane in lanes:
+        arms.setdefault(lane.road_segment or lane.token, []).append(lane)
+    reps = []
+    for group in arms.values():
+        mids = [ln.centreline.interpolate(0.5, normalized=True) for ln in group]
+        mean = Point(
+            sum(m.x for m in mids) / len(mids), sum(m.y for m in mids) / len(mids)
+        )
+        reps.append(
+            min(
+                group,
+                key=lambda ln: (
+                    ln.centreline.interpolate(0.5, normalized=True).distance(mean),
+                    ln.token,
+                ),
+            )
+        )
+    return sorted(reps, key=lambda ln: ln.token)
+
+
 def intersections(
     view: MapView, required_isd_m: float, eye_setback_m: float
 ) -> list[dict]:
@@ -103,8 +139,7 @@ def intersections(
     seg_of = {lane.token: lane.road_segment for lane in view.lanes}
     cores = {s.token: s for s in view.road_segments if s.is_intersection}
 
-    # DECISION: an approach is a lane outside any intersection that has an outgoing lane inside
-    # an intersection. One leg per approach lane (no grouping by road arm).
+    # Approach = lane outside any intersection with an outgoing lane inside an intersection.
     approaches: dict[str, list[Lane]] = {t: [] for t in cores}
     for lane in view.lanes:
         if lane.road_segment in cores:
@@ -120,7 +155,7 @@ def intersections(
         core = core_seg.polygon
         other_cores = [c.polygon for t, c in cores.items() if t != core_token]
         legs, eyes = [], []
-        for appr in sorted(approaches[core_token], key=lambda lane: lane.token):
+        for appr in _arm_representatives(approaches[core_token]):
             walk = _walk_back(lanes, appr.token, required_isd_m)
             leg = substring(walk, 0, min(required_isd_m, walk.length))
             # Stop at the next intersection: cut where the leg first enters another core.
@@ -167,9 +202,8 @@ def intersections(
             }
         )
 
-    ids = _short_ids(
-        {b["token"]: facility_id("I", b["map_tokens"], 40)[2:] for b in built}
-    )
+    # ID hashes the core road_segment token only, so changing approach lanes keeps the ID.
+    ids = _short_ids({b["token"]: _digest([b["token"]]) for b in built})
     out = [
         {
             "id": f"I-{ids[b['token']]}",
