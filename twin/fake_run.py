@@ -9,20 +9,21 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import shutil
 import subprocess
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-import ezdxf
 import laspy
 import numpy as np
 import yaml
-from matplotlib.figure import Figure
 from PIL import Image
+from shapely.geometry import LineString, Point, mapping
 
 from twin import fixtures as fx
+from twin import registry
 from twin.contracts import (
     STAGE_NAMES,
     STAGES,
@@ -38,6 +39,7 @@ from twin.contracts import (
     Pipeline,
     StageResult,
 )
+from twin.runner import StageContext
 from twin.tiles import write_tiles
 
 RUN_DATE = "20261108"
@@ -55,8 +57,6 @@ PAINT_RGB = (236, 236, 228)
 RASTER_CELLS = 256
 RASTER_M = 0.25  # cell size of the base raster
 RASTER_ORIGIN = (-12.0, -12.0)  # local x, y of the lower-left cell corner
-SOURCE_LINE = "Source: synthetic fixture (fake-run), not nuScenes data"
-LICENCE_LINE = "Licence: CC BY-NC-SA 4.0 for derived outputs"
 
 
 @dataclass(frozen=True)
@@ -292,6 +292,20 @@ def _las(
     las.write(path)
 
 
+_DIRS = {"north": (0.0, 1.0), "east": (1.0, 0.0), "exit": (0.0, 1.0)}
+
+
+def _leg(core: tuple, name: str) -> LineString:
+    """Leg line from the core edge facing the approach, out to ISD_REQUIRED_M."""
+    x0, x1, y0, y1 = core
+    dx, dy = _DIRS[name]
+    sx = (x0 + x1) / 2 + dx * (x1 - x0) / 2
+    sy = (y0 + y1) / 2 + dy * (y1 - y0) / 2
+    return LineString(
+        [_p3(sx, sy, 0)[:2], _p3(sx + dx * ISD_REQUIRED_M, sy + dy * ISD_REQUIRED_M, 0)[:2]]
+    )
+
+
 def _load(d: Path, c: _Ctx) -> dict:
     pts, sweep = _all(c)
     np.savez_compressed(d / "points.npz", **_cols(pts, sweep))
@@ -329,9 +343,16 @@ def _load(d: Path, c: _Ctx) -> dict:
             _p3(x, y, 0)[:2]
             for x, y in [(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)]
         ]
-        legs = {"intersection": ["north", "east"], "access_point": ["exit"]}.get(
+        legs, eyes = [], []
+        for name in {"intersection": ["north", "east"], "access_point": ["exit"]}.get(
             f.type, []
-        )
+        ):
+            leg = _leg(f.core, name)
+            eye = Point(*leg.interpolate(Params().isd.eye_setback_m).coords[0])
+            legs.append({"approach": name, "geometry": mapping(leg)})
+            eyes.append(
+                {"approach": name, "source": "setback", "geometry": mapping(eye)}
+            )
         facs.append(
             _feat(
                 "Polygon",
@@ -341,7 +362,7 @@ def _load(d: Path, c: _Ctx) -> dict:
                 name=f.name,
                 map_tokens=list(f.tokens),
                 legs=legs,
-                eye_point=_p3((x0 + x1) / 2, y0, 0)[:2],
+                eye_points=eyes,
             )
         )
     _dump(d / "facilities.geojson", _fc(facs))
@@ -467,18 +488,9 @@ def _colour(d: Path, c: _Ctx) -> dict:
     ul_n = ORIGIN_N + RASTER_ORIGIN[1] + RASTER_CELLS * RASTER_M
     pgw = [RASTER_M, 0.0, 0.0, -RASTER_M, ul_e + RASTER_M / 2, ul_n - RASTER_M / 2]
     (d / "ortho.pgw").write_text("\n".join(f"{v:.6f}" for v in pgw) + "\n")
-    rgb = _class_colour(c.plane)
-    observed = (c.plane[:, 0] <= OBSERVED_MAX_X).astype(np.uint8)
-    np.savez_compressed(
-        d / "rgb.npz",
-        x=c.plane[:, 0].astype(np.float32),
-        y=c.plane[:, 1].astype(np.float32),
-        z=c.plane[:, 2].astype(np.float32),
-        r=rgb[:, 0],
-        g=rgb[:, 1],
-        b=rgb[:, 2],
-        observed=observed,
-    )
+    pts, _ = _all(c)  # same order as ground.laz then nonground.laz
+    observed = pts[:, 0] <= OBSERVED_MAX_X
+    np.savez_compressed(d / "rgb.npz", rgb=_class_colour(pts), observed=observed)
     colour = {
         "edge_offset_p95_m": round(0.04 + 0.01 * c.index, 3),
         "views_median": 3,
@@ -569,79 +581,15 @@ def _accuracy(d: Path, c: _Ctx) -> dict:
 
 
 def _outputs(d: Path, c: _Ctx) -> dict:
-    pts, _ = _all(c)
-    _las(d / "twin.laz", pts, classification=2, rgb=_class_colour(pts))
-    feats = []
-    for name in ("markings", "crosswalks", "curbs"):
-        feats += json.loads((d.parent / "05_features" / f"{name}.geojson").read_text())[
-            "features"
-        ]
-    _dump(d / "twin.geojson", _fc(feats))
-    lines = [[(p[0], p[1]) for p in f["geometry"]["coordinates"]] for f in feats]
-    _plan_dxf(d / "plan.dxf", lines)
-    _plan_pdf(d / "plan.pdf", lines)
-    profile = json.loads((d.parent / "07_profile" / "centrelines.geojson").read_text())
-    prof = [
-        [(p[0] - ORIGIN_E, p[2]) for p in f["geometry"]["coordinates"]]
-        for f in profile["features"]
-    ]
-    _profile_dxf(d / "profile.dxf", prof)
-    _profile_pdf(d / "profile.pdf", prof)
+    """The real outputs stage, run over the synthetic stage folders."""
+    ctx = StageContext(
+        run_dir=d.parent,
+        scene_token=c.spec.scene_token,
+        seed=0,
+        log=logging.getLogger("fake-run"),
+    )
+    registry.lookup("outputs", "dxf-pdf")(ctx, None)
     return {}
-
-
-def _plan_dxf(path: Path, lines: list) -> None:
-    doc = ezdxf.new("R2013")
-    doc.layers.add("MARKINGS")
-    msp = doc.modelspace()
-    for coords in lines:
-        msp.add_lwpolyline(coords, dxfattribs={"layer": "MARKINGS"})
-    msp.add_text(
-        SOURCE_LINE, dxfattribs={"height": 0.5, "insert": (ORIGIN_E, ORIGIN_N - 2)}
-    )
-    msp.add_text(
-        LICENCE_LINE, dxfattribs={"height": 0.5, "insert": (ORIGIN_E, ORIGIN_N - 3)}
-    )
-    doc.saveas(path)
-
-
-def _plan_pdf(path: Path, lines: list) -> None:
-    fig = Figure(figsize=(6, 4))
-    ax = fig.add_subplot(111)
-    for coords in lines:
-        xs, ys = zip(*coords)
-        ax.plot([x - ORIGIN_E for x in xs], [y - ORIGIN_N for y in ys], color="black")
-    ax.plot([0, 10], [-2, -2], color="black", linewidth=3)
-    ax.text(0, -2.8, "10 m scale bar")
-    ax.annotate(
-        "N", xy=(38, 18), xytext=(38, 12), ha="center", arrowprops={"arrowstyle": "->"}
-    )
-    ax.set_aspect("equal")
-    fig.text(0.05, 0.02, f"{SOURCE_LINE}. {LICENCE_LINE}.", fontsize=7)
-    fig.savefig(path, format="pdf")
-
-
-def _profile_dxf(path: Path, profiles: list) -> None:
-    doc = ezdxf.new("R2013")
-    msp = doc.modelspace()
-    for coords in profiles:
-        msp.add_lwpolyline([(s, z) for s, z in coords])
-    msp.add_text(
-        "Descriptive ground profile (not an accuracy claim)",
-        dxfattribs={"height": 0.5, "insert": (0, -1)},
-    )
-    doc.saveas(path)
-
-
-def _profile_pdf(path: Path, profiles: list) -> None:
-    fig = Figure(figsize=(6, 3))
-    ax = fig.add_subplot(111)
-    for coords in profiles:
-        ax.plot([s for s, _ in coords], [z for _, z in coords])
-    ax.set_xlabel("distance along centreline (m)")
-    ax.set_ylabel("ground z (m)")
-    fig.text(0.05, 0.02, f"{SOURCE_LINE}. {LICENCE_LINE}.", fontsize=7)
-    fig.savefig(path, format="pdf")
 
 
 WRITERS = {
@@ -708,7 +656,7 @@ def _write_run(out: Path, index: int, showcase: Path) -> str:
     metrics: dict = {}
     stages = []
     for n, name in enumerate(STAGE_NAMES):
-        folder = run_dir / f"{STAGES[name].number:02d}_{name}"
+        folder = run_dir / f"{STAGES[name].number}_{name}"
         folder.mkdir()
         stage_metrics = WRITERS[name](folder, ctx)
         metrics.update(stage_metrics)

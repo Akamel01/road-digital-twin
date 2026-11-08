@@ -240,6 +240,27 @@ def _sheet_inputs(run_dir: Path, *, height_valid: bool = True) -> None:
     ground = run_dir / "4_ground" / "qa.json"
     ground.write_text(json.dumps({"height_valid": height_valid}))
     fac = run_dir / "1_load" / "facilities.geojson"
+
+    def leg(x0, y0, dx, dy):
+        return {
+            "type": "LineString",
+            "coordinates": [[x0, y0], [x0 + dx, y0 + dy]],
+        }
+
+    def eye(x, y):
+        return {"type": "Point", "coordinates": [x, y]}
+
+    # Leg lines start at the core edge; eye points sit 4.4 m back along the leg.
+    legs = [
+        {"approach": "north", "geometry": leg(331005, 4690010, 0, 150)},
+        {"approach": "east", "geometry": leg(331010, 4690005, 150, 0)},
+        {"approach": "west", "geometry": leg(331000, 4690005, -150, 0)},
+    ]
+    eyes = [
+        {"approach": "north", "source": "setback", "geometry": eye(331005, 4690014.4)},
+        {"approach": "east", "source": "setback", "geometry": eye(331014.4, 4690005)},
+        {"approach": "west", "source": "setback", "geometry": eye(331000 - 4.4, 4690005)},
+    ]
     fac.write_text(
         json.dumps(
             {
@@ -250,21 +271,16 @@ def _sheet_inputs(run_dir: Path, *, height_valid: bool = True) -> None:
                         "geometry": {
                             "type": "Polygon",
                             "coordinates": [
-                                [
-                                    [331000, 4690000],
-                                    [331010, 4690000],
-                                    [331010, 4690010],
-                                    [331000, 4690010],
-                                    [331000, 4690000],
-                                ]
+                                [[331000, 4690000], [331010, 4690000], [331010, 4690010],
+                                 [331000, 4690010], [331000, 4690000]]
                             ],
                         },
                         "properties": {
                             "id": "int-1",
                             "type": "intersection",
                             "name": "Test intersection",
-                            "eye_point": [331005, 4690000],
-                            "legs": ["north", "east", "west"],
+                            "legs": legs,
+                            "eye_points": eyes,
                         },
                     }
                 ],
@@ -323,9 +339,25 @@ def test_sightline_red_where_short(run_dir):
     _sheet_inputs(run_dir)
     _run(run_dir)
     doc, _ = ezdxf.recover.readfile(run_dir / "10_outputs" / "plan.dxf")
-    lines = [e for e in doc.modelspace() if e.dxftype() == "LINE"]
-    colours = sorted(e.dxf.color for e in lines)
-    assert colours == [1, 3]  # east short (red), north ok (green)
+    lines = {e.dxf.color: e for e in doc.modelspace() if e.dxftype() == "LINE"}
+    assert sorted(lines) == [1, 3]  # east short (red), north ok (green)
+    # Eye at (331005, 4690014.4); north sight line runs 118 m along the 150 m leg.
+    north = lines[3]
+    assert north.dxf.start.isclose((331005, 4690014.4, 0), abs_tol=1e-6)
+    assert north.dxf.end.isclose((331005, 4690014.4 + 118.0, 0), abs_tol=1e-6)
+    # East: eye at 331014.4 and available 61.2 m, so the end is at 331075.6.
+    assert lines[1].dxf.end.isclose((331014.4 + 61.2, 4690005, 0), abs_tol=1e-6)
+
+
+def test_sightline_clipped_to_leg(run_dir):
+    _sheet_inputs(run_dir)
+    isd = json.loads((run_dir / "8_isd" / "isd.json").read_text())
+    isd["facilities"][0]["legs"][0]["available_m"] = 500.0  # longer than the 150 m leg
+    (run_dir / "8_isd" / "isd.json").write_text(json.dumps(isd))
+    _run(run_dir)
+    doc, _ = ezdxf.recover.readfile(run_dir / "10_outputs" / "plan.dxf")
+    north = next(e for e in doc.modelspace() if e.dxftype() == "LINE" and e.dxf.color == 3)
+    assert north.dxf.end.isclose((331005, 4690010 + 150, 0), abs_tol=1e-6)
 
 
 def test_profile_sheet_and_exaggeration(run_dir):

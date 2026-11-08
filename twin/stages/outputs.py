@@ -12,6 +12,7 @@ from typing import Any
 import laspy
 import numpy as np
 import pyproj
+from shapely.geometry import shape
 
 from twin import drawings
 from twin.contracts import StageResult
@@ -23,12 +24,6 @@ SHEET_LICENCE = (
     "Derived from nuScenes (CC BY-NC-SA 4.0). Street names \u00a9 OpenStreetMap "
     "contributors (ODbL). Non-commercial research demo."
 )
-COMPASS = {
-    "north": (0.0, 1.0),
-    "south": (0.0, -1.0),
-    "east": (1.0, 0.0),
-    "west": (-1.0, 0.0),
-}
 SCALE_M = 0.001
 GROUND_CLASS = 2
 UNASSIGNED_CLASS = 1
@@ -175,28 +170,31 @@ def _plan_inputs(ctx: Any, features: list[dict]) -> tuple[dict, list, list]:
 
 
 def _sightlines(ctx: Any, facilities: dict) -> list:
-    """Sight lines from the eye point along each compass leg, length = available_m."""
+    """Sight lines: eye point along each leg line, length available_m, clipped to the leg."""
     path = ctx.stage_dir("isd") / "isd.json"
     if not path.is_file():
         return []
     out = []
     for fac in json.loads(path.read_text()).get("facilities", []):
-        eye = (facilities.get(fac["facility"]) or {}).get("eye_point")
-        if eye is None:
-            continue
-        eye = (float(eye[0]), float(eye[1]))
+        props = facilities.get(fac["facility"]) or {}
+        legs = {leg["approach"]: shape(leg["geometry"]) for leg in props.get("legs", [])}
+        eyes = {e["approach"]: shape(e["geometry"]) for e in props.get("eye_points", [])}
         for leg in fac["legs"]:
             name = leg["leg"]
-            if leg["status"] == "indeterminate":
-                out.append((eye, None, False, f"{name}: indeterminate"))
+            eye = eyes.get(name)
+            if eye is None:
                 continue
-            vec = COMPASS.get(str(name).lower())
-            if vec is None:
-                continue  # leg direction unknown; no line drawn
-            avail = float(leg["available_m"])
-            end = (eye[0] + vec[0] * avail, eye[1] + vec[1] * avail)
-            text = f"{name}: {avail:.1f} m (need {leg['required_m']:.1f} m)"
-            out.append((eye, end, leg["status"] == "short", text))
+            eye_xy = (eye.x, eye.y)
+            if leg["status"] == "indeterminate":
+                out.append((eye_xy, None, False, f"{name}: indeterminate"))
+                continue
+            line = legs.get(name)
+            if line is None:
+                continue
+            start_d = line.project(eye)
+            end = line.interpolate(min(start_d + float(leg["available_m"]), line.length))
+            text = f"{name}: {leg['available_m']:.1f} m (need {leg['required_m']:.1f} m)"
+            out.append((eye_xy, (end.x, end.y), leg["status"] == "short", text))
     return out
 
 
