@@ -116,3 +116,10 @@ Date: 2026-11-07. Operator decisions, grilling round 3.
     - **Checks:** intersection: ISD per leg and a profile per approach. Segment: profile only. Access point: exit ISD left and right, plus a profile.
     - **Coverage:** every facility in the area is listed. One whose core is less than 50% observed is greyed out, labelled "not scanned enough", and shows no metrics.
     - **Sight lines are 3D** against the twin's surface (as in the spec). The target height per situation (car, headlights, pedestrian, cyclist) waits on research ticket #15. Until then, the defaults stay at 1.08 m.
+41. **Published rasters are WebP tile pyramids** (256 px tiles), for the lidar plan, the orthoimage and coverage. At 5 cm, one area orthoimage is about 12,800 × 8,000 px, which is over the 25 MiB Pages file limit as one file. Tiles keep every file small, and the whole area stays well under 20,000 files. The run keeps the full PNG plus a world file. Decided by Claude while revising the spec (2026-11-08). To roll back: publish one downscaled WebP per raster.
+42. **Spec revision 4** (2026-11-08) folds in decisions 34–41:
+    - area scope: one run per drive, combined in `twin publish`;
+    - facilities in the load stage;
+    - colour as stage 6, so the stages after it move to 7–10;
+    - the UI layout and the API host;
+    - the new tickets T12 (colour) and T13 (facilities).
