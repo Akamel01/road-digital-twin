@@ -50,7 +50,7 @@ button:focus-visible{outline:2px solid rgb(255 255 255 / .55);outline-offset:2px
 .crumbs button:hover{background:var(--glass-clear)}
 .crumbs b{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 4px}
 .crumbs i{font-style:normal;color:var(--on-glass-3);white-space:nowrap}
-.layers{display:flex;gap:3px;padding:3px;border-radius:999px;flex:none}
+
 .pill{display:flex;align-items:center;gap:6px;height:28px;padding:0 10px;border:0;border-radius:999px;background:transparent;color:var(--on-glass-2);font-size:12px;cursor:pointer;transition:background-color 150ms ease-out,color 150ms ease-out;white-space:nowrap}
 .pill:hover{background:var(--glass-clear)}.pill:active{transform:scale(.97)}
 .pill[aria-pressed="true"]{background:var(--pill-active);color:var(--ink)}
@@ -79,28 +79,57 @@ button:focus-visible{outline:2px solid rgb(255 255 255 / .55);outline-offset:2px
 .scale{position:absolute;left:12px;bottom:10px;font:600 11px/1 var(--text);color:#fff;text-shadow:0 1px 2px #000;pointer-events:none}
 .scale i{display:block;height:5px;border:1.5px solid #fff;border-top:0;margin-top:4px}
 
-.strip{display:flex;gap:10px;flex:none;height:96px}
+.strip{display:flex;flex:none;height:96px}
 .prof{flex:1;min-width:0;padding:10px 14px}
 .prof .empty{height:58px;display:grid;place-items:center;font-size:13px;color:var(--on-glass-3);text-align:center}
-.steps{display:flex;flex-direction:column;justify-content:center;gap:2px;padding:5px;flex:none;width:250px}
-.steps .row{display:grid;grid-template-columns:1fr 1fr;gap:2px}
-.step{display:flex;align-items:center;gap:7px;height:27px;padding:0 9px;border:0;border-radius:999px;background:transparent;color:var(--on-glass-2);font-size:12px;white-space:nowrap;cursor:pointer;transition:background-color 150ms ease-out,color 150ms ease-out}
-.step i{font-style:normal;display:inline-grid;place-items:center;width:17px;height:17px;border-radius:999px;background:var(--glass-clear);font-size:10px;font-weight:700;flex:none}
-.step:hover{background:var(--glass-clear)}.step:active{transform:scale(.97)}
-.step[aria-current="step"]{background:var(--pill-active);color:var(--ink)}
-.step[aria-current="step"] i{background:var(--ink);color:#fff}
+
+/* map panel: layers + analysis, top-left on the map */
+.mapctl{position:absolute;left:10px;top:10px;width:212px;padding:10px;border-radius:14px;cursor:default}
+.mapctl .hd{display:flex;align-items:center;justify-content:space-between;width:100%;border:0;background:none;padding:0 2px;cursor:pointer}
+.mapctl .hd svg{width:12px;height:12px;transition:transform 180ms var(--ease-out)}
+.mapctl.min .hd svg{transform:rotate(-90deg)}
+.mapctl.min .body{display:none}
+.mapctl .grid{display:grid;grid-template-columns:1fr 1fr;gap:3px;margin:8px 0 10px}
+.tg{display:flex;align-items:center;gap:6px;height:26px;padding:0 8px;border:0;border-radius:8px;background:transparent;color:var(--on-glass-2);font-size:12px;cursor:pointer;text-align:left;transition:background-color 150ms ease-out,color 150ms ease-out}
+.tg:hover{background:var(--glass-clear)}.tg:active{transform:scale(.97)}
+.tg .sw{width:9px;height:9px;border-radius:3px;flex:none;opacity:.35;transition:opacity 150ms ease-out}
+.tg[aria-pressed="true"]{color:#fff}.tg[aria-pressed="true"] .sw{opacity:1}
+.seg{display:flex;flex-direction:column;gap:3px;margin-top:8px}
+.an{display:flex;align-items:center;gap:8px;height:30px;padding:0 10px;border:0;border-radius:9px;background:var(--glass-clear);color:var(--on-glass-2);font-size:12.5px;cursor:pointer;text-align:left;transition:background-color 150ms ease-out,color 150ms ease-out}
+.an:hover{background:var(--glass-clear-strong)}.an:active{transform:scale(.97)}
+.an[aria-pressed="true"]{background:var(--pill-active);color:var(--ink)}
+.an small{margin-left:auto;font-size:11px;opacity:.7}
+.legend{margin-top:8px;font-size:11px;color:var(--on-glass-2);display:flex;flex-wrap:wrap;gap:4px 10px}
+.legend i{display:inline-block;width:14px;height:4px;border-radius:2px;vertical-align:middle;margin-right:4px}
 
 .rail{position:absolute;top:var(--top);right:var(--gut);bottom:var(--gut);width:var(--rail);display:flex;flex-direction:column;gap:10px;transition:transform 220ms var(--ease-out),opacity 220ms var(--ease-out)}
 .collapsed .rail{transform:translateX(calc(100% + var(--gut)));opacity:0;pointer-events:none}
 @media (prefers-reduced-motion:reduce){.rail{transition:none}}
 
-/* story: short */
-.story{padding:14px 16px;flex:none}
-.story h2{margin:6px 0 4px;font:700 17px/1.25 var(--display)}
-.story p{margin:0;font-size:12.5px;line-height:1.45;color:var(--on-glass-2)}
-.figs{display:flex;gap:16px;margin-top:10px}
-.figs b{display:block;font:700 22px/1.1 var(--display)}
-.figs span{font-size:11px;color:var(--on-glass-3)}
+/* pipeline summary: all five steps in one card; maximizes on demand */
+.sum{flex:none;padding:12px 14px;cursor:pointer;transition:background-color 150ms ease-out}
+.sum.max{flex:1;min-height:0;overflow:auto;cursor:default}
+.sum .hd{display:flex;align-items:center;justify-content:space-between}
+.sum .hd button{border:0;background:var(--glass-clear);width:26px;height:26px;border-radius:8px;display:grid;place-items:center;cursor:pointer}
+.sum .hd button:hover{background:var(--glass-clear-strong)}
+.sum .hd svg{width:12px;height:12px}
+.sum ol{list-style:none;margin:8px 0 0;padding:0}
+.sum li{display:grid;grid-template-columns:20px 1fr auto;gap:8px;align-items:center;padding:4px 0;font-size:12.5px}
+.sum li+li{border-top:1px solid rgb(255 255 255 / .07)}
+.sum li i{font-style:normal;display:grid;place-items:center;width:18px;height:18px;border-radius:999px;background:var(--glass-clear);font-size:10px;font-weight:700}
+.sum li b{font:700 13px/1 var(--display);white-space:nowrap}
+.sum li b small{font:500 11px/1 var(--text);color:var(--on-glass-3);margin-left:3px}
+.sum.max li{display:block;padding:12px 0}
+.sum.max li .t{display:flex;align-items:center;gap:8px;font-weight:600}
+.sum.max li h3{margin:6px 0 4px;font:700 15px/1.3 var(--display)}
+.sum.max li p{margin:0;font-size:12.5px;line-height:1.45;color:var(--on-glass-2)}
+.sum.max .figs{display:flex;gap:16px;margin-top:8px}
+.sum.max .figs b{display:block;font:700 20px/1.1 var(--display)}
+.sum.max .figs span{font-size:11px;color:var(--on-glass-3)}
+.mini{flex:none;display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;padding:12px 14px;border:0;border-radius:16px;cursor:pointer;text-align:left}
+.mini:hover{background:#dde3e6}
+.mini b{font:700 14px/1.2 var(--display)}.mini span{font-size:11.5px;color:var(--ink-2)}
+.mini svg{width:12px;height:12px;flex:none}
 
 /* inspector */
 .insp{padding:16px;flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column}
@@ -142,10 +171,10 @@ button:focus-visible{outline:2px solid rgb(255 255 255 / .55);outline-offset:2px
 .jump button:hover,.jump button.hl{background:#c9d0d4}
 .jump button[aria-current="true"]{background:#000;color:#fff}
 .dls{display:flex;gap:5px;flex-wrap:wrap;margin-top:12px}
-.legal{position:absolute;left:calc(var(--gut) + 14px);bottom:calc(var(--gut) + 96px + 18px);font:500 10px/1.3 var(--text);color:rgb(255 255 255 / .5);pointer-events:none;text-shadow:0 1px 2px #000}
+.legal{position:absolute;right:calc(var(--rail) + var(--gut)*2 + 14px);bottom:calc(var(--gut) + 96px + 18px);text-align:right;font:500 10px/1.3 var(--text);color:rgb(255 255 255 / .5);pointer-events:none;text-shadow:0 1px 2px #000}
 .toast{position:fixed;left:50%;top:70px;transform:translateX(-50%);padding:10px 16px;border-radius:999px;font-size:13px;z-index:50;opacity:0;transition:opacity 180ms ease-out;pointer-events:none}
 .toast.show{opacity:1}
-@media (max-width:1280px){:root{--rail:340px}.layers .pill span.t{display:none}.layers .pill{padding:0 8px}}
+@media (max-width:1280px){:root{--rail:340px}}
 @media (max-width:980px){ /* interim — phone/tablet layout is issue #11 */
   html,body{overflow:auto}#stage{position:static}
   .top{position:static;margin:14px;height:auto;flex-wrap:wrap}
@@ -190,13 +219,17 @@ function density(x,y){
 }
 let seed=11;const rnd=()=>((seed=(seed*16807)%2147483647)/2147483647);
 function build(){
-  const W=AW*RES,Hh=AH*RES, lid=document.createElement('canvas'), ort=document.createElement('canvas');
-  lid.width=ort.width=W;lid.height=ort.height=Hh;
-  const L=lid.getContext('2d'),O=ort.getContext('2d'),li=L.createImageData(W,Hh),oi=O.createImageData(W,Hh);
+  const W=AW*RES,Hh=AH*RES,mk=()=>{const c=document.createElement('canvas');c.width=W;c.height=Hh;return c};
+  const lid=mk(),ort=mk(),cov=mk();
+  const L=lid.getContext('2d'),O=ort.getContext('2d'),C=cov.getContext('2d'),li=L.createImageData(W,Hh),oi=O.createImageData(W,Hh),ci=C.createImageData(W,Hh);
   for(let py=0;py<Hh;py++)for(let px=0;px<W;px++){
     const x=px/RES,y=py/RES,i=(py*W+px)*4,k=density(x,y);
+    const road=inRoad(x,y), side=!road&&inSide(x,y);
+    if(road||side){const seen=k>0.2&&!inParked(x,y);   // coverage: what the cameras and lidar saw on the street
+      if(seen){ci.data[i]=156;ci.data[i+1]=199;ci.data[i+2]=164;ci.data[i+3]=60}
+      else if(((px+py)>>3)%2===0){ci.data[i]=224;ci.data[i+1]=112;ci.data[i+2]=79;ci.data[i+3]=150}}
     if(k<0.02) continue;
-    const road=inRoad(x,y), side=!road&&inSide(x,y), park=inParked(x,y), st=(road||side)&&stripe(x,y);
+    const park=inParked(x,y), st=(road||side)&&stripe(x,y);
     if(rnd()<k*.9&&!park){
       const v=road?(st?205+rnd()*40:46+rnd()*22):side?(st?200:96+rnd()*24):70+rnd()*90*(.6+.4*Math.sin(x*.7)*Math.cos(y*.5));
       li.data[i]=v*.92;li.data[i+1]=v*.97;li.data[i+2]=v;li.data[i+3]=255;}
@@ -204,10 +237,10 @@ function build(){
       const c=road?(st?[226,224,214]:[72+rnd()*10,75+rnd()*10,79+rnd()*10]):side?[150+rnd()*14,146+rnd()*12,136+rnd()*10]:[78+rnd()*20,96+rnd()*22,62+rnd()*14];
       oi.data[i]=c[0];oi.data[i+1]=c[1];oi.data[i+2]=c[2];oi.data[i+3]=255;}
   }
-  L.putImageData(li,0,0);O.putImageData(oi,0,0);return {lid,ort};
+  L.putImageData(li,0,0);O.putImageData(oi,0,0);C.putImageData(ci,0,0);return {lid,ort,cov};
 }
 let IMG=null;
-const layers={lidar:true,ortho:false,mark:true,cross:true,curb:true,sight:true};
+const layers={lidar:true,ortho:false,mark:true,cross:true,curb:true};
 
 /* facilities: intersections and segments from the HD map, access points from curb gaps */
 const FAC=[
@@ -258,35 +291,54 @@ const SIGHT={ // per facility: eye, legs [name, end, blocked?]
 };
 
 /* ======================= app state ======================= */
-const S={fac:null,el:null,step:0,k:1,tx:0,ty:0,hl:null,collapsed:false};
+const S={fac:null,el:null,an:null,k:1,tx:0,ty:0,hl:null,collapsed:false,sumMax:false,ctlMin:false};
 const STEPS=["Raw sweeps","Aligned twin","Features","Accuracy","Safety check"];
-const STEP_LAYERS=[{lidar:1,ortho:0,mark:0,cross:0,curb:0,sight:0},{lidar:1,ortho:1,mark:0,cross:0,curb:0,sight:0},{lidar:1,ortho:0,mark:1,cross:1,curb:1,sight:0},{lidar:1,ortho:0,mark:1,cross:1,curb:1,sight:0},{lidar:0,ortho:1,mark:1,cross:1,curb:0,sight:1}];
 const fac=()=>FAC.find(f=>f.id===S.fac);
 const tagFor=s=>s==="ok"?'<span class="tag ok">meets</span>':s==="short"?'<span class="tag bad">short</span>':'<span class="tag ind">indeterminate</span>';
+const CHEV='<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 4.5l3 3 3-3"/></svg>';
+const EXPAND='<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7 1.5h3.5V5M5 10.5H1.5V7M10.5 1.5L7 5M1.5 10.5L5 7"/></svg>';
+const SHRINK='<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10.5 5H7V1.5M1.5 7H5v3.5M7 5l3.5-3.5M5 7l-3.5 3.5"/></svg>';
 
-function storyHTML(){
-  const st=S.step,f=fac();let h,p,figs;
-  if(!f){
-    h=[`${AREA.sweeps.toLocaleString()} sweeps over ${AREA.km} km of street`,"One surface across four drives","Markings, crosswalks and curbs, area-wide","Every element checked against the HD map","Safety checks run per facility"][st];
-    p=["Four drives, one frame. Moving and parked vehicles are masked out first.","ICP aligns height, pitch and roll; cameras colour the ground. Unseen ground stays transparent.","Paint from lidar return strength; curbs from a height step at the road edge.","One-way distance to the map's own geometry. Curbs are map-conditioned.","Open an intersection, segment or access point for sight distance and profile."][st];
-    figs=[[[AREA.scenes,"drives",0],[AREA.sweeps,"sweeps",0]],[[Math.round(AREA.obs*100),"% ground observed",0],[AREA.drift,"m mean drift",2]],[[FEAT.cross.length,"crosswalks",0],[FEAT.mark.length,"marking runs",0]],[[AREA.p95,"m P95, all elements",2]],[[FAC.length,"facilities",0]]][st];
-  } else {
-    const a=f.acc;
-    h=[`Sweeps within 40 m of ${f.id}`,f.hv?"Heights agree between sweeps":"Heights disagree: height results withheld","Features found here","Accuracy at this facility",f.isd?"Can a stopped driver see far enough?":"Vertical profile along the segment"][st];
-    p=[`Every drive that passed this ${f.type.toLowerCase()} contributes.`,
-       f.hv?"Ground-height disagreement is under the 0.10 m limit.":"Ground-height disagreement is over the 0.10 m limit; profile and sight distance are indeterminate.",
-       "Click any line or polygon on the plan to trace its number.",
-       a.map(x=>`${x[1]} ${f2(x[4])} m`).join(" · ")+" (P95).",
-       f.isd?`AASHTO ${f.isd.case}, 40 km/h, 7.5 s: ${f.isd.req} m per leg. Red rings mark where the view is blocked.`:`${f.prof.grade>0?"+":""}${f.prof.grade}% average grade along the ${f.prof.from}. Descriptive only.`][st];
-    figs=[[[Math.round(f.obs*100),"% ground observed",0]],[[f.hv?.064:.142,"m height disagreement, P95",3]],[[a.reduce((s,x)=>s+x[6],0),"elements",0]],[[f.p95,"m P95, worst element",2]],
-      f.isd?[[f.isd.req,"m required",0],[f.isd.legs.filter(l=>l[3]==="short").length,"legs short",0]]:[[f.prof.grade,"% grade",1]]][st];
-  }
-  return `<section class="story glass" aria-live="polite"><div class="over">Step ${st+1} · ${STEPS[st]}</div><h2>${h}</h2><p>${p}</p>
-    <div class="figs num">${figs.map(([v,l,d])=>`<div><b>${(+v).toFixed(d)}</b><span>${l}</span></div>`).join("")}</div></section>`;
+/* one summary per step, for the area or the open facility */
+function stepData(st){
+  const f=fac();
+  if(!f) return [
+    {h:`${AREA.sweeps.toLocaleString()} sweeps over ${AREA.km} km of street`,p:"Four drives, one frame. Moving and parked vehicles are masked out first.",figs:[[AREA.scenes,"drives",0],[AREA.sweeps,"sweeps",0]]},
+    {h:"One surface across four drives",p:"ICP aligns height, pitch and roll; cameras colour the ground. Unseen ground stays transparent.",figs:[[Math.round(AREA.obs*100),"% ground observed",0],[AREA.drift,"m mean drift",2]]},
+    {h:"Markings, crosswalks and curbs, area-wide",p:"Paint from lidar return strength; curbs from a height step at the road edge.",figs:[[FEAT.cross.length,"crosswalks",0],[FEAT.mark.length,"marking runs",0]]},
+    {h:"Every element checked against the HD map",p:"One-way distance to the map's own geometry. Curbs are map-conditioned.",figs:[[AREA.p95,"m P95, all elements",2]]},
+    {h:"Safety checks run per facility",p:"3 of 6 facilities have a sight-distance leg that falls short; 1 has no valid height.",figs:[[3,"facilities with a short leg",0]]}][st];
+  const a=f.acc;
+  return [
+    {h:`Sweeps within 40 m of ${f.id}`,p:`Every drive that passed this ${f.type.toLowerCase()} contributes.`,figs:[[Math.round(f.obs*100),"% ground observed",0]]},
+    {h:f.hv?"Heights agree between sweeps":"Heights disagree: height results withheld",p:f.hv?"Ground-height disagreement is under the 0.10 m limit.":"Over the 0.10 m limit; profile and sight distance are indeterminate.",figs:[[f.hv?.064:.142,"m height disagreement, P95",3]]},
+    {h:"Features found here",p:"Click any line or polygon on the plan to trace its number.",figs:[[a.reduce((s,x)=>s+x[6],0),"elements",0]]},
+    {h:"Accuracy at this facility",p:a.map(x=>`${x[1]} ${f2(x[4])} m`).join(" · ")+" (P95).",figs:[[f.p95,"m P95, worst element",2]]},
+    f.isd?{h:"Can a stopped driver see far enough?",p:`AASHTO ${f.isd.case}, 40 km/h, 7.5 s: ${f.isd.req} m per leg.`,figs:[[f.isd.req,"m required",0],[f.isd.legs.filter(l=>l[3]==="short").length,"legs short",0]]}
+         :{h:"Vertical profile along the segment",p:`${f.prof.grade>0?"+":""}${f.prof.grade}% average grade along the ${f.prof.from}. Descriptive only.`,figs:[[f.prof.grade,"% grade",1]]}][st];
 }
-const LDEF=[["lidar","Lidar","#9aa3a7"],["ortho","Ortho","#8a9a6a"],["mark","Markings","var(--feat-mark)"],["cross","Crosswalks","var(--feat-cross)"],["curb","Curbs","var(--feat-curb)"],["sight","Sight lines","var(--sight)"]];
-function layersHTML(){return `<nav class="layers glass" aria-label="Layers">${LDEF.map(([k,n,c])=>`<button class="pill" data-layer="${k}" aria-pressed="${!!layers[k]}" title="${n}"><span class="sw" style="background:${c}"></span><span class="t">${n}</span></button>`).join("")}</nav>`}
-
+function summaryHTML(){
+  const f=fac(),scope=f?f.id:"area";
+  const rows=STEPS.map((t,i)=>{const d=stepData(i),[v,l,dd]=d.figs[0];
+    return S.sumMax
+      ?`<li><div class="t"><i>${i+1}</i>${t}</div><h3>${d.h}</h3><p>${d.p}</p><div class="figs num">${d.figs.map(([v,l,dd])=>`<div><b>${(+v).toFixed(dd)}</b><span>${l}</span></div>`).join("")}</div></li>`
+      :`<li><i>${i+1}</i><span>${t}</span><b class="num">${(+v).toFixed(dd)}<small>${l}</small></b></li>`}).join("");
+  return `<section class="sum glass ${S.sumMax?"max":""}" ${S.sumMax?"":'data-summax role="button" tabindex="0" aria-label="Expand pipeline summary"'}>
+    <div class="hd"><div class="over">Pipeline · ${scope}</div><button data-summax aria-label="${S.sumMax?"Shrink":"Expand"} pipeline summary">${S.sumMax?SHRINK:EXPAND}</button></div>
+    <ol>${rows}</ol></section>`;
+}
+const LDEF=[["lidar","Lidar","#9aa3a7"],["ortho","Orthoimage","#8a9a6a"],["mark","Markings","var(--feat-mark)"],["cross","Crosswalks","var(--feat-cross)"],["curb","Curbs","var(--feat-curb)"]];
+const ANDEF=[["accuracy","Accuracy","vs HD map"],["safety","Safety check","sight lines"],["coverage","Coverage","seen / unseen"]];
+const LEGEND={accuracy:'<span><i style="background:#9CC7A4"></i>≤ 0.20 m</span><span><i style="background:#E0A94F"></i>≤ 0.40 m</span><span><i style="background:#E0704F"></i>> 0.40 m</span>',
+  safety:'<span><i style="background:var(--sight)"></i>clear</span><span><i style="background:var(--danger)"></i>blocked</span><span><i style="background:#fff;opacity:.6"></i>indeterminate</span>',
+  coverage:'<span><i style="background:#9CC7A4"></i>observed</span><span><i style="background:#E0704F"></i>unobserved</span>'};
+function mapctlHTML(){return `<div class="mapctl glass ${S.ctlMin?"min":""}">
+  <button class="hd" data-ctlmin aria-expanded="${!S.ctlMin}"><span class="over">Layers</span>${CHEV}</button>
+  <div class="body"><div class="grid">${LDEF.map(([k,n,c])=>`<button class="tg" data-layer="${k}" aria-pressed="${!!layers[k]}"><span class="sw" style="background:${c}"></span>${n}</button>`).join("")}</div>
+  <div class="over">Analysis</div><div class="seg">${ANDEF.map(([k,n,sub])=>`<button class="an" data-an="${k}" aria-pressed="${S.an===k}">${n}<small>${sub}</small></button>`).join("")}</div>
+  ${S.an?`<div class="legend">${LEGEND[S.an]}</div>`:""}</div></div>`}
+function miniHTML(){const f=fac();
+  return `<button class="mini light" data-sumrestore><div><b>${f?f.name:AREA.name}</b><br><span>${f?`${f.type} · ${S.el?"element details":"facility details"}`:`${FAC.length} facilities · area details`}</span></div>${CHEV}</button>`}
 function jumpHTML(){return `<div class="jump" aria-label="Facilities">${FAC.map(x=>`<button data-fac="${x.id}" title="${x.name}" ${S.fac===x.id?'aria-current="true"':""} class="${S.hl===x.id?"hl":""}">${x.id}</button>`).join("")}</div>`}
 function inspHTML(){
   const f=fac();
@@ -335,21 +387,23 @@ function profHTML(){
   const g=P.gap?`<rect x="${X(P.gap[0])}" y="2" width="${X(P.gap[1])-X(P.gap[0])}" height="${h-4}" fill="rgb(255 255 255 / .08)"/><text x="${(X(P.gap[0])+X(P.gap[1]))/2}" y="13" fill="rgb(255 255 255 / .6)" font-size="10" text-anchor="middle">gap</text>`:"";
   return `<section class="prof glass"><div class="over">Vertical profile · ${P.from} · descriptive</div><svg viewBox="0 0 1000 ${h}" width="100%" height="${h}" preserveAspectRatio="none" style="display:block;margin-top:4px">${g}<path d="${d}" fill="none" stroke="#fff" stroke-width="1.6" vector-effect="non-scaling-stroke"/></svg><div class="over" style="display:flex;justify-content:space-between;margin-top:2px"><span>0 m</span><span>${len} m · ${P.grade>0?"+":""}${P.grade}%</span></div></section>`;
 }
-function stepsHTML(){const b=i=>`<button class="step" data-step="${i}" ${i===S.step?'aria-current="step"':""}><i>${i+1}</i>${STEPS[i]}</button>`;
-  return `<nav class="steps glass" aria-label="Steps"><div class="row">${b(0)}${b(1)}</div><div class="row">${b(2)}${b(3)}</div><div class="row">${b(4)}</div></nav>`}
 /* map SVG */
+function errOf(type,i){const base={mark:.26,cross:.2,curb:.38}[type];return base*(.45+((i*37+11)%100)/100)}
+const errCol=e=>e<=.2?"#9CC7A4":e<=.4?"#E0A94F":"#E0704F";
 function svgHTML(){
-  const f=fac(),P=a=>a.map(p=>p.join(",")).join(" "),sel=S.el,hitOn=!!f;
+  const f=fac(),P=a=>a.map(p=>p.join(",")).join(" "),sel=S.el,hitOn=!!f,acc=S.an==="accuracy";
+  const dim=k=>!sel||sel===k?1:.4;
   let s=`<svg viewBox="0 0 ${AW} ${AH}" aria-label="Plan of ${f?f.name:AREA.name}">`;
-  if(layers.curb) FEAT.curb.forEach(l=>{s+=`<polyline points="${P(l)}" fill="none" stroke="var(--feat-curb)" stroke-width="${sel==="curb"?2.6:1.4}" stroke-dasharray="5 3" opacity="${!sel||sel==="curb"?1:.4}"/>`;if(hitOn)s+=`<polyline class="hit" data-el="curb" points="${P(l)}"/>`});
-  if(layers.mark) FEAT.mark.forEach(l=>{s+=`<polyline points="${P(l)}" fill="none" stroke="var(--feat-mark)" stroke-width="${sel==="mark"?2.4:1.2}" opacity="${!sel||sel==="mark"?.95:.4}"/>`;if(hitOn)s+=`<polyline class="hit" data-el="mark" points="${P(l)}"/>`});
-  if(layers.cross) FEAT.cross.forEach(c=>{s+=`<polygon points="${P(c)}" fill="rgb(127 196 232 / ${sel==="cross"?.35:.16})" stroke="var(--feat-cross)" stroke-width="${sel==="cross"?2.2:1.2}" opacity="${!sel||sel==="cross"?1:.4}"/>`;if(hitOn)s+=`<polygon class="hitpoly" data-el="cross" points="${P(c)}"/>`});
-  if(layers.sight&&f&&SIGHT[f.id]){const g=SIGHT[f.id];s+=`<circle cx="${g.eye[0]}" cy="${g.eye[1]}" r="1.2" fill="var(--sight)"/>`;
-    g.legs.forEach(([n,e,b])=>{const on="isd-"+n===sel,op=!sel||on?1:.35;
-      if(!e){s+=`<line x1="${g.eye[0]}" y1="${g.eye[1]}" x2="${g.eye[0]}" y2="${g.eye[1]+50}" stroke="rgb(255 255 255 / .7)" stroke-width="1.4" stroke-dasharray="2 4" opacity="${op}"/>`;if(hitOn)s+=`<line class="hit" data-el="isd-${n}" x1="${g.eye[0]}" y1="${g.eye[1]}" x2="${g.eye[0]}" y2="${g.eye[1]+50}"/>`;return}
-      s+=`<line x1="${g.eye[0]}" y1="${g.eye[1]}" x2="${e[0]}" y2="${e[1]}" stroke="var(--sight)" stroke-width="${on?2.6:1.5}" opacity="${op}"/>`;
-      if(b)s+=`<circle cx="${e[0]}" cy="${e[1]}" r="1.6" fill="none" stroke="var(--danger)" stroke-width="2" opacity="${op}"/>`;
-      if(hitOn)s+=`<line class="hit" data-el="isd-${n}" x1="${g.eye[0]}" y1="${g.eye[1]}" x2="${e[0]}" y2="${e[1]}"/>`;});}
+  if(layers.curb) FEAT.curb.forEach((l,i)=>{s+=`<polyline points="${P(l)}" fill="none" stroke="${acc?errCol(errOf("curb",i)):"var(--feat-curb)"}" stroke-width="${sel==="curb"?2.6:acc?2:1.4}" stroke-dasharray="5 3" opacity="${dim("curb")}"/>`;if(hitOn)s+=`<polyline class="hit" data-el="curb" points="${P(l)}"/>`});
+  if(layers.mark) FEAT.mark.forEach((l,i)=>{s+=`<polyline points="${P(l)}" fill="none" stroke="${acc?errCol(errOf("mark",i)):"var(--feat-mark)"}" stroke-width="${sel==="mark"?2.4:acc?2:1.2}" opacity="${dim("mark")}"/>`;if(hitOn)s+=`<polyline class="hit" data-el="mark" points="${P(l)}"/>`});
+  if(layers.cross) FEAT.cross.forEach((c,i)=>{const col=acc?errCol(errOf("cross",i)):"var(--feat-cross)";s+=`<polygon points="${P(c)}" fill="${col}" fill-opacity="${sel==="cross"?.35:.18}" stroke="${col}" stroke-width="${sel==="cross"?2.2:1.2}" opacity="${dim("cross")}"/>`;if(hitOn)s+=`<polygon class="hitpoly" data-el="cross" points="${P(c)}"/>`});
+  if(S.an==="safety"){const list=f?(SIGHT[f.id]?[[f.id,SIGHT[f.id]]]:[]):Object.entries(SIGHT);
+    list.forEach(([id,g])=>{s+=`<circle cx="${g.eye[0]}" cy="${g.eye[1]}" r="1.2" fill="var(--sight)"/>`;
+      g.legs.forEach(([n,e,b])=>{const on="isd-"+n===sel,op=!sel||on?1:.35,h=f?`data-el="isd-${n}"`:"";
+        if(!e){s+=`<line x1="${g.eye[0]}" y1="${g.eye[1]}" x2="${g.eye[0]}" y2="${g.eye[1]+50}" stroke="rgb(255 255 255 / .7)" stroke-width="1.4" stroke-dasharray="2 4" opacity="${op}"/>`;if(hitOn)s+=`<line class="hit" ${h} x1="${g.eye[0]}" y1="${g.eye[1]}" x2="${g.eye[0]}" y2="${g.eye[1]+50}"/>`;return}
+        s+=`<line x1="${g.eye[0]}" y1="${g.eye[1]}" x2="${e[0]}" y2="${e[1]}" stroke="var(--sight)" stroke-width="${on?2.6:1.5}" opacity="${op}"/>`;
+        if(b)s+=`<circle cx="${e[0]}" cy="${e[1]}" r="1.6" fill="none" stroke="var(--danger)" stroke-width="2" opacity="${op}"/>`;
+        if(hitOn)s+=`<line class="hit" ${h} x1="${g.eye[0]}" y1="${g.eye[1]}" x2="${e[0]}" y2="${e[1]}"/>`;});});}
   if(!f) FAC.forEach(x=>{const [a,b,c,d]=x.bbox;s+=`<rect class="fac ${S.hl===x.id?"hl":""}" stroke-width="1.4" stroke-dasharray="5 4" data-fac="${x.id}" x="${a}" y="${b}" width="${c-a}" height="${d-b}" rx="2"/><text class="flabel" x="${a}" y="${b-2}">${x.id} · ${x.type}</text>`});
   else {const [a,b,c,d]=f.bbox;s+=`<rect x="${a}" y="${b}" width="${c-a}" height="${d-b}" fill="none" stroke="var(--fac)" stroke-width="1" stroke-dasharray="3 4" opacity=".6" pointer-events="none"/>`}
   return s+"</svg>";
@@ -357,8 +411,9 @@ function svgHTML(){
 function drawCanvas(cv){if(!IMG)IMG=build();cv.width=AW*RES;cv.height=AH*RES;const g=cv.getContext("2d");
   g.fillStyle="#0d1213";g.fillRect(0,0,cv.width,cv.height);
   if(layers.lidar){g.globalAlpha=layers.ortho?.3:1;g.drawImage(IMG.lid,0,0)}
-  if(layers.ortho){g.globalAlpha=1;g.drawImage(IMG.ort,0,0)}g.globalAlpha=1}
-
+  if(layers.ortho){g.globalAlpha=1;g.drawImage(IMG.ort,0,0)}
+  if(S.an==="coverage"){g.globalAlpha=1;g.drawImage(IMG.cov,0,0)}
+  g.globalAlpha=1}
 /* ======================= pan / zoom ======================= */
 let vp,world;
 let lastK=0;
@@ -395,29 +450,35 @@ function zoomBy(m){const r=vp.getBoundingClientRect(),cx=r.width/2,cy=r.height/2
 function hilite(id){S.hl=id;vp.querySelectorAll(".fac").forEach(r=>r.classList.toggle("hl",r.dataset.fac===id));document.querySelectorAll(".idx button,.jump button").forEach(b=>b.classList.toggle("hl",b.dataset.fac===id))}
 
 /* ======================= render ======================= */
-function selectEl(k){S.el=k;S.step=k.startsWith("isd-")?4:3;render({keepView:true})}   // tabs follow the inspector
+function selectEl(k){S.el=k;S.an=k.startsWith("isd-")?"safety":"accuracy";S.sumMax=false;render({keepView:true})}   // the map shows the analysis behind the number
 function openFac(id){S.fac=id;S.el=null;render({keepView:true});flyTo(fitBox(fac().bbox,1.5))}
 function toArea(){S.fac=null;S.el=null;render({keepView:true});flyTo(fitBox([0,0,AW,AH],1.02))}
 function toast(m){const t=document.getElementById("toast");t.textContent=m;t.classList.add("show");clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove("show"),1600)}
 const RAIL_ICON='<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="2.5" width="13" height="11" rx="2"/><path d="M10 2.5v11"/></svg>';
 function toggleRail(){const r=vp.getBoundingClientRect().width;S.collapsed=!S.collapsed;document.getElementById("stage").classList.toggle("collapsed",S.collapsed);
   requestAnimationFrame(()=>{const n=vp.getBoundingClientRect().width;S.tx+=(n-r)/2;apply()})}
+function redrawMap(){drawCanvas(world.querySelector("canvas"));world.querySelector("svg").outerHTML=svgHTML();apply()}
 function render(o={}){
   const stage=document.getElementById("stage"),f=fac();
   const elName=S.el?(S.el.startsWith("isd-")?S.el.slice(4)+" leg":(f.acc.find(a=>a[0]===S.el)||[])[1]):"";
   stage.classList.toggle("collapsed",S.collapsed);
   stage.innerHTML=`<header class="top"><div class="brand">${CROWN}Road digital twin</div><span class="mock">mock data</span>
      <nav class="crumbs" aria-label="Location">${f?`<button data-up="area">${AREA.name}</button><i>›</i>${S.el?`<button data-up="fac">${f.name}</button><i>›</i><b>${elName}</b>`:`<b>${f.name}</b>`}`:`<b>${AREA.name}</b><i>· ${AREA.scenes} drives · ${AREA.km} km</i>`}</nav>
-     ${layersHTML()}<button class="railbtn glass" data-rail aria-label="Show or hide the side panel (\\)" title="Side panel (\\)">${RAIL_ICON}</button></header>
+     <button class="railbtn glass" data-rail aria-label="Show or hide the side panel (\\)" title="Side panel (\\)">${RAIL_ICON}</button></header>
    <main class="main"><div class="vp"><div class="world"><canvas aria-hidden="true"></canvas>${svgHTML()}</div>
+      ${mapctlHTML()}
       <div class="zoom glass"><button data-z="in" aria-label="Zoom in">+</button><button data-z="out" aria-label="Zoom out">−</button><button data-z="fit" aria-label="Fit" style="font-size:13px">⤢</button></div><div class="scale"></div></div>
-     <div class="strip">${profHTML()}${stepsHTML()}</div></main>
-   <div class="rail">${storyHTML()}${inspHTML()}</div>
+     <div class="strip">${profHTML()}</div></main>
+   <div class="rail">${summaryHTML()}${S.sumMax?miniHTML():inspHTML()}</div>
    <footer class="legal">Derived from nuScenes (CC BY-NC-SA 4.0). Non-commercial research demo.</footer>`;
-  vp=stage.querySelector(".vp");world=stage.querySelector(".world");drawCanvas(world.querySelector("canvas"));
+  vp=stage.querySelector(".vp");world=stage.querySelector(".world");lastK=0;drawCanvas(world.querySelector("canvas"));
   if(!o.keepView){Object.assign(S,f?fitBox(f.bbox,1.5):fitBox([0,0,AW,AH],1.02))}apply();wireMap();
-  stage.querySelectorAll("[data-layer]").forEach(b=>b.onclick=()=>{const k=b.dataset.layer;layers[k]=!layers[k];b.setAttribute("aria-pressed",!!layers[k]);drawCanvas(world.querySelector("canvas"));world.querySelector("svg").outerHTML=svgHTML();apply()});
-  stage.querySelectorAll("[data-step]").forEach(b=>b.onclick=()=>{S.step=+b.dataset.step;Object.assign(layers,STEP_LAYERS[S.step]);render({keepView:true})});
+  const ctl=stage.querySelector(".mapctl");["pointerdown","wheel"].forEach(ev=>ctl.addEventListener(ev,e=>e.stopPropagation()));
+  stage.querySelectorAll("[data-layer]").forEach(b=>b.onclick=()=>{const k=b.dataset.layer;layers[k]=!layers[k];b.setAttribute("aria-pressed",!!layers[k]);redrawMap()});
+  stage.querySelectorAll("[data-an]").forEach(b=>b.onclick=()=>{S.an=S.an===b.dataset.an?null:b.dataset.an;if(S.an==="safety"){layers.ortho=true;layers.lidar=false}render({keepView:true})});
+  stage.querySelector("[data-ctlmin]").onclick=()=>{S.ctlMin=!S.ctlMin;stage.querySelector(".mapctl").classList.toggle("min",S.ctlMin)};
+  stage.querySelectorAll("[data-summax]").forEach(b=>{b.onclick=e=>{e.stopPropagation();S.sumMax=!S.sumMax;render({keepView:true})};if(b.tagName==="SECTION")b.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();b.click()}}});
+  stage.querySelector("[data-sumrestore]")?.addEventListener("click",()=>{S.sumMax=false;render({keepView:true})});
   stage.querySelectorAll("[data-up]").forEach(b=>b.onclick=()=>b.dataset.up==="area"?toArea():(S.el=null,render({keepView:true})));
   stage.querySelectorAll(".rail [data-fac]").forEach(b=>{b.onclick=()=>openFac(b.dataset.fac);b.onmouseenter=()=>hilite(b.dataset.fac);b.onmouseleave=()=>hilite(null)});
   stage.querySelectorAll(".rail [data-el]").forEach(r=>r.onclick=()=>selectEl(r.dataset.el));
@@ -428,8 +489,7 @@ window.addEventListener("resize",()=>{if(vp)render({keepView:false})});
 document.addEventListener("keydown",e=>{
   if(/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)||e.target.isContentEditable||e.metaKey||e.ctrlKey||e.altKey)return;
   if(e.key==="\\")toggleRail();
-  else if(e.key==="Escape"){if(S.el){S.el=null;render({keepView:true})}else if(S.fac)toArea()}
-  else if(/^[1-5]$/.test(e.key)){S.step=+e.key-1;Object.assign(layers,STEP_LAYERS[S.step]);render({keepView:true})}
+  else if(e.key==="Escape"){if(S.sumMax){S.sumMax=false;render({keepView:true})}else if(S.el){S.el=null;render({keepView:true})}else if(S.fac)toArea()}
 });
 render();
 </script>
