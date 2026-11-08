@@ -4,12 +4,13 @@ import re
 import pytest
 from shapely.geometry import LineString, Point, Polygon, box
 
-from twin.contracts import IsdParams
+from twin.contracts import FacilitiesParams, IsdParams
 from twin.facilities import (
     Area,
     Lane,
     MapView,
     RoadSegment,
+    build_facilities,
     facility_id,
     intersections,
     isd_required_m,
@@ -174,3 +175,103 @@ def test_eye_point_at_setback_without_stop_line():
     eye = next(e for e in _x_facility(facs)["eye_points"] if e["approach"] == "A1")
     assert eye["source"] == "setback"
     assert eye["geometry"]["coordinates"] == pytest.approx((0, -5 - SETBACK))
+
+
+# Synthetic map for build_facilities: a north-south corridor.
+#   Z (intersection) y -120..-100 | P (segment) y -100..-60 | Y (intersection) y -60..-40
+#   Q1 + Q2 (segments) y -40..-5 | X (intersection) y -5..5
+# Carpark C sits 0.5 m off Q1's east edge. Carpark D is far away and touches nothing.
+def _map(reverse=False):
+    segs = [
+        RoadSegment("Z", box(-5, -120, 5, -100), True),
+        RoadSegment("P", box(-4, -100, 4, -60), False),
+        RoadSegment("Y", box(-5, -60, 5, -40), True),
+        RoadSegment("Q1", box(-4, -40, 4, -22), False),
+        RoadSegment("Q2", box(-4, -22, 4, -5), False),
+        RoadSegment("X", box(-5, -5, 5, 5), True),
+    ]
+    lanes = [
+        Lane("F1", LineString([(0, -40), (0, -30)]), "Q1", outgoing=["F2"]),
+        Lane(
+            "F2",
+            LineString([(0, -30), (0, -22)]),
+            "Q1",
+            incoming=["F1"],
+            outgoing=["F3"],
+        ),
+        Lane("F3", LineString([(0, -22), (0, -5)]), "Q2", incoming=["F2"]),
+        Lane(
+            "B1", LineString([(0, -22), (0, -40)]), "Q1"
+        ),  # opposite direction, own chain
+    ]
+    carparks = [
+        Area("C", box(4.5, -35, 15, -25)),
+        Area("D", box(50, 50, 60, 60)),
+    ]
+    if reverse:
+        segs.reverse()
+        lanes.reverse()
+        carparks.reverse()
+    return MapView(segs, lanes, carpark_areas=carparks)
+
+
+def _build(view):
+    return build_facilities(view, IsdParams(), FacilitiesParams())
+
+
+def _by_type(facs, kind):
+    return [f for f in facs if f["type"] == kind]
+
+
+def test_segment_merges_two_road_segments_between_intersections():
+    segs = _by_type(_build(_map()), "segment")
+    merged = next(f for f in segs if f["map_tokens"] == ["Q1", "Q2"])
+    assert merged["id"] == facility_id("S", ["Q1", "Q2"])
+    assert merged["id"].startswith("S-")
+    assert merged["between"] == ["X", "Y"]
+    # Centreline runs from Y's edge (y=-40) to X's edge (y=-5), forward lanes only.
+    coords = merged["centreline"]["coordinates"]
+    assert coords[0] == pytest.approx((0, -40))
+    assert coords[-1] == pytest.approx((0, -5))
+    assert merged["core"]["type"] == "Polygon"
+
+
+def test_segment_not_merged_across_intersection():
+    segs = _by_type(_build(_map()), "segment")
+    assert sorted(f["map_tokens"] for f in segs) == [["P"], ["Q1", "Q2"]]
+    for f in segs:
+        assert "Y" not in f["map_tokens"] and "X" not in f["map_tokens"]
+    p = next(f for f in segs if f["map_tokens"] == ["P"])
+    assert p["between"] == ["Y", "Z"]
+
+
+def test_access_point_found_where_carpark_touches_road_and_labelled():
+    facs = _build(_map())
+    access = _by_type(facs, "access_point")
+    assert len(access) == 1  # D touches nothing
+    (a,) = access
+    assert a["source"] == "map-derived"
+    assert a["id"] == "A-" + hashlib.sha1(b"C").hexdigest()[:4]
+    assert a["map_tokens"] == ["C", "Q1"]
+    assert a["core"]["type"] == "Polygon"
+
+
+def test_ids_stable_across_builds():
+    first = _build(_map())
+    second = _build(_map(reverse=True))
+    assert [(f["id"], f["type"]) for f in first] == [
+        (f["id"], f["type"]) for f in second
+    ]
+
+
+def test_all_ids_unique_across_types_and_letters_match_type():
+    facs = _build(_map())
+    ids = [f["id"] for f in facs]
+    assert len(ids) == len(set(ids)) == 6  # Z, Y, X, P, Q1+Q2, C
+    letters = {"intersection": "I", "segment": "S", "access_point": "A"}
+    for f in facs:
+        assert f["id"][0] == letters[f["type"]]
+        assert re.fullmatch(r"[ISA]-[0-9a-f]{4,}", f["id"])
+        assert f["observed_core"] is None
+        assert f["min_observed"] == 0.5
+        assert "hash_tokens" not in f
