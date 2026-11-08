@@ -77,6 +77,9 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path(os.environ.get("NUSCENES_ROOT", "/data/nuscenes")),
     )
+    fake = sub.add_parser("fake-run", help="write synthetic runs and a showcase bundle")
+    fake.add_argument("--out", type=Path, default=Path("runs"))
+    fake.add_argument("--drives", type=int, choices=(1, 2), default=2)
     return parser
 
 
@@ -97,6 +100,12 @@ def main(argv: list[str] | None = None) -> int:
         from twin.select import run_select
 
         return run_select(args.dataroot, args.min_density, args.min_contrast)
+    if args.command == "fake-run":
+        from twin.fake_run import write_fake_runs
+
+        for path in write_fake_runs(args.out, args.drives):
+            print(path)
+        return 0
     return 0
 
 
