@@ -149,6 +149,8 @@ BOXES = (PARKED_BOX, MOVING_BOX)
 ISD_REQUIRED_M = 96.4
 ISD_AVAILABLE_M = 118.0
 ISD_PARKED_M = 61.2
+# One leg is short on purpose, so the blocked sight-line ring is exercised in the UI.
+SHORT_LEG = ("Fake Ave at Second St", "east")
 
 
 @dataclass
@@ -269,7 +271,8 @@ def _rasters(plane: np.ndarray) -> dict[str, np.ndarray]:
     ortho[row[seen], col[seen], :3] = _class_colour(plane)[seen]
     ortho[row[seen], col[seen], 3] = 255
     coverage = np.zeros(shape, np.uint8)
-    coverage[ortho[..., 3] > 0] = (0, 150, 140, 160)
+    coverage[lidar[..., 3] > 0] = (224, 112, 79, 150)  # unobserved, #E0704F
+    coverage[ortho[..., 3] > 0] = (156, 199, 164, 160)  # observed, #9CC7A4
     return {"lidar": lidar, "ortho": ortho, "coverage": coverage}
 
 
@@ -469,7 +472,20 @@ def _features(d: Path, c: _Ctx) -> dict:
             )
         )
     _dump(d / "markings.geojson", _fc(markings))
-    _dump(d / "crosswalks.geojson", _fc([]))
+    # Two zebra bands across the road, so the crosswalk layer is exercised.
+    crosswalks = []
+    for k, (x0, x1) in enumerate(((14.0, 16.0), (20.0, 22.0))):
+        ring = [(x0, 1.0), (x1, 1.0), (x1, 15.0), (x0, 15.0), (x0, 1.0)]
+        crosswalks.append(
+            _feat(
+                "Polygon",
+                [[_p3(x, y, fx.ground_z(x, y)) for x, y in ring]],
+                id=f"X-{k + 1}",
+                kind="crosswalk",
+                n_points=0,
+            )
+        )
+    _dump(d / "crosswalks.geojson", _fc(crosswalks))
     curb_pts = int(np.sum(np.isclose(c.plane[:, 1], fx.CURB_Y)))
     curb = _feat(
         "LineString",
@@ -479,7 +495,7 @@ def _features(d: Path, c: _Ctx) -> dict:
         n_points=curb_pts,
     )
     _dump(d / "curbs.geojson", _fc([curb]))
-    return {"features": {"markings": len(markings), "crosswalks": 0, "curbs": 1}}
+    return {"features": {"markings": len(markings), "crosswalks": 2, "curbs": 1}}
 
 
 def _colour(d: Path, c: _Ctx) -> dict:
@@ -527,9 +543,12 @@ def _isd(d: Path, c: _Ctx) -> dict:
         not_scanned = c.observed[f.id] < Params().facilities.min_observed
         legs = []
         for k, name in enumerate(names):
+            available = ISD_AVAILABLE_M - 10 * k
+            if (f.name, name) == SHORT_LEG:
+                available = ISD_REQUIRED_M - 20
             if not_scanned:
                 status, reason = "indeterminate", "facility not scanned enough"
-            elif ISD_AVAILABLE_M - 10 * k >= ISD_REQUIRED_M:
+            elif available >= ISD_REQUIRED_M:
                 status, reason = "ok", f"with parked vehicles {ISD_PARKED_M} m"
             else:
                 status, reason = "short", f"with parked vehicles {ISD_PARKED_M} m"
@@ -537,7 +556,7 @@ def _isd(d: Path, c: _Ctx) -> dict:
                 {
                     "leg": name,
                     "required_m": ISD_REQUIRED_M,
-                    "available_m": ISD_AVAILABLE_M - 10 * k,
+                    "available_m": available,
                     "available_with_parked_m": ISD_PARKED_M,
                     "status": status,
                     "reason": reason,
@@ -566,7 +585,7 @@ def _accuracy(d: Path, c: _Ctx) -> dict:
     base = 0.01 * c.index
     elements = {
         "markings": _entry("lane_divider", 0.05 + base, 0.13 + base, 0.71, 42),
-        "crosswalks": _entry("ped_crossing", 0.07 + base, 0.18 + base, 0.5, 0),
+        "crosswalks": _entry("ped_crossing", 0.07 + base, 0.18 + base, 0.5, 2),
         "curbs": _entry(
             "drivable_area", 0.08 + base, 0.21 + base, 0.64, 18, "map-conditioned"
         ),

@@ -51,9 +51,10 @@ interface Props {
   onLayer: (k: Layer) => void;
   analysis: Analysis | null;
   onAnalysis: (a: Analysis) => void;
+  note?: string;
 }
 
-export default function MapPanel({ layers, onLayer, analysis, onAnalysis }: Props) {
+export default function MapPanel({ layers, onLayer, analysis, onAnalysis, note }: Props) {
   const [min, setMin] = useState(false);
   return (
     <div className={`mapctl glass${min ? " min" : ""}`}>
@@ -101,9 +102,7 @@ export default function MapPanel({ layers, onLayer, analysis, onAnalysis }: Prop
                 </span>
               ))}
             </div>
-            {analysis === "safety" && (
-              <p className="note">No sight-line geometry in the showcase data yet.</p>
-            )}
+            {note && <p className="note">{note}</p>}
           </>
         )}
       </div>

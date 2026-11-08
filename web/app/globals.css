@@ -203,38 +203,57 @@ button:focus-visible {
   cursor: grabbing;
 }
 
+/* The world is one SVG. Its zoom is a transform on a <g>, so vector-effect: non-scaling-stroke keeps strokes at screen width. */
 .world {
-  position: absolute;
-  left: 0;
-  top: 0;
-  transform-origin: 0 0;
-  will-change: transform;
-}
-
-.world.fly {
-  transition: transform 300ms var(--ease-out);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .world.fly {
-    transition: none;
-  }
-}
-
-.world img {
-  position: absolute;
-  display: block;
-  pointer-events: none;
-  -webkit-user-drag: none;
-  user-select: none;
-}
-
-.world svg {
   position: absolute;
   left: 0;
   top: 0;
   overflow: visible;
   pointer-events: none;
+}
+
+.world > g {
+  transform-origin: 0 0;
+}
+
+.world.fly > g {
+  transition: transform 300ms var(--ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .world.fly > g {
+    transition: none;
+  }
+}
+
+.world polygon.fac {
+  fill: rgb(242 210 122 / 0.07);
+  pointer-events: all;
+  cursor: pointer;
+}
+
+.world polygon.fac:hover {
+  fill: rgb(242 210 122 / 0.22);
+}
+
+.world polygon.hitpoly {
+  fill: transparent;
+  pointer-events: all;
+  cursor: pointer;
+}
+
+.world line.hit {
+  stroke: transparent;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+.world .flabel {
+  fill: #fff;
+  font-family: var(--text);
+  font-weight: 600;
+  pointer-events: none;
+  filter: drop-shadow(0 0 1.5px #000);
 }
 
 .world polyline.hit {

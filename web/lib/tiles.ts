@@ -57,8 +57,8 @@ export function tileLevel(k: number, dpr: number, widthM: number, zmax: number):
 }
 
 /** Fit a rect into the viewport with some padding, centred. */
-export function fitView(r: Rect, size: Size, pad: number): View {
-  const k = Math.min(size.w / ((r.x1 - r.x0) * pad), size.h / ((r.y1 - r.y0) * pad));
+export function fitView(r: Rect, size: Size, pad: number, maxK = Infinity): View {
+  const k = Math.min(maxK, size.w / ((r.x1 - r.x0) * pad), size.h / ((r.y1 - r.y0) * pad));
   const cx = (r.x0 + r.x1) / 2;
   const cy = (r.y0 + r.y1) / 2;
   return { k, tx: size.w / 2 - k * cx, ty: size.h / 2 - k * cy };

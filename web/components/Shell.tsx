@@ -80,6 +80,7 @@ export default function Shell() {
               area={area}
               facility={facility}
               element={element}
+              onFacility={(id) => go({ f: id })}
               onElement={(e) => {
                 if (facility) go({ f: facility.id, e });
               }}
