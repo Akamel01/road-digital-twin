@@ -8,8 +8,9 @@ from PIL import Image
 
 from twin.cli import main
 from twin.contracts import AreaIndex
-from twin.fake_run import FACILITIES, write_fake_runs
+from twin.fake_run import FACILITIES, ORIGIN_E, ORIGIN_N, write_fake_runs
 from twin.publish import _thin_laz, publish_runs
+from twin.tiles import TILE, TileMeta
 
 SCHEMAS = Path(__file__).resolve().parents[1] / "schemas"
 
@@ -95,3 +96,42 @@ def test_cli_publish(runs, tmp_path, capsys):
     assert code == 0
     assert (site / "area.json").is_file()
     assert re.search("area.json", capsys.readouterr().out)
+
+
+def test_tile_meta_places_tiles(runs, tmp_path):
+    store, run_ids = runs
+    site, _ = _site(runs, tmp_path)
+    area = AreaIndex.model_validate_json((site / "area.json").read_text())
+    for rid in run_ids:
+        las = laspy.read(store / rid / "04_ground" / "ground.laz")
+        minx, miny = float(las.x.min()), float(las.y.min())
+        extent = max(float(las.x.max()) - minx, float(las.y.max()) - miny)
+        for raster in ("lidar", "ortho", "coverage"):
+            meta = TileMeta.model_validate_json(
+                (site / "tiles" / rid / raster / "meta.json").read_text()
+            )
+            assert meta.crs == "EPSG:32619"
+            assert meta.bbox[0] == pytest.approx(minx)
+            assert meta.bbox[1] == pytest.approx(miny)
+            assert meta.bbox[2] - meta.bbox[0] == pytest.approx(
+                meta.bbox[3] - meta.bbox[1]
+            )
+            assert meta.bbox[2] - meta.bbox[0] >= extent
+            assert meta.cell_m_at_zmax == pytest.approx(
+                (meta.bbox[2] - meta.bbox[0]) / (TILE * 2**meta.zmax)
+            )
+        drive = next(d for d in area.drives if d.run_id == rid)
+        assert drive.bbox == pytest.approx(list(meta.bbox))
+
+
+def test_fake_showcase_writes_tile_meta(runs):
+    store, run_ids = runs
+    for rid in run_ids:
+        for raster in ("lidar", "ortho", "coverage"):
+            meta = TileMeta.model_validate_json(
+                (store / "showcase" / "tiles" / rid / raster / "meta.json").read_text()
+            )
+            assert meta.zmax == 2
+            assert meta.bbox == pytest.approx(
+                [ORIGIN_E - 12, ORIGIN_N - 12, ORIGIN_E + 52, ORIGIN_N + 52]
+            )

@@ -89,7 +89,9 @@ def _ortho(run_dir: Path, grid: tuple) -> np.ndarray | None:
     return out
 
 
-def _rasters(run_dir: Path, manifest: Manifest) -> tuple[dict[str, np.ndarray], int]:
+def _rasters(
+    run_dir: Path, manifest: Manifest
+) -> tuple[dict[str, np.ndarray], int, tuple[float, float, float, float]]:
     """Lidar intensity, orthoimage and coverage on one square grid over the ground points."""
     las = laspy.read(_stage(run_dir, "ground") / "ground.laz")
     x, y = np.asarray(las.x), np.asarray(las.y)
@@ -121,17 +123,23 @@ def _rasters(run_dir: Path, manifest: Manifest) -> tuple[dict[str, np.ndarray], 
     coverage[lidar[..., 3] > 0] = GREY
     coverage[observed] = TEAL
     rasters["coverage"] = coverage
-    return rasters, zoom
+    bbox = (x0, y0, x0 + side * cell, y0 + side * cell)
+    return rasters, zoom, bbox
 
 
-def _area(runs: list[tuple[Manifest, Path]]) -> AreaIndex:
+def _area(runs: list[tuple[Manifest, Path, tuple]]) -> AreaIndex:
     drives = [
-        Drive(run_id=m.run_id, scene_token=m.data.scene_token, name=m.data.scene_token)
-        for m, _ in runs
+        Drive(
+            run_id=m.run_id,
+            scene_token=m.data.scene_token,
+            name=m.data.scene_token,
+            bbox=list(bbox),
+        )
+        for m, _, bbox in runs
     ]
     meta: dict[str, dict] = {}
     covered: dict[str, dict[str, tuple[float, Manifest]]] = {}
-    for m, run_dir in runs:
+    for m, run_dir, _ in runs:
         load = _stage(run_dir, "load") / "facilities.geojson"
         for feat in json.loads(load.read_text())["features"]:
             meta.setdefault(feat["properties"]["id"], feat["properties"])
@@ -180,9 +188,9 @@ def publish_runs(
         for name in PUBLIC_FILES:
             shutil.copy(outputs / name, dest / name)
         _thin_laz(outputs / "twin.laz", dest / "twin.laz", max_file_bytes)
-        rasters, zoom = _rasters(run_dir, manifest)
-        write_tiles(out, manifest.run_id, rasters, max_zoom=zoom)
-        runs.append((manifest, run_dir))
+        rasters, zoom, bbox = _rasters(run_dir, manifest)
+        write_tiles(out, manifest.run_id, rasters, bbox, max_zoom=zoom)
+        runs.append((manifest, run_dir, bbox))
     area = _area(runs)
     (out / "area.json").write_text(area.model_dump_json(indent=2))
     files = [p for p in out.rglob("*") if p.is_file()]

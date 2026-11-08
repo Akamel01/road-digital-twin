@@ -352,6 +352,8 @@ class Drive(_Strict):
     run_id: str = Field(pattern=r"^\d{8}-\d{6}-[0-9a-f]{6}$")
     scene_token: str
     name: str
+    # minx, miny, maxx, maxy in EPSG:32619 metres: the extent of the drive's plan rasters
+    bbox: list[float] | None = Field(default=None, min_length=4, max_length=4)
 
 
 class AreaFacility(_Strict):

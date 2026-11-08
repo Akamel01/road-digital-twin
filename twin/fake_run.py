@@ -164,6 +164,14 @@ class _Ctx:
     rasters: dict[str, np.ndarray] = field(default_factory=dict)
 
 
+def _raster_bbox() -> tuple[float, float, float, float]:
+    """UTM 19N extent of the base raster (EPSG:32619, metres)."""
+    x0 = ORIGIN_E + RASTER_ORIGIN[0]
+    y0 = ORIGIN_N + RASTER_ORIGIN[1]
+    size = RASTER_CELLS * RASTER_M
+    return (x0, y0, x0 + size, y0 + size)
+
+
 def _run_id(index: int) -> str:
     digest = hashlib.sha1(DRIVE_SPECS[index].scene_token.encode()).hexdigest()[:6]
     return f"{RUN_DATE}-09{index:02d}00-{digest}"
@@ -740,7 +748,7 @@ def _write_run(out: Path, index: int, showcase: Path) -> str:
     (run_dir / "params.yaml").write_text(
         yaml.safe_dump(params.model_dump(mode="json"), sort_keys=False)
     )
-    write_tiles(showcase, run_id, ctx.rasters)
+    write_tiles(showcase, run_id, ctx.rasters, _raster_bbox())
     (showcase / run_id).mkdir(parents=True, exist_ok=True)
     shutil.copy(
         run_dir / "10_outputs" / "twin.geojson", showcase / run_id / "twin.geojson"
@@ -752,7 +760,10 @@ def _write_run(out: Path, index: int, showcase: Path) -> str:
 def _area(run_ids: list[str]) -> AreaIndex:
     drives = [
         Drive(
-            run_id=rid, scene_token=DRIVE_SPECS[i].scene_token, name=DRIVE_SPECS[i].name
+            run_id=rid,
+            scene_token=DRIVE_SPECS[i].scene_token,
+            name=DRIVE_SPECS[i].name,
+            bbox=list(_raster_bbox()),
         )
         for i, rid in enumerate(run_ids)
     ]
