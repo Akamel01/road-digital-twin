@@ -118,3 +118,7 @@ Weakest coverage: vertical profile (section 6, one paper), camera-only accuracy 
 - **[nchrp-15-75]** (not adopted) proposes raising the passenger-car eye height to 3.75 ft (1.14 m); not current standard, not adopted for v1.
 - **[ohio-dot-ldm]** is a secondary state-DOT summary confirming 3.5 ft eye / 2.0 ft object for SSD and 3.5 ft / 3.5 ft for ISD and PSD.
 - **[iowa-sudas]** is a secondary summary confirming the same height values.
+- **[dmrb-cd-109]** (CD 109 §3.1) defines SSD as measured from driver eye heights 1.05–2.00 m to object heights 0.26–2.00 m; no pedestrian- or child-specific object height is defined (envelope only).
+- **[manual-for-streets]** (MfS visibility splay) uses a vertical envelope of driver eye 1.05–2.00 m to object height 0.6–2.00 m; no pedestrian- or child-specific object height is defined.
+- **[tac-gdg-2017]** (§2.5.2.1) defines vehicle object heights (0.38/1.08/1.15/1.30 m by context); no pedestrian- or child-specific object height is defined.
+- No standard checks ISD at night using a headlight target: headlight sag-curve values (0.5–0.6 m, 1° upward divergence) are for vertical (sag) curve design only, not an ISD target.
