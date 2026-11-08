@@ -69,3 +69,13 @@ Date: 2026-11-07. Operator decisions, grilling round 3.
 25. **Pipeline structure control:** stages run in a fixed order, and each declares `requires`. The operator chooses each stage's method from a registered set, edits every parameter, and switches optional stages on or off. Free reordering is not in v1. This narrows "pipeline and framework structure" in #23.
 26. **Access:** the control API sits behind Cloudflare Access, limited to the operator's Google account. Signed-out viewers see the developer panel with its controls disabled. The public views are a pinned showcase run served as static files, so the demo stays up when the box is down.
 27. **One Boston scene, EPSG:32619.** This replaces "2–3 scenes" in #17.
+
+## Round 8 (2026-11-07)
+
+28. **The operator confirmed three review choices:**
+    - Access covers write routes only.
+    - The TAC preset moves to v1.1.
+    - ISD Case B sub-cases are set as parameters.
+
+    These checks are finalised in v1.1.
+29. **The main product is the digital reconstruction of reality, in 2D and 3D** (operator, 2026-11-07). The point cloud, ground surface and extracted features come first. Profile, ISD and drawings are uses of the reconstruction.
