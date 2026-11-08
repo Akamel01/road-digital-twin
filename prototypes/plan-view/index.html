@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Twin area view — prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --canopy-900:#0A0E0F;
+  --glass-smoke:rgb(40 44 46 / .74); --glass-clear:rgb(255 255 255 / .12); --glass-clear-strong:rgb(255 255 255 / .22); --glass-edge:rgb(255 255 255 / .14);
+  --panel-light:#E7EDEF; --chip:#D6DBDE; --pill-active:#DEE0E4;
+  --ink:#0B0B0C; --ink-2:#666C6C;
+  --on-glass:#fff; --on-glass-2:rgb(255 255 255 / .85); --on-glass-3:rgb(255 255 255 / .66);
+  --warn:#E0A94F; --danger:#E0704F; --ok:#9CC7A4;
+  --feat-mark:#F2F2EE; --feat-cross:#7FC4E8; --feat-curb:#E0A94F; --sight:#C9B6F2; --fac:#F2D27A;
+  --ease-out:cubic-bezier(.23,1,.32,1);
+  --display:"Manrope",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --text:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  --gut:14px; --rail:380px; --top:60px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--canopy-900);color:var(--on-glass);font-family:var(--text);-webkit-font-smoothing:antialiased;overflow:hidden}
+button{font:inherit;color:inherit}
+.num{font-variant-numeric:tabular-nums}
+#stage{position:fixed;inset:0}
+.glass{background:linear-gradient(180deg,rgb(255 255 255 / .06),transparent 60%),var(--glass-smoke);-webkit-backdrop-filter:blur(20px) saturate(120%);backdrop-filter:blur(20px) saturate(120%);box-shadow:inset 0 1px 0 var(--glass-edge),inset 0 0 0 1px rgb(255 255 255 / .06);border-radius:16px}
+.light{background:var(--panel-light);color:var(--ink);border-radius:16px}
+.over{font:600 10.5px/1.2 var(--text);letter-spacing:.08em;text-transform:uppercase;color:var(--on-glass-3)}
+.light .over{color:var(--ink-2)}
+.mock{display:inline-block;padding:3px 8px;border-radius:999px;background:var(--glass-clear);font:600 10px/1 var(--text);letter-spacing:.06em;text-transform:uppercase;color:var(--on-glass-2);white-space:nowrap}
+.tag{display:inline-block;padding:2px 7px;border-radius:999px;font:600 11px/1.3 var(--text);white-space:nowrap}
+.light .tag.ok{background:#d3e6d6;color:#2f5e3a}.light .tag.warn{background:#f1dfbd;color:#7a5313}
+.light .tag.ind{background:var(--chip);color:#272D2F}.light .tag.bad{background:#f2d0c4;color:#8a3415}
+.btn{display:inline-flex;align-items:center;justify-content:center;height:30px;padding:0 12px;border:0;border-radius:999px;background:#000;color:#fff;font-size:12px;font-weight:600;cursor:pointer;transition:background-color 150ms ease-out}
+.btn:hover{background:#262626}.btn:active{transform:scale(.97)}
+button:focus-visible{outline:2px solid rgb(255 255 255 / .55);outline-offset:2px}
+.light button:focus-visible{outline-color:#000}
+@keyframes sharpen{from{opacity:0;filter:blur(6px)}to{opacity:1;filter:blur(0)}}
+.enter{animation:sharpen 220ms var(--ease-out) both}
+@media (prefers-reduced-motion:reduce){.enter{animation:none}}
+
+/* ---------- top bar: brand, breadcrumbs, layers, rail toggle ---------- */
+.top{position:absolute;top:var(--gut);left:var(--gut);right:var(--gut);height:34px;display:flex;align-items:center;gap:12px}
+.brand{display:flex;align-items:center;gap:8px;font:600 13px/1 var(--text);color:var(--on-glass-2);white-space:nowrap}
+.brand svg{width:20px;height:20px}
+.crumbs{display:flex;align-items:center;gap:4px;font-size:13px;min-width:0;flex:1}
+.crumbs button{border:0;background:none;padding:4px 6px;border-radius:8px;color:var(--on-glass-2);cursor:pointer;white-space:nowrap}
+.crumbs button:hover{background:var(--glass-clear)}
+.crumbs b{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 4px}
+.crumbs i{font-style:normal;color:var(--on-glass-3);white-space:nowrap}
+.layers{display:flex;gap:3px;padding:3px;border-radius:999px;flex:none}
+.pill{display:flex;align-items:center;gap:6px;height:28px;padding:0 10px;border:0;border-radius:999px;background:transparent;color:var(--on-glass-2);font-size:12px;cursor:pointer;transition:background-color 150ms ease-out,color 150ms ease-out;white-space:nowrap}
+.pill:hover{background:var(--glass-clear)}.pill:active{transform:scale(.97)}
+.pill[aria-pressed="true"]{background:var(--pill-active);color:var(--ink)}
+.sw{width:9px;height:9px;border-radius:3px;flex:none}
+.railbtn{width:34px;height:34px;border:0;border-radius:999px;display:grid;place-items:center;cursor:pointer;flex:none}
+.railbtn:hover{background:var(--glass-clear-strong)}
+.railbtn svg{width:16px;height:16px}
+
+/* ---------- main: map + bottom strip on the left, one rail on the right ---------- */
+.main{position:absolute;top:var(--top);left:var(--gut);bottom:var(--gut);right:calc(var(--rail) + var(--gut)*2);display:flex;flex-direction:column;gap:10px}
+.collapsed .main{right:var(--gut)}
+.vp{position:relative;flex:1;min-height:0;border-radius:16px;overflow:hidden;background:#0d1213;box-shadow:inset 0 0 0 1px rgb(255 255 255 / .07);cursor:grab;touch-action:none}
+.vp.drag{cursor:grabbing}
+.world{position:absolute;left:0;top:0;width:640px;height:400px;transform-origin:0 0;will-change:transform}
+.world canvas{position:absolute;inset:0;width:640px;height:400px}
+.world svg{position:absolute;inset:0;width:640px;height:400px;overflow:visible}
+
+.world .hit{stroke:transparent;fill:none;pointer-events:stroke;cursor:pointer}
+.world .hitpoly{fill:transparent;pointer-events:all;cursor:pointer}
+.world .fac{fill:rgb(242 210 122 / .07);stroke:var(--fac);cursor:pointer;pointer-events:all}
+.world .fac:hover,.world .fac.hl{fill:rgb(242 210 122 / .22)}
+.world .flabel{fill:#fff;font-family:var(--text);font-weight:600;pointer-events:none;filter:drop-shadow(0 0 1.5px #000)}
+.zoom{position:absolute;right:10px;top:10px;display:flex;flex-direction:column;gap:2px;padding:3px;border-radius:12px}
+.zoom button{width:30px;height:30px;border:0;border-radius:9px;background:transparent;cursor:pointer;font-size:16px}
+.zoom button:hover{background:var(--glass-clear)}
+.scale{position:absolute;left:12px;bottom:10px;font:600 11px/1 var(--text);color:#fff;text-shadow:0 1px 2px #000;pointer-events:none}
+.scale i{display:block;height:5px;border:1.5px solid #fff;border-top:0;margin-top:4px}
+
+.strip{display:flex;gap:10px;flex:none;height:96px}
+.prof{flex:1;min-width:0;padding:10px 14px}
+.prof .empty{height:58px;display:grid;place-items:center;font-size:13px;color:var(--on-glass-3);text-align:center}
+.steps{display:flex;flex-direction:column;justify-content:center;gap:2px;padding:5px;flex:none;width:250px}
+.steps .row{display:grid;grid-template-columns:1fr 1fr;gap:2px}
+.step{display:flex;align-items:center;gap:7px;height:27px;padding:0 9px;border:0;border-radius:999px;background:transparent;color:var(--on-glass-2);font-size:12px;white-space:nowrap;cursor:pointer;transition:background-color 150ms ease-out,color 150ms ease-out}
+.step i{font-style:normal;display:inline-grid;place-items:center;width:17px;height:17px;border-radius:999px;background:var(--glass-clear);font-size:10px;font-weight:700;flex:none}
+.step:hover{background:var(--glass-clear)}.step:active{transform:scale(.97)}
+.step[aria-current="step"]{background:var(--pill-active);color:var(--ink)}
+.step[aria-current="step"] i{background:var(--ink);color:#fff}
+
+.rail{position:absolute;top:var(--top);right:var(--gut);bottom:var(--gut);width:var(--rail);display:flex;flex-direction:column;gap:10px;transition:transform 220ms var(--ease-out),opacity 220ms var(--ease-out)}
+.collapsed .rail{transform:translateX(calc(100% + var(--gut)));opacity:0;pointer-events:none}
+@media (prefers-reduced-motion:reduce){.rail{transition:none}}
+
+/* story: short */
+.story{padding:14px 16px;flex:none}
+.story h2{margin:6px 0 4px;font:700 17px/1.25 var(--display)}
+.story p{margin:0;font-size:12.5px;line-height:1.45;color:var(--on-glass-2)}
+.figs{display:flex;gap:16px;margin-top:10px}
+.figs b{display:block;font:700 22px/1.1 var(--display)}
+.figs span{font-size:11px;color:var(--on-glass-3)}
+
+/* inspector */
+.insp{padding:16px;flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column}
+.insp h2{margin:4px 0 4px;font:700 20px/1.15 var(--display)}
+.insp .lead{display:flex;align-items:baseline;gap:10px;margin-top:8px}
+.insp .big{font:700 36px/1 var(--display);letter-spacing:-.02em}
+.insp .big small{font-size:16px;color:var(--ink-2)}
+.insp .sub{font-size:12px;color:var(--ink-2);line-height:1.4}
+.chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:10px}
+.chip{padding:4px 9px;border-radius:999px;background:var(--chip);color:#272D2F;font-size:11.5px;font-weight:600}
+.insp table{border-collapse:collapse;width:100%;margin-top:4px}
+.insp td,.insp th{padding:5px 0;text-align:left;font-size:12.5px}
+.insp th{font:600 10px/1 var(--text);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);padding-bottom:6px}
+.insp td+td,.insp th+th{text-align:right}
+.insp tr+tr td{border-top:1px solid #d3d9dc}
+.insp .row{cursor:pointer}.insp .row:hover td{background:#dde3e6}
+.insp .row.on td{background:#d6dde0;font-weight:600}
+.sec{margin-top:14px}
+.trace{margin:8px 0 0;padding:0;list-style:none;position:relative}
+.trace:before{content:"";position:absolute;left:6px;top:7px;bottom:7px;width:2px;background:#cdd3d6}
+.trace li{position:relative;padding:0 0 9px 22px}
+.trace li:before{content:"";position:absolute;left:1px;top:3px;width:10px;height:10px;border-radius:999px;background:var(--panel-light);border:2px solid #9aa3a7}
+.trace li:first-child:before{background:var(--ink);border-color:var(--ink)}
+.trace b{display:block;font-size:12.5px}.trace span{font-size:11.5px;color:var(--ink-2)}
+.back{border:0;background:none;padding:0;color:var(--ink-2);font-size:12px;cursor:pointer;align-self:flex-start}
+.back:hover{color:var(--ink)}
+.claims{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:8px}
+.claims div{padding:7px 8px;border-radius:10px;background:#dde3e6}
+.claims b{display:block;font:700 14px/1.2 var(--display)}.claims span{font-size:10.5px;color:var(--ink-2);line-height:1.2;display:block;margin-top:2px}
+.idx{list-style:none;margin:6px 0 0;padding:0}
+.idx li+li{border-top:1px solid #d3d9dc}
+.idx button{display:grid;grid-template-columns:34px 1fr auto auto;gap:8px;align-items:center;width:100%;padding:6px 4px;border:0;background:none;text-align:left;cursor:pointer;color:var(--ink);border-radius:8px}
+.idx button:hover,.idx button.hl{background:#dde3e6}
+.idx .ty{font:700 10px/1 var(--text);padding:4px 0;text-align:center;border-radius:6px;background:var(--chip);color:#272D2F}
+.idx .nm{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.idx .nm small{display:block;font-weight:500;color:var(--ink-2);font-size:11px;margin-top:1px}
+.idx .st{font-size:12px;color:var(--ink-2)}
+.jump{display:flex;flex-wrap:wrap;gap:4px;margin-top:auto;padding-top:12px}
+.jump button{border:0;padding:4px 8px;border-radius:8px;background:var(--chip);color:#272D2F;font-size:11px;font-weight:700;cursor:pointer}
+.jump button:hover,.jump button.hl{background:#c9d0d4}
+.jump button[aria-current="true"]{background:#000;color:#fff}
+.dls{display:flex;gap:5px;flex-wrap:wrap;margin-top:12px}
+.legal{position:absolute;left:calc(var(--gut) + 14px);bottom:calc(var(--gut) + 96px + 18px);font:500 10px/1.3 var(--text);color:rgb(255 255 255 / .5);pointer-events:none;text-shadow:0 1px 2px #000}
+.toast{position:fixed;left:50%;top:70px;transform:translateX(-50%);padding:10px 16px;border-radius:999px;font-size:13px;z-index:50;opacity:0;transition:opacity 180ms ease-out;pointer-events:none}
+.toast.show{opacity:1}
+@media (max-width:1280px){:root{--rail:340px}.layers .pill span.t{display:none}.layers .pill{padding:0 8px}}
+@media (max-width:980px){ /* interim — phone/tablet layout is issue #11 */
+  html,body{overflow:auto}#stage{position:static}
+  .top{position:static;margin:14px;height:auto;flex-wrap:wrap}
+  .main,.rail{position:static;width:auto;margin:0 14px 12px}.main{height:75vh}
+  .legal{position:static;margin:0 14px 24px;text-shadow:none}
+}
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<div class="toast glass" id="toast" role="status" aria-live="polite"></div>
+<script>
+/* ======================= mock area (synthetic, nuScenes-shaped numbers) ======================= */
+const AW=640, AH=400, RES=4;                      // metres; canvas px per metre (0.25 m/px)
+const ROADS=[
+ {n:"Congress St",a:"h",c:60,w:14},{n:"Seaport Blvd",a:"h",c:200,w:22},{n:"Summer St",a:"h",c:340,w:14},
+ {n:"B St",a:"v",c:120,w:18},{n:"D St",a:"v",c:330,w:24},{n:"Pier Rd",a:"v",c:540,w:16}];
+const SIDE=4.5, H=ROADS.filter(r=>r.a==="h"), V=ROADS.filter(r=>r.a==="v");
+const DRIVE={x0:436,x1:446,y0:211,y1:227};            // access point A-1 (south side of the boulevard)
+const PARKED=[[60,208,6,2.2],[74,208,5,2.2],[205,192,6,2.2],[262,208,5.5,2.2],[400,192,6,2.2],[333,250,2.2,5.5],[470,208,5,2.2]];
+const DRIVES=[{a:"h",c:196,f:0,t:640},{a:"v",c:326,f:0,t:400},{a:"v",c:116,f:60,t:200}];  // where the car drove
+const inBand=(r,x,y,pad=0)=>r.a==="h"?Math.abs(y-r.c)<r.w/2+pad:Math.abs(x-r.c)<r.w/2+pad;
+const inRoad=(x,y)=>ROADS.some(r=>inBand(r,x,y))||(x>DRIVE.x0&&x<DRIVE.x1&&y>DRIVE.y0&&y<DRIVE.y1);
+const inSide=(x,y)=>!inRoad(x,y)&&ROADS.some(r=>inBand(r,x,y,SIDE));
+const inParked=(x,y)=>PARKED.some(([cx,cy,w,h])=>Math.abs(x-cx)<w/2&&Math.abs(y-cy)<h/2);
+function boxOf(h,v){return {x0:v.c-v.w/2,x1:v.c+v.w/2,y0:h.c-h.w/2,y1:h.c+h.w/2}}
+function inBox(x,y,pad){return H.some(h=>V.some(v=>{const b=boxOf(h,v);return x>b.x0-pad&&x<b.x1+pad&&y>b.y0-pad&&y<b.y1+pad}))}
+function stripe(x,y){
+  for(const h of H)for(const v of V){const b=boxOf(h,v);
+    if(x>b.x0&&x<b.x1&&((y>b.y0-6&&y<b.y0-2.5)||(y>b.y1+2.5&&y<b.y1+6))) return Math.floor(x)%2===0;
+    if(y>b.y0&&y<b.y1&&((x>b.x0-6&&x<b.x0-2.5)||(x>b.x1+2.5&&x<b.x1+6))) return Math.floor(y)%2===0;}
+  if(inBox(x,y,7)) return false;
+  for(const r of ROADS){const d=r.a==="h"?y-r.c:x-r.c, s=r.a==="h"?x:y;
+    if(Math.abs(Math.abs(d)-r.w/2)>0.6&&Math.abs(d)<r.w/2){ if(Math.abs(d)<.12) return true; if(r.w>=20&&Math.abs(Math.abs(d)-r.w/4)<.08&&(s%6)<3) return true; }}
+  return false;
+}
+function density(x,y){
+  let d=1e9;for(const p of DRIVES){const s=p.a==="h"?x:y, o=p.a==="h"?y:x;const ds=s<p.f?p.f-s:s>p.t?s-p.t:0;d=Math.min(d,Math.hypot(ds,o-p.c))}
+  let k=Math.exp(-Math.pow(Math.max(0,d-12)/26,2));
+  if(Math.abs(x-330)<20&&y>236&&y<244) k*=0.05;   // scan gap on D St south leg
+  return k;
+}
+let seed=11;const rnd=()=>((seed=(seed*16807)%2147483647)/2147483647);
+function build(){
+  const W=AW*RES,Hh=AH*RES, lid=document.createElement('canvas'), ort=document.createElement('canvas');
+  lid.width=ort.width=W;lid.height=ort.height=Hh;
+  const L=lid.getContext('2d'),O=ort.getContext('2d'),li=L.createImageData(W,Hh),oi=O.createImageData(W,Hh);
+  for(let py=0;py<Hh;py++)for(let px=0;px<W;px++){
+    const x=px/RES,y=py/RES,i=(py*W+px)*4,k=density(x,y);
+    if(k<0.02) continue;
+    const road=inRoad(x,y), side=!road&&inSide(x,y), park=inParked(x,y), st=(road||side)&&stripe(x,y);
+    if(rnd()<k*.9&&!park){
+      const v=road?(st?205+rnd()*40:46+rnd()*22):side?(st?200:96+rnd()*24):70+rnd()*90*(.6+.4*Math.sin(x*.7)*Math.cos(y*.5));
+      li.data[i]=v*.92;li.data[i+1]=v*.97;li.data[i+2]=v;li.data[i+3]=255;}
+    if(k>0.2&&!park&&(road||side||(k>.6&&rnd()>.2))&&rnd()>.02){
+      const c=road?(st?[226,224,214]:[72+rnd()*10,75+rnd()*10,79+rnd()*10]):side?[150+rnd()*14,146+rnd()*12,136+rnd()*10]:[78+rnd()*20,96+rnd()*22,62+rnd()*14];
+      oi.data[i]=c[0];oi.data[i+1]=c[1];oi.data[i+2]=c[2];oi.data[i+3]=255;}
+  }
+  L.putImageData(li,0,0);O.putImageData(oi,0,0);return {lid,ort};
+}
+let IMG=null;
+const layers={lidar:true,ortho:false,mark:true,cross:true,curb:true,sight:true};
+
+/* facilities: intersections and segments from the HD map, access points from curb gaps */
+const FAC=[
+ {id:"I-1",type:"Intersection",name:"Seaport Blvd & D St",bbox:[296,166,364,234],obs:.88,hv:true,p95:.27,
+  acc:[["cross","Crosswalks","ped_crossing",.11,.27,.82,4],["mark","Lane markings","lane_divider + road_divider",.14,.38,.64,6],["curb","Curbs","drivable_area edge",.21,.52,.71,4,"map-conditioned"]],
+  isd:{case:"B1 · left turn",req:83,legs:[["North",91,88,"ok"],["East",66,52,"short"],["South",null,null,"indeterminate","scan gap 36–44 m"],["West",96,96,"ok"]]},prof:{from:"south approach",grade:1.8,gap:[36,44]}},
+ {id:"I-2",type:"Intersection",name:"Seaport Blvd & B St",bbox:[96,174,144,226],obs:.81,hv:true,p95:.31,
+  acc:[["cross","Crosswalks","ped_crossing",.12,.31,.77,4],["mark","Lane markings","lane_divider + road_divider",.15,.41,.58,5],["curb","Curbs","drivable_area edge",.23,.57,.66,4,"map-conditioned"]],
+  isd:{case:"B1 · left turn",req:83,legs:[["North",88,85,"ok"],["East",94,90,"ok"],["South",null,null,"indeterminate","not scanned"],["West",71,58,"short"]]},prof:{from:"north approach",grade:-0.9}},
+ {id:"I-3",type:"Intersection",name:"Seaport Blvd & Pier Rd",bbox:[516,178,564,222],obs:.62,hv:true,p95:.34,
+  acc:[["cross","Crosswalks","ped_crossing",.13,.34,.61,2],["mark","Lane markings","lane_divider + road_divider",.16,.44,.52,3],["curb","Curbs","drivable_area edge",.24,.6,.48,2,"map-conditioned"]],
+  isd:{case:"B1 · left turn",req:83,legs:[["North",null,null,"indeterminate","not scanned"],["East",101,99,"ok"],["South",null,null,"indeterminate","not scanned"],["West",97,95,"ok"]]},prof:{from:"west approach",grade:0.4}},
+ {id:"I-4",type:"Intersection",name:"Congress St & D St",bbox:[306,40,354,80],obs:.79,hv:false,p95:.29,
+  acc:[["cross","Crosswalks","ped_crossing",.12,.29,.74,4],["mark","Lane markings","lane_divider + road_divider",.15,.4,.55,4],["curb","Curbs","drivable_area edge",.22,.55,.63,4,"map-conditioned"]],
+  isd:{case:"B1 · left turn",req:83,legs:[["North",null,null,"indeterminate","height not valid"],["East",null,null,"indeterminate","height not valid"],["South",null,null,"indeterminate","height not valid"],["West",null,null,"indeterminate","height not valid"]]},prof:{from:"south approach",grade:2.6,invalid:true}},
+ {id:"S-1",type:"Segment",name:"Seaport Blvd, B St to D St",bbox:[144,186,306,214],obs:.91,hv:true,p95:.24,
+  acc:[["mark","Lane markings","lane_divider + road_divider",.12,.33,.79,4],["curb","Curbs","drivable_area edge",.19,.48,.81,2,"map-conditioned"]],prof:{from:"eastbound centreline",grade:0.6,len:160}},
+ {id:"A-1",type:"Access point",name:"88 Seaport Blvd (south side)",bbox:[428,196,454,232],obs:.84,hv:true,p95:.29,
+  acc:[["curb","Curbs","drivable_area edge",.2,.29,.77,2,"map-conditioned"]],
+  isd:{case:"B1 · exit, left turn",req:83,legs:[["Left (west)",79,61,"short"],["Right (east)",92,90,"ok"]]},prof:{from:"driveway",grade:-3.1,len:20}}
+];
+const AREA={name:"Boston Seaport",scenes:4,sweeps:1584,km:1.9,obs:.84,p95:.29,drift:.31,run:"20261111-142233-3fa91c"};
+const CROWN='<svg viewBox="0 0 64 64" fill="none" stroke="#e2a93b" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M32 61L32 28.862" stroke-width="2.356"/><path d="M32 36.449Q31.219 32.327 27.541 30.311Q28.321 34.433 32 36.449M32 36.449Q35.679 34.433 36.459 30.311Q32.781 32.327 32 36.449" stroke-width="1.456"/><path d="M32 28.862L15.931 17.188M32 28.862L20.325 12.793M32 28.862L25.862 9.972M32 28.862L32 9M32 28.862L38.138 9.972M32 28.862L43.675 12.793M32 28.862L48.069 17.188" stroke-width="0.9"/><path d="M15.931 17.188L20.325 12.793L25.862 9.972L32 9L38.138 9.972L43.675 12.793L48.069 17.188" stroke-width="1.456"/></svg>';
+const f2=v=>v.toFixed(2);
+
+/* ======================= vector features (only where scanned) ======================= */
+function features(){
+  const cross=[],mark=[],curb=[];
+  for(const h of H)for(const v of V){const b=boxOf(h,v),cx=(b.x0+b.x1)/2,cy=(b.y0+b.y1)/2;
+    [[[b.x0,b.y0-6],[b.x1,b.y0-6],[b.x1,b.y0-2.5],[b.x0,b.y0-2.5]],[[b.x0,b.y1+2.5],[b.x1,b.y1+2.5],[b.x1,b.y1+6],[b.x0,b.y1+6]],
+     [[b.x0-6,b.y0],[b.x0-2.5,b.y0],[b.x0-2.5,b.y1],[b.x0-6,b.y1]],[[b.x1+2.5,b.y0],[b.x1+6,b.y0],[b.x1+6,b.y1],[b.x1+2.5,b.y1]]]
+     .forEach(p=>{const mx=p.reduce((s,q)=>s+q[0],0)/4,my=p.reduce((s,q)=>s+q[1],0)/4;if(density(mx,my)>.35)cross.push(p)})}
+  const chunk=(a,c,s0,s1,o,out,skip)=>{for(let s=s0;s<s1;s+=10){const e=Math.min(s1,s+10),m=(s+e)/2;
+      const p=a==="h"?[m,c+o]:[c+o,m];if(inBox(p[0],p[1],7)||density(p[0],p[1])<.35||(skip&&skip(p)))continue;
+      out.push(a==="h"?[[s,c+o],[e,c+o]]:[[c+o,s],[c+o,e]])}};
+  const L=640;
+  for(const r of ROADS){const len=r.a==="h"?AW:AH;
+    chunk(r.a,r.c,0,len,0,mark);
+    chunk(r.a,r.c,0,len,-r.w/2,curb);
+    chunk(r.a,r.c,0,len,r.w/2,curb,p=>r.n==="Seaport Blvd"&&p[0]>DRIVE.x0-5&&p[0]<DRIVE.x1+5);}
+  return {cross,mark,curb};
+}
+const FEAT=features();
+const SIGHT={ // per facility: eye, legs [name, end, blocked?]
+  "I-1":{eye:[326,221],legs:[["North",[327,138],0],["East",[379,198],1],["South",null,0],["West",[245,203],0]]},
+  "I-2":{eye:[116,219],legs:[["North",[117,140],0],["East",[208,198],0],["West",[50,203],1]]},
+  "A-1":{eye:[441,213],legs:[["Left (west)",[373,204],1],["Right (east)",[530,204],0]]}
+};
+
+/* ======================= app state ======================= */
+const S={fac:null,el:null,step:0,k:1,tx:0,ty:0,hl:null,collapsed:false};
+const STEPS=["Raw sweeps","Aligned twin","Features","Accuracy","Safety check"];
+const STEP_LAYERS=[{lidar:1,ortho:0,mark:0,cross:0,curb:0,sight:0},{lidar:1,ortho:1,mark:0,cross:0,curb:0,sight:0},{lidar:1,ortho:0,mark:1,cross:1,curb:1,sight:0},{lidar:1,ortho:0,mark:1,cross:1,curb:1,sight:0},{lidar:0,ortho:1,mark:1,cross:1,curb:0,sight:1}];
+const fac=()=>FAC.find(f=>f.id===S.fac);
+const tagFor=s=>s==="ok"?'<span class="tag ok">meets</span>':s==="short"?'<span class="tag bad">short</span>':'<span class="tag ind">indeterminate</span>';
+
+function storyHTML(){
+  const st=S.step,f=fac();let h,p,figs;
+  if(!f){
+    h=[`${AREA.sweeps.toLocaleString()} sweeps over ${AREA.km} km of street`,"One surface across four drives","Markings, crosswalks and curbs, area-wide","Every element checked against the HD map","Safety checks run per facility"][st];
+    p=["Four drives, one frame. Moving and parked vehicles are masked out first.","ICP aligns height, pitch and roll; cameras colour the ground. Unseen ground stays transparent.","Paint from lidar return strength; curbs from a height step at the road edge.","One-way distance to the map's own geometry. Curbs are map-conditioned.","Open an intersection, segment or access point for sight distance and profile."][st];
+    figs=[[[AREA.scenes,"drives",0],[AREA.sweeps,"sweeps",0]],[[Math.round(AREA.obs*100),"% ground observed",0],[AREA.drift,"m mean drift",2]],[[FEAT.cross.length,"crosswalks",0],[FEAT.mark.length,"marking runs",0]],[[AREA.p95,"m P95, all elements",2]],[[FAC.length,"facilities",0]]][st];
+  } else {
+    const a=f.acc;
+    h=[`Sweeps within 40 m of ${f.id}`,f.hv?"Heights agree between sweeps":"Heights disagree: height results withheld","Features found here","Accuracy at this facility",f.isd?"Can a stopped driver see far enough?":"Vertical profile along the segment"][st];
+    p=[`Every drive that passed this ${f.type.toLowerCase()} contributes.`,
+       f.hv?"Ground-height disagreement is under the 0.10 m limit.":"Ground-height disagreement is over the 0.10 m limit; profile and sight distance are indeterminate.",
+       "Click any line or polygon on the plan to trace its number.",
+       a.map(x=>`${x[1]} ${f2(x[4])} m`).join(" · ")+" (P95).",
+       f.isd?`AASHTO ${f.isd.case}, 40 km/h, 7.5 s: ${f.isd.req} m per leg. Red rings mark where the view is blocked.`:`${f.prof.grade>0?"+":""}${f.prof.grade}% average grade along the ${f.prof.from}. Descriptive only.`][st];
+    figs=[[[Math.round(f.obs*100),"% ground observed",0]],[[f.hv?.064:.142,"m height disagreement, P95",3]],[[a.reduce((s,x)=>s+x[6],0),"elements",0]],[[f.p95,"m P95, worst element",2]],
+      f.isd?[[f.isd.req,"m required",0],[f.isd.legs.filter(l=>l[3]==="short").length,"legs short",0]]:[[f.prof.grade,"% grade",1]]][st];
+  }
+  return `<section class="story glass" aria-live="polite"><div class="over">Step ${st+1} · ${STEPS[st]}</div><h2>${h}</h2><p>${p}</p>
+    <div class="figs num">${figs.map(([v,l,d])=>`<div><b>${(+v).toFixed(d)}</b><span>${l}</span></div>`).join("")}</div></section>`;
+}
+const LDEF=[["lidar","Lidar","#9aa3a7"],["ortho","Ortho","#8a9a6a"],["mark","Markings","var(--feat-mark)"],["cross","Crosswalks","var(--feat-cross)"],["curb","Curbs","var(--feat-curb)"],["sight","Sight lines","var(--sight)"]];
+function layersHTML(){return `<nav class="layers glass" aria-label="Layers">${LDEF.map(([k,n,c])=>`<button class="pill" data-layer="${k}" aria-pressed="${!!layers[k]}" title="${n}"><span class="sw" style="background:${c}"></span><span class="t">${n}</span></button>`).join("")}</nav>`}
+
+function jumpHTML(){return `<div class="jump" aria-label="Facilities">${FAC.map(x=>`<button data-fac="${x.id}" title="${x.name}" ${S.fac===x.id?'aria-current="true"':""} class="${S.hl===x.id?"hl":""}">${x.id}</button>`).join("")}</div>`}
+function inspHTML(){
+  const f=fac();
+  if(!f) return `<aside class="insp light"><div class="over">Area</div><h2>${AREA.name}</h2>
+      <div class="lead"><div class="big num">${f2(AREA.p95)}<small> m</small></div><div class="sub">P95 plan error, all elements,<br>vs nuScenes HD map</div></div>
+      <div class="claims num"><div><b>${Math.round(AREA.obs*100)}%</b><span>ground observed</span></div><div><b>5/6</b><span>valid height</span></div><div><b>${f2(AREA.drift)} m</b><span>mean drift</span></div><div><b>Unknown</b><span>absolute georef.</span></div></div>
+      <div class="sec over">Facilities · worst P95</div>
+      <ul class="idx">${FAC.map(x=>`<li><button data-fac="${x.id}" class="${S.hl===x.id?"hl":""}"><span class="ty">${x.id}</span><span class="nm">${x.name}<small>${x.type}${x.hv?"":" · height not valid"}</small></span><span>${x.isd&&x.isd.legs.some(l=>l[3]==="short")?'<span class="tag bad">ISD short</span>':""}</span><span class="st num">${f2(x.p95)} m</span></button></li>`).join("")}</ul></aside>`;
+  if(S.el) return elHTML(f);
+  const r=k=>S.el===k?" on":"";
+  return `<aside class="insp light"><button class="back" data-up="area">‹ ${AREA.name}</button>
+    <div class="over" style="margin-top:10px">${f.type} · ${f.id}</div><h2>${f.name}</h2>
+    <div>${f.hv?'<span class="tag ok">height valid</span>':'<span class="tag warn">height not valid</span>'} <span class="tag ind">${Math.round(f.obs*100)}% observed</span></div>
+    <div class="sec over">Plan accuracy vs HD map</div>
+    <table class="num"><tr><th>Element</th><th>P50</th><th>P95</th><th>Cover</th></tr>${f.acc.map(a=>`<tr class="row${r(a[0])}" data-el="${a[0]}"><td>${a[1]}${a[7]?` <span class="tag warn">map-cond.</span>`:""}</td><td>${f2(a[3])}</td><td>${f2(a[4])}</td><td>${Math.round(a[5]*100)}%</td></tr>`).join("")}</table>
+    ${f.isd?`<div class="sec over">Sight distance · ${f.isd.case} · ${f.isd.req} m</div>
+    <table class="num"><tr><th>Leg</th><th>Avail.</th><th>Parked</th><th></th></tr>${f.isd.legs.map(l=>`<tr class="row" data-el="isd-${l[0]}"><td>${l[0]}</td><td>${l[1]??"—"}</td><td>${l[2]??"—"}</td><td>${tagFor(l[3])}</td></tr>`).join("")}</table>`:""}
+    <div class="dls"><button class="btn" data-file="plan.pdf">Plan PDF</button><button class="btn" data-file="plan.dxf">DXF</button><button class="btn" data-file="twin.laz">LAZ</button><button class="btn" data-file="manifest.json">Manifest</button></div>
+    ${jumpHTML()}</aside>`;
+}
+function elHTML(f){
+  const k=S.el;let d;
+  if(k.startsWith("isd-")){const l=f.isd.legs.find(x=>"isd-"+x[0]===k);
+    d={over:"Sight line",title:`${l[0]} leg`,big:l[1]==null?"—":l[1],unit:l[1]==null?"":" m",tag:tagFor(l[3]),
+      sub:l[3]==="indeterminate"?`Indeterminate: ${l[4]}`:`available · ${l[2]} m with parked cars · ${f.isd.req} m required`,
+      chips:[f.isd.case,"40 km/h","7.5 s gap","eye 1.08 m","object 1.08 m"],
+      trace:[["isd · aashto-b","band 0.3 m · ≥ 20 ground points per 2 m"],["ground · ransac-tiles",f.hv?"height valid · 0.064 m P95 disagreement":"height not valid · 0.142 m P95"],["mask · boxes","parked vehicles kept apart"],["align · kiss-icp","0.31 m drift vs dataset poses"],["sweeps",`${AREA.scenes} drives · nuScenes v1.0-mini`]]};}
+  else {const a=f.acc.find(x=>x[0]===k);
+    d={over:"Plan accuracy",title:a[1],big:f2(a[4]),unit:" m",tag:a[7]?`<span class="tag warn">${a[7]}</span>`:'<span class="tag ok">lidar-measured</span>',
+      sub:`P95 · P50 ${f2(a[3])} m · ${Math.round(a[5]*100)}% of reference covered`,chips:[`ref: ${a[2]}`,`${a[6]} elements`,"buffer 1.0 m"],
+      trace:[["accuracy · one-way","distance from each extracted vertex"],[k==="curb"?"features · height-step":"features · intensity",k==="curb"?"step 0.08–0.25 m at the ground edge":"95th percentile per tile · DBSCAN 0.3 m"],["ground · ransac-tiles","5 m tiles · RMSE 0.018 m"],["align · kiss-icp","0.31 m drift vs dataset poses"],["sweeps",`${AREA.scenes} drives · nuScenes v1.0-mini`]]};}
+  return `<aside class="insp light"><button class="back" data-up="fac">‹ ${f.name}</button>
+    <div class="over" style="margin-top:10px">${d.over}</div><h2>${d.title}</h2><div>${d.tag}</div>
+    <div class="lead"><div class="big num">${d.big}<small>${d.unit}</small></div><div class="sub">${d.sub}</div></div>
+    <div class="chips">${d.chips.map(c=>`<span class="chip">${c}</span>`).join("")}</div>
+    <div class="sec over">Where this number comes from</div><ol class="trace">${d.trace.map(([b,s])=>`<li><b>${b}</b><span>${s}</span></li>`).join("")}</ol>
+    ${jumpHTML()}</aside>`;
+}
+function profHTML(){
+  const f=fac();
+  if(!f) return `<section class="prof glass"><div class="over">Vertical profile</div><div class="empty">Open a facility to see its vertical profile</div></section>`;
+  const P=f.prof,len=P.len||80,h=60;
+  if(P.invalid) return `<section class="prof glass"><div class="over">Vertical profile · ${P.from}</div><div class="empty">Indeterminate (height): heights here don't agree between sweeps</div></section>`;
+  const X=s=>8+s/len*984,Y=z=>h-6-(z-(4+Math.min(0,P.grade/100*len)))/(Math.abs(P.grade/100*len)+.6)*(h-14);
+  let d="",pen=false;for(let s=0;s<=len;s+=len/60){const gap=P.gap&&s>P.gap[0]&&s<P.gap[1];if(gap){pen=false;continue}const z=4+P.grade/100*s+.1*Math.sin(s/9);d+=(pen?"L":"M")+X(s).toFixed(1)+" "+Y(z).toFixed(1);pen=true}
+  const g=P.gap?`<rect x="${X(P.gap[0])}" y="2" width="${X(P.gap[1])-X(P.gap[0])}" height="${h-4}" fill="rgb(255 255 255 / .08)"/><text x="${(X(P.gap[0])+X(P.gap[1]))/2}" y="13" fill="rgb(255 255 255 / .6)" font-size="10" text-anchor="middle">gap</text>`:"";
+  return `<section class="prof glass"><div class="over">Vertical profile · ${P.from} · descriptive</div><svg viewBox="0 0 1000 ${h}" width="100%" height="${h}" preserveAspectRatio="none" style="display:block;margin-top:4px">${g}<path d="${d}" fill="none" stroke="#fff" stroke-width="1.6" vector-effect="non-scaling-stroke"/></svg><div class="over" style="display:flex;justify-content:space-between;margin-top:2px"><span>0 m</span><span>${len} m · ${P.grade>0?"+":""}${P.grade}%</span></div></section>`;
+}
+function stepsHTML(){const b=i=>`<button class="step" data-step="${i}" ${i===S.step?'aria-current="step"':""}><i>${i+1}</i>${STEPS[i]}</button>`;
+  return `<nav class="steps glass" aria-label="Steps"><div class="row">${b(0)}${b(1)}</div><div class="row">${b(2)}${b(3)}</div><div class="row">${b(4)}</div></nav>`}
+/* map SVG */
+function svgHTML(){
+  const f=fac(),P=a=>a.map(p=>p.join(",")).join(" "),sel=S.el,hitOn=!!f;
+  let s=`<svg viewBox="0 0 ${AW} ${AH}" aria-label="Plan of ${f?f.name:AREA.name}">`;
+  if(layers.curb) FEAT.curb.forEach(l=>{s+=`<polyline points="${P(l)}" fill="none" stroke="var(--feat-curb)" stroke-width="${sel==="curb"?2.6:1.4}" stroke-dasharray="5 3" opacity="${!sel||sel==="curb"?1:.4}"/>`;if(hitOn)s+=`<polyline class="hit" data-el="curb" points="${P(l)}"/>`});
+  if(layers.mark) FEAT.mark.forEach(l=>{s+=`<polyline points="${P(l)}" fill="none" stroke="var(--feat-mark)" stroke-width="${sel==="mark"?2.4:1.2}" opacity="${!sel||sel==="mark"?.95:.4}"/>`;if(hitOn)s+=`<polyline class="hit" data-el="mark" points="${P(l)}"/>`});
+  if(layers.cross) FEAT.cross.forEach(c=>{s+=`<polygon points="${P(c)}" fill="rgb(127 196 232 / ${sel==="cross"?.35:.16})" stroke="var(--feat-cross)" stroke-width="${sel==="cross"?2.2:1.2}" opacity="${!sel||sel==="cross"?1:.4}"/>`;if(hitOn)s+=`<polygon class="hitpoly" data-el="cross" points="${P(c)}"/>`});
+  if(layers.sight&&f&&SIGHT[f.id]){const g=SIGHT[f.id];s+=`<circle cx="${g.eye[0]}" cy="${g.eye[1]}" r="1.2" fill="var(--sight)"/>`;
+    g.legs.forEach(([n,e,b])=>{const on="isd-"+n===sel,op=!sel||on?1:.35;
+      if(!e){s+=`<line x1="${g.eye[0]}" y1="${g.eye[1]}" x2="${g.eye[0]}" y2="${g.eye[1]+50}" stroke="rgb(255 255 255 / .7)" stroke-width="1.4" stroke-dasharray="2 4" opacity="${op}"/>`;if(hitOn)s+=`<line class="hit" data-el="isd-${n}" x1="${g.eye[0]}" y1="${g.eye[1]}" x2="${g.eye[0]}" y2="${g.eye[1]+50}"/>`;return}
+      s+=`<line x1="${g.eye[0]}" y1="${g.eye[1]}" x2="${e[0]}" y2="${e[1]}" stroke="var(--sight)" stroke-width="${on?2.6:1.5}" opacity="${op}"/>`;
+      if(b)s+=`<circle cx="${e[0]}" cy="${e[1]}" r="1.6" fill="none" stroke="var(--danger)" stroke-width="2" opacity="${op}"/>`;
+      if(hitOn)s+=`<line class="hit" data-el="isd-${n}" x1="${g.eye[0]}" y1="${g.eye[1]}" x2="${e[0]}" y2="${e[1]}"/>`;});}
+  if(!f) FAC.forEach(x=>{const [a,b,c,d]=x.bbox;s+=`<rect class="fac ${S.hl===x.id?"hl":""}" stroke-width="1.4" stroke-dasharray="5 4" data-fac="${x.id}" x="${a}" y="${b}" width="${c-a}" height="${d-b}" rx="2"/><text class="flabel" x="${a}" y="${b-2}">${x.id} · ${x.type}</text>`});
+  else {const [a,b,c,d]=f.bbox;s+=`<rect x="${a}" y="${b}" width="${c-a}" height="${d-b}" fill="none" stroke="var(--fac)" stroke-width="1" stroke-dasharray="3 4" opacity=".6" pointer-events="none"/>`}
+  return s+"</svg>";
+}
+function drawCanvas(cv){if(!IMG)IMG=build();cv.width=AW*RES;cv.height=AH*RES;const g=cv.getContext("2d");
+  g.fillStyle="#0d1213";g.fillRect(0,0,cv.width,cv.height);
+  if(layers.lidar){g.globalAlpha=layers.ortho?.3:1;g.drawImage(IMG.lid,0,0)}
+  if(layers.ortho){g.globalAlpha=1;g.drawImage(IMG.ort,0,0)}g.globalAlpha=1}
+
+/* ======================= pan / zoom ======================= */
+let vp,world;
+let lastK=0;
+function restroke(){const k=S.k;world.querySelectorAll("svg [stroke-width],svg [stroke-dasharray],svg .hit").forEach(e=>{
+  if(e.dataset.w===undefined){e.dataset.w=e.getAttribute("stroke-width")||(e.classList.contains("hit")?"10":"");e.dataset.d=e.getAttribute("stroke-dasharray")||""}
+  if(e.dataset.w)e.setAttribute("stroke-width",(+e.dataset.w/k).toFixed(4));
+  if(e.dataset.d)e.setAttribute("stroke-dasharray",e.dataset.d.split(/[ ,]+/).map(v=>(+v/k).toFixed(4)).join(" "))});
+  world.querySelectorAll("svg circle[r]").forEach(c=>{if(c.dataset.r===undefined)c.dataset.r=c.getAttribute("r");c.setAttribute("r",(Math.max(+c.dataset.r,4/k)).toFixed(4))});lastK=k}
+function apply(){world.style.transform=`translate(${S.tx}px,${S.ty}px) scale(${S.k})`;if(S.k!==lastK||!world.querySelector("svg [data-w]"))restroke();
+  world.querySelectorAll(".flabel").forEach(t=>t.setAttribute("font-size",(12/S.k).toFixed(3)));
+  // scale bar: a round number of metres ≈ 80 px
+  const m=[5,10,20,50,100,200].find(v=>v*S.k>=60)||200;const sb=vp.querySelector(".scale");sb.innerHTML=`${m} m<i style="width:${m*S.k}px"></i>`}
+function fitBox([x0,y0,x1,y1],pad=1.15){const r=vp.getBoundingClientRect(),w=(x1-x0)*pad,h=(y1-y0)*pad,k=Math.min(r.width/w,r.height/h);return {k,tx:r.width/2-k*(x0+x1)/2,ty:r.height/2-k*(y0+y1)/2}}
+function flyTo(t){const a={k:S.k,tx:S.tx,ty:S.ty};
+  if(matchMedia("(prefers-reduced-motion: reduce)").matches){Object.assign(S,t);apply();return}
+  const t0=performance.now(),dur=300,step=n=>{const u=Math.min(1,(n-t0)/dur),e=1-Math.pow(1-u,3);
+    S.k=Math.exp(Math.log(a.k)+(Math.log(t.k)-Math.log(a.k))*e);S.tx=a.tx+(t.tx-a.tx)*e;S.ty=a.ty+(t.ty-a.ty)*e;apply();if(u<1)requestAnimationFrame(step)};requestAnimationFrame(step)}
+function minK(){return fitBox([0,0,AW,AH],1.02).k*.8}
+function wireMap(){
+  let drag=null,moved=0;
+  vp.addEventListener("wheel",e=>{e.preventDefault();const r=vp.getBoundingClientRect(),mx=e.clientX-r.left,my=e.clientY-r.top;
+    const nk=Math.max(minK(),Math.min(40,S.k*Math.exp(-e.deltaY*.0015)));S.tx=mx-(mx-S.tx)*nk/S.k;S.ty=my-(my-S.ty)*nk/S.k;S.k=nk;apply()},{passive:false});
+  vp.addEventListener("pointerdown",e=>{if(e.target.closest(".zoom"))return;drag={x:e.clientX,y:e.clientY,tx:S.tx,ty:S.ty};moved=0;vp.setPointerCapture(e.pointerId);vp.classList.add("drag")});
+  vp.addEventListener("pointermove",e=>{if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;moved=Math.max(moved,Math.hypot(dx,dy));S.tx=drag.tx+dx;S.ty=drag.ty+dy;apply()});
+  vp.addEventListener("pointerup",e=>{vp.classList.remove("drag");const was=drag;drag=null;if(!was||moved>4)return;
+    vp.releasePointerCapture(e.pointerId);const t=document.elementFromPoint(e.clientX,e.clientY);if(!t)return;
+    const fe=t.closest("[data-fac]"),ee=t.closest("[data-el]");if(fe&&!S.fac)openFac(fe.dataset.fac);else if(ee&&S.fac)selectEl(ee.dataset.el)});
+  vp.addEventListener("pointerover",e=>{const fe=e.target.closest&&e.target.closest(".fac");if(fe)hilite(fe.dataset.fac)});
+  vp.addEventListener("pointerout",e=>{const fe=e.target.closest&&e.target.closest(".fac");if(fe)hilite(null)});
+  vp.querySelector("[data-z='in']").onclick=()=>zoomBy(1.6);vp.querySelector("[data-z='out']").onclick=()=>zoomBy(1/1.6);
+  vp.querySelector("[data-z='fit']").onclick=()=>flyTo(S.fac?fitBox(fac().bbox,1.5):fitBox([0,0,AW,AH],1.02));
+}
+function zoomBy(m){const r=vp.getBoundingClientRect(),cx=r.width/2,cy=r.height/2,nk=Math.max(minK(),Math.min(40,S.k*m));flyTo({k:nk,tx:cx-(cx-S.tx)*nk/S.k,ty:cy-(cy-S.ty)*nk/S.k})}
+function hilite(id){S.hl=id;vp.querySelectorAll(".fac").forEach(r=>r.classList.toggle("hl",r.dataset.fac===id));document.querySelectorAll(".idx button,.jump button").forEach(b=>b.classList.toggle("hl",b.dataset.fac===id))}
+
+/* ======================= render ======================= */
+function selectEl(k){S.el=k;S.step=k.startsWith("isd-")?4:3;render({keepView:true})}   // tabs follow the inspector
+function openFac(id){S.fac=id;S.el=null;render({keepView:true});flyTo(fitBox(fac().bbox,1.5))}
+function toArea(){S.fac=null;S.el=null;render({keepView:true});flyTo(fitBox([0,0,AW,AH],1.02))}
+function toast(m){const t=document.getElementById("toast");t.textContent=m;t.classList.add("show");clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove("show"),1600)}
+const RAIL_ICON='<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="2.5" width="13" height="11" rx="2"/><path d="M10 2.5v11"/></svg>';
+function toggleRail(){const r=vp.getBoundingClientRect().width;S.collapsed=!S.collapsed;document.getElementById("stage").classList.toggle("collapsed",S.collapsed);
+  requestAnimationFrame(()=>{const n=vp.getBoundingClientRect().width;S.tx+=(n-r)/2;apply()})}
+function render(o={}){
+  const stage=document.getElementById("stage"),f=fac();
+  const elName=S.el?(S.el.startsWith("isd-")?S.el.slice(4)+" leg":(f.acc.find(a=>a[0]===S.el)||[])[1]):"";
+  stage.classList.toggle("collapsed",S.collapsed);
+  stage.innerHTML=`<header class="top"><div class="brand">${CROWN}Road digital twin</div><span class="mock">mock data</span>
+     <nav class="crumbs" aria-label="Location">${f?`<button data-up="area">${AREA.name}</button><i>›</i>${S.el?`<button data-up="fac">${f.name}</button><i>›</i><b>${elName}</b>`:`<b>${f.name}</b>`}`:`<b>${AREA.name}</b><i>· ${AREA.scenes} drives · ${AREA.km} km</i>`}</nav>
+     ${layersHTML()}<button class="railbtn glass" data-rail aria-label="Show or hide the side panel (\\)" title="Side panel (\\)">${RAIL_ICON}</button></header>
+   <main class="main"><div class="vp"><div class="world"><canvas aria-hidden="true"></canvas>${svgHTML()}</div>
+      <div class="zoom glass"><button data-z="in" aria-label="Zoom in">+</button><button data-z="out" aria-label="Zoom out">−</button><button data-z="fit" aria-label="Fit" style="font-size:13px">⤢</button></div><div class="scale"></div></div>
+     <div class="strip">${profHTML()}${stepsHTML()}</div></main>
+   <div class="rail">${storyHTML()}${inspHTML()}</div>
+   <footer class="legal">Derived from nuScenes (CC BY-NC-SA 4.0). Non-commercial research demo.</footer>`;
+  vp=stage.querySelector(".vp");world=stage.querySelector(".world");drawCanvas(world.querySelector("canvas"));
+  if(!o.keepView){Object.assign(S,f?fitBox(f.bbox,1.5):fitBox([0,0,AW,AH],1.02))}apply();wireMap();
+  stage.querySelectorAll("[data-layer]").forEach(b=>b.onclick=()=>{const k=b.dataset.layer;layers[k]=!layers[k];b.setAttribute("aria-pressed",!!layers[k]);drawCanvas(world.querySelector("canvas"));world.querySelector("svg").outerHTML=svgHTML();apply()});
+  stage.querySelectorAll("[data-step]").forEach(b=>b.onclick=()=>{S.step=+b.dataset.step;Object.assign(layers,STEP_LAYERS[S.step]);render({keepView:true})});
+  stage.querySelectorAll("[data-up]").forEach(b=>b.onclick=()=>b.dataset.up==="area"?toArea():(S.el=null,render({keepView:true})));
+  stage.querySelectorAll(".rail [data-fac]").forEach(b=>{b.onclick=()=>openFac(b.dataset.fac);b.onmouseenter=()=>hilite(b.dataset.fac);b.onmouseleave=()=>hilite(null)});
+  stage.querySelectorAll(".rail [data-el]").forEach(r=>r.onclick=()=>selectEl(r.dataset.el));
+  stage.querySelectorAll("[data-file]").forEach(b=>b.onclick=()=>toast(`Mock: ${b.dataset.file} would download from the showcase run`));
+  stage.querySelector("[data-rail]").onclick=toggleRail;
+}
+window.addEventListener("resize",()=>{if(vp)render({keepView:false})});
+document.addEventListener("keydown",e=>{
+  if(/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)||e.target.isContentEditable||e.metaKey||e.ctrlKey||e.altKey)return;
+  if(e.key==="\\")toggleRail();
+  else if(e.key==="Escape"){if(S.el){S.el=null;render({keepView:true})}else if(S.fac)toArea()}
+  else if(/^[1-5]$/.test(e.key)){S.step=+e.key-1;Object.assign(layers,STEP_LAYERS[S.step]);render({keepView:true})}
+});
+render();
+</script>
+</body>
+</html>
