@@ -20,7 +20,7 @@ Columns: target. Cells: eye height (m) / object height (m); source [id] + sectio
 | SSD (stopping sight distance) | 1.08 / 0.60 (taillight) [aashto-green-book-2018] ch.3; [ohio-dot-ldm] §201.2.2 | Indeterminate (no headlight target; sag-curve headlights 0.5–0.6 m, 1° spread is not an SSD target) | Indeterminate | Indeterminate | Indeterminate |
 | Decision sight distance (DSD) | 1.08 / 0.60 [aashto-green-book-2018] ch.3; [ohio-dot-ldm] §201.5 | Indeterminate | Indeterminate | Indeterminate | Indeterminate |
 | PSD (passing sight distance) | 1.08 / 1.08 [aashto-green-book-2018] ch.3; [ohio-dot-ldm] §201.4 | Indeterminate | Indeterminate | Indeterminate | Indeterminate |
-| Access point (driveway exit): exit ISD left/right | 1.08 / 1.08 [nchrp-383]; [aashto-green-book-2018] ch.9 | Indeterminate | Indeterminate | Indeterminate | Indeterminate |
+| Access point exit: exit ISD left/right | 1.08 / 1.08 [nchrp-383]; [aashto-green-book-2018] ch.9 | Indeterminate | Indeterminate | Indeterminate | Indeterminate |
 | Cyclist (bicycle facilities, SSD basis) | Indeterminate (not a car target) | Indeterminate | Indeterminate | Indeterminate | 1.40 / 0.00 [aashto-bike-guide] |
 | Pedestrian (adult/child) | no single target; clearance zone along curb (Indeterminate) | no target (not applicable) | clearance zone along curb (Indeterminate) | clearance zone along curb (Indeterminate) | no target (not applicable) |
 | Night / headlights (sag curves) | 0.5–0.6 m headlights, 1° beam; not an ISD target (Indeterminate for ISD) | 0.5–0.6 m / 0.00 [ohio-dot-ldm] §201.2.2 | Indeterminate | Indeterminate | Indeterminate |

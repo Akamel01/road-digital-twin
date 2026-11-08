@@ -112,7 +112,7 @@ Weakest coverage: vertical profile (section 6, one paper), camera-only accuracy 
 ## 9. Sight-line target heights (issue #15)
 
 - **[aashto-green-book-2018]** is the primary standard for sight-distance eye/object heights (ch.3 stopping/passing/decision; ch.9 intersections); paywalled, values confirmed via secondary summaries.
-- **[nchrp-383]** (Harwood et al., 1996) is the open-access basis for the ISD cases (A–F) and the 1.08 m / 1.08 m passenger-car eye/object heights adopted by the 2001/2018 Green Book and FHWA IDRM.
+- **[nchrp-383]** (Harwood et al., 1996) is the TRID-listed basis (trid.trb.org/view/481444) for the ISD cases (A–F) and the 1.08 m / 1.08 m passenger-car eye/object heights adopted by the 2001/2018 Green Book and FHWA IDRM; not open access.
 - **[aashto-bike-guide]** gives cyclist eye height 1.4 m (4.5 ft) and object height 0.0 m for bicycle facilities.
 - **[fhwa-idrm-2003]** documents the IDRM ISD model with h1 = h2 = 1080 mm.
 - **[nchrp-15-75]** (not adopted) proposes raising the passenger-car eye height to 3.75 ft (1.14 m); not current standard, not adopted for v1.
