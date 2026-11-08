@@ -25,6 +25,7 @@ from pyproj import Transformer
 from shapely.geometry import box, mapping, shape
 
 from twin.contracts import FacilitiesParams, IsdParams, StageResult
+from twin.devkit_compat import nuscenes_map_class
 from twin.facilities import MapView, build_facilities, from_nuscenes_map
 from twin.osm_names import fetch_streets, name_facility, osm_names_meta
 from twin.registry import register
@@ -473,17 +474,6 @@ def write_outputs(out: Path, scene: LoadedScene, names: list[str]) -> None:
 # ------------------------------------------------------------------ devkit adapter
 
 
-def _shim_matplotlib_style() -> None:
-    """nuscenes-devkit 1.1.9 calls plt.style.use('seaborn-whitegrid'), which matplotlib 3.8+ removed.
-    Map the old name to its replacement before the devkit map module imports."""
-    import matplotlib.style as mpl_style
-
-    if "seaborn-whitegrid" not in mpl_style.library:
-        mpl_style.library["seaborn-whitegrid"] = mpl_style.library[
-            "seaborn-v0_8-whitegrid"
-        ]
-
-
 class DevkitSource:
     """The nuScenes devkit behind the five methods `assemble` uses. Reads plain dicts."""
 
@@ -496,9 +486,7 @@ class DevkitSource:
 
     def _map_api(self) -> Any:
         if self._map is None:
-            _shim_matplotlib_style()
-            from nuscenes.map_expansion.map_api import NuScenesMap
-
+            NuScenesMap = nuscenes_map_class()
             self._map = NuScenesMap(dataroot=self.root, map_name=LOCATION)
         return self._map
 
