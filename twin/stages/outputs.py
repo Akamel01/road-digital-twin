@@ -1,9 +1,10 @@
-"""Stage 10 outputs: twin.laz and twin.geojson.
+"""Stage 10 outputs: twin.laz, twin.geojson, plan and profile sheets (DXF and PDF).
 
-Source of truth: docs/design/twin-v1-spec.md, sections 4 and 6.
-TODO (ticket 10b): plan.dxf, plan.pdf, profile.dxf, profile.pdf (method dxf-pdf).
+Source of truth: docs/design/twin-v1-spec.md, sections 4, 6 and 8.
+Sheet drawing lives in twin/drawings.py.
 """
 
+import csv
 import json
 from pathlib import Path
 from typing import Any
@@ -12,11 +13,22 @@ import laspy
 import numpy as np
 import pyproj
 
+from twin import drawings
 from twin.contracts import StageResult
 from twin.registry import register
 
 CRS_EPSG = 32619
 LICENCE = "Derived from nuScenes (CC BY-NC-SA 4.0). Non-commercial research demo."
+SHEET_LICENCE = (
+    "Derived from nuScenes (CC BY-NC-SA 4.0). Street names \u00a9 OpenStreetMap "
+    "contributors (ODbL). Non-commercial research demo."
+)
+COMPASS = {
+    "north": (0.0, 1.0),
+    "south": (0.0, -1.0),
+    "east": (1.0, 0.0),
+    "west": (-1.0, 0.0),
+}
 SCALE_M = 0.001
 GROUND_CLASS = 2
 UNASSIGNED_CLASS = 1
@@ -125,8 +137,121 @@ def run(ctx: Any, params: Any) -> StageResult:
     }
     (out / "twin.geojson").write_text(json.dumps(doc))
 
+    files = ["twin.laz", "twin.geojson"]
+    _sheets(ctx, features, files)
+
     return StageResult(
         status="ok",
-        files=["twin.laz", "twin.geojson"],
+        files=files,
         metrics={"n_points": len(xyz), "n_features": len(features)},
     )
+
+
+def _xy(geom: dict) -> list[tuple[float, float]]:
+    """2D vertices of a LineString, or the outer ring of a Polygon."""
+    coords = (
+        geom["coordinates"][0] if geom["type"] == "Polygon" else geom["coordinates"]
+    )
+    return [(float(c[0]), float(c[1])) for c in coords]
+
+
+def _plan_inputs(ctx: Any, features: list[dict]) -> tuple[dict, list, list]:
+    lines: dict[str, list] = {"MARKINGS": [], "CROSSWALKS": []}
+    if (ctx.input_dir("features") / "curbs.geojson").is_file():
+        lines["CURBS"] = []
+    labels = []
+    facilities = {}
+    for feat in features:
+        props = feat["properties"]
+        layer = props["layer"]
+        pts = _xy(feat["geometry"])
+        lines.setdefault(layer.upper(), []).append(pts)
+        if layer == "facilities":
+            facilities[props.get("id")] = props
+            cx = sum(p[0] for p in pts) / len(pts)
+            cy = sum(p[1] for p in pts) / len(pts)
+            labels.append((str(props.get("id", "")), (cx, cy)))
+    return lines, labels, _sightlines(ctx, facilities)
+
+
+def _sightlines(ctx: Any, facilities: dict) -> list:
+    """Sight lines from the eye point along each compass leg, length = available_m."""
+    path = ctx.stage_dir("isd") / "isd.json"
+    if not path.is_file():
+        return []
+    out = []
+    for fac in json.loads(path.read_text()).get("facilities", []):
+        eye = (facilities.get(fac["facility"]) or {}).get("eye_point")
+        if eye is None:
+            continue
+        eye = (float(eye[0]), float(eye[1]))
+        for leg in fac["legs"]:
+            name = leg["leg"]
+            if leg["status"] == "indeterminate":
+                out.append((eye, None, False, f"{name}: indeterminate"))
+                continue
+            vec = COMPASS.get(str(name).lower())
+            if vec is None:
+                continue  # leg direction unknown; no line drawn
+            avail = float(leg["available_m"])
+            end = (eye[0] + vec[0] * avail, eye[1] + vec[1] * avail)
+            text = f"{name}: {avail:.1f} m (need {leg['required_m']:.1f} m)"
+            out.append((eye, end, leg["status"] == "short", text))
+    return out
+
+
+def _profile_inputs(ctx: Any, facilities: dict) -> list:
+    """(label, s_m, z_m) per facility, from profile/profile.csv."""
+    rows: dict[str, tuple[list, list]] = {}
+    with (ctx.stage_dir("profile") / "profile.csv").open(newline="") as f:
+        for row in csv.DictReader(f):
+            s_list, z_list = rows.setdefault(row["facility"], ([], []))
+            s_list.append(float(row["s_m"]))
+            z_list.append(float(row["z_m"]))
+    profiles = []
+    for fid, (s_list, z_list) in rows.items():
+        name = (facilities.get(fid) or {}).get("name", "")
+        profiles.append((f"{name} ({fid})".strip(), s_list, z_list))
+    return profiles
+
+
+def _height_valid(ctx: Any) -> bool:
+    qa = ctx.stage_dir("ground") / "qa.json"
+    if not qa.is_file():
+        return False  # no evidence of valid heights; show indeterminate
+    return bool(json.loads(qa.read_text()).get("height_valid", False))
+
+
+def _sheets(ctx: Any, features: list[dict], files: list[str]) -> None:
+    out = ctx.stage_dir("outputs")
+    source = (
+        f"Source: nuScenes v1.0-mini, scene {ctx.scene_token}; run {ctx.run_dir.name}"
+    )
+    lines, labels, sight = _plan_inputs(ctx, features)
+    drawings.write_plan(
+        out / "plan.dxf",
+        lines=lines,
+        labels=labels,
+        sight=sight,
+        source=source,
+        licence=SHEET_LICENCE,
+    )
+    drawings.render_pdf(out / "plan.dxf", out / "plan.pdf")
+    files += ["plan.dxf", "plan.pdf"]
+
+    if not (ctx.stage_dir("profile") / "profile.csv").is_file():
+        return
+    facilities = {
+        f["properties"].get("id"): f["properties"]
+        for f in features
+        if f["properties"]["layer"] == "facilities"
+    }
+    drawings.write_profile(
+        out / "profile.dxf",
+        profiles=_profile_inputs(ctx, facilities),
+        height_valid=_height_valid(ctx),
+        source=source,
+        licence=SHEET_LICENCE,
+    )
+    drawings.render_pdf(out / "profile.dxf", out / "profile.pdf")
+    files += ["profile.dxf", "profile.pdf"]
