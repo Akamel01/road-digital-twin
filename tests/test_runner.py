@@ -2,6 +2,7 @@ import re
 
 import pytest
 import yaml
+from filelock import FileLock
 
 from twin import registry, runner
 from twin.cli import main
@@ -136,3 +137,76 @@ def test_disabled_optional_stage_skipped(tmp_path, stubs):
     assert colour.files == []
     assert not (run_dir / "6_colour").exists()
     assert "colour" not in manifest.metrics
+
+
+GB = 1024**3
+
+
+@pytest.fixture(autouse=True)
+def roomy_disk(monkeypatch):
+    monkeypatch.setattr(runner, "free_bytes", lambda path: 100 * GB)
+
+
+def test_second_run_refused_while_lock_held(tmp_path, stubs, capsys):
+    stubs()
+    holder = FileLock(str(tmp_path / runner.LOCK_FILE))
+    holder.acquire()
+    try:
+        (tmp_path / runner.CURRENT_FILE).write_text("20990101-000000-abcdef")
+        assert main(["run", "--scene", "scene-1", "--store", str(tmp_path)]) == 2
+    finally:
+        holder.release()
+    err = capsys.readouterr().err
+    assert "another run is in progress (20990101-000000-abcdef)" in err
+    assert not any(p.name.startswith("2") for p in tmp_path.iterdir())
+
+
+def test_lock_released_after_run(tmp_path, stubs):
+    stubs()
+    runner.start_run(tmp_path, "scene-1", Pipeline(), Params())
+    assert not (tmp_path / runner.CURRENT_FILE).exists()
+    runner.start_run(tmp_path, "scene-1", Pipeline(), Params())
+
+
+def test_cancel_between_stages_marks_rest_cancelled(
+    tmp_path, stubs, monkeypatch, capsys
+):
+    stubs()
+    key = ("mask", STAGES["mask"].methods[0])
+    original = registry.lookup(*key)
+
+    def cancelling(ctx, params):
+        result = original(ctx, params)
+        runner.cancel(tmp_path, ctx.run_dir.name)  # requested while mask runs
+        return result
+
+    monkeypatch.setitem(registry._REGISTRY, key, cancelling)
+    assert main(["run", "--scene", "scene-1", "--store", str(tmp_path)]) == 1
+    assert "cancelled" in capsys.readouterr().err
+
+    run_dir = next(p for p in tmp_path.iterdir() if p.is_dir())
+    manifest = _manifest(run_dir)
+    statuses = {s.name: s.status for s in manifest.stages}
+    assert [statuses[n] for n in STAGE_NAMES[:2]] == ["ok", "ok"]
+    assert all(statuses[n] == "cancelled" for n in STAGE_NAMES[2:])
+    cancelled = next(s for s in manifest.stages if s.name == "ground")
+    assert cancelled.seconds == 0 and cancelled.files == []
+    assert (run_dir / "1_load" / "out.txt").read_text() == "load"
+    assert (run_dir / "2_mask" / "out.txt").read_text() == "mask"
+    assert not (run_dir / "3_ground").exists()
+
+
+def test_cancel_unknown_run_exit_2(tmp_path, capsys):
+    assert main(["cancel", "20990101-000000-abcdef", "--store", str(tmp_path)]) == 2
+    assert "not found" in capsys.readouterr().err
+
+
+def test_low_disk_refused_before_any_folder(tmp_path, stubs, monkeypatch, capsys):
+    stubs()
+    monkeypatch.setattr(runner, "free_bytes", lambda path: 5 * GB)
+    store = tmp_path / "store"
+    with pytest.raises(ValueError, match="need 10 GB"):
+        runner.start_run(store, "scene-1", Pipeline(), Params())
+    assert not any(p.is_dir() for p in store.iterdir())
+    assert main(["run", "--scene", "scene-1", "--store", str(store)]) == 2
+    assert "need 10 GB" in capsys.readouterr().err

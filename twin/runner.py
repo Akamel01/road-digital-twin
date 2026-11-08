@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import secrets
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -18,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from filelock import FileLock, Timeout
 from pydantic import BaseModel
 
 from twin import registry
@@ -38,6 +40,12 @@ from twin.contracts import (
 
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_STORE = "/data/twin-runs"
+RUN_ID_RE = r"\d{8}-\d{6}-[0-9a-f]{6}"
+MIN_FREE_BYTES = 10 * 1024**3
+LOCK_FILE = ".run.lock"
+CURRENT_FILE = ".current"
+CANCEL_FILE = ".cancel"
+LOCK_TIMEOUT = 0  # seconds to wait for the run lock; 0 refuses at once
 
 # The Params field each stage reads. outputs takes no parameters.
 STAGE_PARAMS: dict[str, str | None] = {
@@ -95,6 +103,10 @@ def _code_info() -> ManifestCode:
         hashlib.sha256(lock.read_bytes()).hexdigest() if lock.is_file() else "unknown"
     )
     return ManifestCode(git_sha=sha, dirty=dirty, lockfile_sha256=lock_sha)
+
+
+def free_bytes(path: Path) -> int:
+    return shutil.disk_usage(path).free
 
 
 def _make_run_id() -> str:
@@ -201,10 +213,42 @@ def _execute_run(
     parent: Manifest | None = None,
     from_stage: str | None = None,
 ) -> str:
-    """Create a run folder and run the stages. For a re-run (parent set), stages
-    before from_stage are hard-linked from parent_dir and not run."""
+    """Refuse when the disk is low or another run holds the lock, else run the stages
+    under the lock. Raises ValueError before any run folder exists when refused."""
     store.mkdir(parents=True, exist_ok=True)
+    free = free_bytes(store)
+    if free < MIN_FREE_BYTES:
+        raise ValueError(
+            f"{free / 1024**3:.1f} GB free in {store}; "
+            f"need {MIN_FREE_BYTES // 1024**3} GB"
+        )
+    lock = FileLock(str(store / LOCK_FILE))
+    try:
+        lock.acquire(timeout=LOCK_TIMEOUT)
+    except Timeout:
+        current = store / CURRENT_FILE
+        holder = current.read_text().strip() if current.is_file() else "unknown"
+        raise ValueError(f"another run is in progress ({holder})") from None
+    try:
+        return _run_locked(
+            store, scene_token, pipeline, params, parent_dir, parent, from_stage
+        )
+    finally:
+        (store / CURRENT_FILE).unlink(missing_ok=True)
+        lock.release()
+
+
+def _run_locked(
+    store: Path,
+    scene_token: str,
+    pipeline: Pipeline,
+    params: Params,
+    parent_dir: Path | None,
+    parent: Manifest | None,
+    from_stage: str | None,
+) -> str:
     run_id, run_dir = _create_run_dir(store)
+    (store / CURRENT_FILE).write_text(run_id)
     (run_dir / "pipeline.yaml").write_text(
         yaml.safe_dump(pipeline.model_dump(mode="json"), sort_keys=False)
     )
@@ -248,6 +292,24 @@ def _execute_run(
                 manifest.metrics[name] = parent.metrics[name]
             _write_manifest(run_dir, manifest)
             continue
+        cancel_file = run_dir / CANCEL_FILE
+        if (
+            cancel_file.exists()
+        ):  # cancelled between stages: this and later stages not run
+            cancelled_at = datetime.fromtimestamp(cancel_file.stat().st_mtime, UTC)
+            for rest in STAGE_NAMES[index:]:
+                manifest.stages.append(
+                    ManifestStage(
+                        name=rest,
+                        method=getattr(pipeline, rest).method,
+                        status="cancelled",
+                        started=cancelled_at,
+                        seconds=0,
+                        files=[],
+                    )
+                )
+            _write_manifest(run_dir, manifest)
+            break
         started = datetime.now(UTC)
         t0 = time.perf_counter()
         if stage.enabled:
@@ -321,7 +383,7 @@ def rerun(
     Raises ValueError, before creating any folder, when the re-run is refused.
     The parent folder is only read.
     """
-    if not re.fullmatch(r"\d{8}-\d{6}-[0-9a-f]{6}", parent_run_id):
+    if not re.fullmatch(RUN_ID_RE, parent_run_id):
         raise ValueError(f"bad run id {parent_run_id!r}")
     if from_stage not in STAGES:
         raise ValueError(f"unknown stage {from_stage!r}")
@@ -368,12 +430,39 @@ def _exit_code(store: Path, run_id: str) -> int:
     run_dir = store / run_id
     manifest = Manifest.model_validate_json((run_dir / "manifest.json").read_text())
     failed = [s for s in manifest.stages if s.status not in ("ok", "skipped")]
+    if failed and failed[0].status == "cancelled":
+        print(
+            f"twin: run cancelled before stage {failed[0].name}; see {run_dir / 'manifest.json'}",
+            file=sys.stderr,
+        )
+        return 1
     if failed:
         print(
             f"twin: stage {failed[0].name} {failed[0].status}; see {run_dir / 'manifest.json'}",
             file=sys.stderr,
         )
         return 1
+    return 0
+
+
+def cancel(store: Path | str, run_id: str) -> None:
+    """Ask a run to stop before its next stage. Raises ValueError for an unknown run."""
+    if not re.fullmatch(RUN_ID_RE, run_id):
+        raise ValueError(f"bad run id {run_id!r}")
+    run_dir = Path(store) / run_id
+    if not run_dir.is_dir():
+        raise ValueError(f"run {run_id} not found in {store}")
+    (run_dir / CANCEL_FILE).touch()
+
+
+def cancel_command(run_id: str, store: Path | None) -> int:
+    """`twin cancel`. Exit 0 when the request is written, 2 for an unknown run."""
+    store = store or default_store()
+    try:
+        cancel(store, run_id)
+    except ValueError as exc:
+        print(f"twin cancel: {exc}", file=sys.stderr)
+        return 2
     return 0
 
 
