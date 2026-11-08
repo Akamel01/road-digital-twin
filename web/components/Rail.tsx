@@ -1,119 +1,106 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import Summary from "@/components/Summary";
+import { AreaPanel, ElementPanel, FacilityPanel, MiniBar } from "@/components/Inspector";
+import { loadRunMetrics, type RunMetrics } from "@/lib/runmetrics";
 import { type AreaFacility, type AreaIndex, typeLabel } from "@/lib/showcase";
+import { areaSteps, facilitySteps } from "@/lib/summary";
 
 interface Props {
   area: AreaIndex;
+  areaName: string;
   facility: AreaFacility | null;
   element: string | null;
+  sumMax: boolean;
+  onSumMax: (on: boolean) => void;
   onOpenFacility: (id: string) => void;
+  onOpenElement: (e: string) => void;
   onUp: (level: "area" | "facility") => void;
 }
 
-export default function Rail({ area, facility, element, onOpenFacility, onUp }: Props) {
-  return (
-    <>
-      <section className="sum glass" aria-label="Pipeline summary">
-        <div className="over">Pipeline summary</div>
-        Arrives in 12c.
-      </section>
-      <aside className="insp" aria-label="Inspector">
-        {!facility && <AreaPanel area={area} onOpenFacility={onOpenFacility} />}
-        {facility && !element && <FacilityPanel facility={facility} onUp={onUp} />}
-        {facility && element && (
-          <ElementPanel facility={facility} element={element} onUp={onUp} />
-        )}
-      </aside>
-    </>
-  );
-}
-
-function AreaPanel({
+// The right column: the pipeline summary card, then the inspector (or a bar when the summary is maximised).
+export default function Rail({
   area,
-  onOpenFacility,
-}: {
-  area: AreaIndex;
-  onOpenFacility: (id: string) => void;
-}) {
-  return (
-    <>
-      <div className="over">Area</div>
-      <h2>Showcase area</h2>
-      <p>
-        {area.drives.length} drives · {area.facilities.length} facilities
-      </p>
-      <div className="sec over">Facilities</div>
-      <ul className="idx">
-        {area.facilities.map((f) => (
-          <li key={f.id}>
-            <button type="button" onClick={() => onOpenFacility(f.id)}>
-              <span className="ty">{f.id}</span>
-              <span className="nm">
-                {f.name}
-                <small>{typeLabel(f.type)}</small>
-              </span>
-              {f.not_scanned_enough ? (
-                <span className="tag warn">not scanned enough</span>
-              ) : (
-                <span className="num">{Math.round(f.observed_core * 100)}%</span>
-              )}
-            </button>
-          </li>
-        ))}
-      </ul>
-    </>
-  );
-}
-
-function FacilityPanel({
-  facility,
-  onUp,
-}: {
-  facility: AreaFacility;
-  onUp: (level: "area" | "facility") => void;
-}) {
-  return (
-    <>
-      <button type="button" className="back" onClick={() => onUp("area")}>
-        ‹ Area
-      </button>
-      <div className="over" style={{ marginTop: 10 }}>
-        {typeLabel(facility.type)} · {facility.id}
-      </div>
-      <h2>{facility.name}</h2>
-      {facility.not_scanned_enough ? (
-        <>
-          <span className="tag warn">not scanned enough</span>
-          <p>Under half of the core is observed. No metrics are shown for this facility.</p>
-        </>
-      ) : (
-        <p className="num">
-          {Math.round(facility.observed_core * 100)}% of core observed · {facility.runs.length}{" "}
-          {facility.runs.length === 1 ? "drive" : "drives"}
-        </p>
-      )}
-      <p>Plan metrics and elements arrive in 12c. Element view: add ?e=&lt;id&gt; to the URL.</p>
-    </>
-  );
-}
-
-function ElementPanel({
+  areaName,
   facility,
   element,
+  sumMax,
+  onSumMax,
+  onOpenFacility,
+  onOpenElement,
   onUp,
-}: {
-  facility: AreaFacility;
-  element: string;
-  onUp: (level: "area" | "facility") => void;
-}) {
+}: Props) {
+  // Every drive's manifest, loaded once. A drive that fails to load leaves its numbers as "—".
+  const [runs, setRuns] = useState<Record<string, RunMetrics>>({});
+  useEffect(() => {
+    let live = true;
+    Promise.allSettled(area.drives.map((d) => loadRunMetrics(d.run_id))).then((results) => {
+      if (!live) return;
+      const out: Record<string, RunMetrics> = {};
+      results.forEach((r, i) => {
+        if (r.status === "fulfilled") out[area.drives[i].run_id] = r.value;
+      });
+      setRuns(out);
+    });
+    return () => {
+      live = false;
+    };
+  }, [area]);
+
+  const best = facility?.best_run ? runs[facility.best_run] : undefined;
+  const steps = facility ? facilitySteps(facility, best) : areaSteps(area, runs);
+
+  const summary = (
+    <Summary
+      scope={facility ? facility.id : "area"}
+      steps={steps}
+      expanded={sumMax}
+      onExpanded={onSumMax}
+    />
+  );
+
+  if (sumMax) {
+    return (
+      <>
+        {summary}
+        <MiniBar
+          title={facility ? facility.name : areaName}
+          detail={facility ? `${typeLabel(facility.type)} · ${element ? "element details" : "facility details"}` : `${area.facilities.length} facilities · area details`}
+          onRestore={() => onSumMax(false)}
+        />
+      </>
+    );
+  }
+
   return (
     <>
-      <button type="button" className="back" onClick={() => onUp("facility")}>
-        ‹ {facility.name}
-      </button>
-      <div className="over" style={{ marginTop: 10 }}>
-        Element
-      </div>
-      <h2>{element}</h2>
-      <p>Element details arrive in 12c.</p>
+      {summary}
+      <aside className="insp light" aria-label="Inspector">
+        {!facility && (
+          <AreaPanel area={area} name={areaName} steps={steps} onOpenFacility={onOpenFacility} />
+        )}
+        {facility && !element && (
+          <FacilityPanel
+            area={area}
+            facility={facility}
+            run={best}
+            onUp={onUp}
+            onOpenFacility={onOpenFacility}
+            onOpenElement={onOpenElement}
+          />
+        )}
+        {facility && element && (
+          <ElementPanel
+            area={area}
+            facility={facility}
+            run={best}
+            element={element}
+            onUp={onUp}
+            onOpenFacility={onOpenFacility}
+          />
+        )}
+      </aside>
     </>
   );
 }

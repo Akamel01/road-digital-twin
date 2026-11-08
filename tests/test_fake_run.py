@@ -213,3 +213,9 @@ def test_real_outputs_stage_end_to_end_with_colour(tmp_path):
     assert not auditor.has_errors
     sight = [e for e in doc.modelspace() if e.dxf.layer == "SIGHTLINES"]
     assert any(e.dxftype() == "LINE" for e in sight)
+
+
+def test_showcase_has_profile_and_downloads(out):
+    for run in _runs(out):
+        for f in ("manifest.json", "twin.geojson", "profile.csv", "twin.laz", "plan.pdf"):
+            assert (out / "showcase" / run.name / f).is_file(), f

@@ -33,9 +33,11 @@ interface Props {
   facility: AreaFacility | null;
   element: string | null;
   onUp: (level: "area" | "facility") => void;
+  railCollapsed: boolean;
+  onToggleRail: () => void;
 }
 
-export default function TopBar({ areaName, facility, element, onUp }: Props) {
+export default function TopBar({ areaName, facility, element, onUp, railCollapsed, onToggleRail }: Props) {
   return (
     <header className="top">
       <div className="brand">
@@ -65,6 +67,19 @@ export default function TopBar({ areaName, facility, element, onUp }: Props) {
           <b aria-current="location">{areaName}</b>
         )}
       </nav>
+      <button
+        type="button"
+        className="railbtn glass"
+        onClick={onToggleRail}
+        aria-pressed={!railCollapsed}
+        aria-label="Show or hide the side panel (\)"
+        title="Side panel (\)"
+      >
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5} aria-hidden="true">
+          <rect x="1.5" y="2.5" width="13" height="11" rx="2" />
+          <path d="M10 2.5v11" />
+        </svg>
+      </button>
     </header>
   );
 }

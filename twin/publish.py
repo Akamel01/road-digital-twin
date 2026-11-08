@@ -188,6 +188,9 @@ def publish_runs(
         outputs = _stage(run_dir, "outputs")
         for name in PUBLIC_FILES:
             shutil.copy(outputs / name, dest / name)
+        profile = _stage(run_dir, "profile") / "profile.csv"
+        if profile.exists():  # the profile stage is optional
+            shutil.copy(profile, dest / "profile.csv")
         _thin_laz(outputs / "twin.laz", dest / "twin.laz", max_file_bytes)
         rasters, zoom, bbox = _rasters(run_dir, manifest)
         write_tiles(out, manifest.run_id, rasters, bbox, max_zoom=zoom)
