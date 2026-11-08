@@ -6,6 +6,7 @@ Source of truth: docs/design/twin-v1-spec.md, sections 3, 4 and 8.
 import hashlib
 import logging
 import os
+import re
 import secrets
 import subprocess
 import sys
@@ -17,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from pydantic import BaseModel
 
 from twin import registry
 from twin.contracts import (
@@ -25,11 +27,13 @@ from twin.contracts import (
     Manifest,
     ManifestCode,
     ManifestData,
+    ManifestParent,
     ManifestStage,
     OsmNames,
     Params,
     Pipeline,
     StageResult,
+    check_rerun,
 )
 
 REPO = Path(__file__).resolve().parents[1]
@@ -156,6 +160,11 @@ def start_run(
     Raises ValueError before creating any folder when the input is invalid.
     A failed stage does not raise: it is recorded in manifest.json.
     """
+    pipeline, params = _checked(scene_token, pipeline, params)
+    return _execute_run(Path(store), scene_token, pipeline, params)
+
+
+def _checked(scene_token: str, pipeline: Any, params: Any) -> tuple[Pipeline, Params]:
     pipeline = Pipeline.model_validate(pipeline)
     params = Params.model_validate(params)
     if not scene_token:
@@ -164,8 +173,36 @@ def start_run(
         stage = getattr(pipeline, name)
         if stage.enabled and registry.lookup(name, stage.method) is None:
             raise ValueError(f"stage {name}: no registered method {stage.method!r}")
+    return pipeline, params
 
-    store = Path(store)
+
+def _link_stage(parent_dir: Path, run_dir: Path, name: str) -> None:
+    """Hard-link every file of a parent stage folder into the new run. Dirs are recreated."""
+    src = parent_dir / f"{STAGES[name].number}_{name}"
+    if not src.is_dir():
+        return
+    dst = run_dir / src.name
+    dst.mkdir()
+    for path in sorted(src.rglob("*")):
+        target = dst / path.relative_to(src)
+        if path.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+        elif path.is_file():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            os.link(path, target)
+
+
+def _execute_run(
+    store: Path,
+    scene_token: str,
+    pipeline: Pipeline,
+    params: Params,
+    parent_dir: Path | None = None,
+    parent: Manifest | None = None,
+    from_stage: str | None = None,
+) -> str:
+    """Create a run folder and run the stages. For a re-run (parent set), stages
+    before from_stage are hard-linked from parent_dir and not run."""
     store.mkdir(parents=True, exist_ok=True)
     run_id, run_dir = _create_run_dir(store)
     (run_dir / "pipeline.yaml").write_text(
@@ -175,14 +212,21 @@ def start_run(
         yaml.safe_dump(params.model_dump(mode="json"), sort_keys=False)
     )
 
-    manifest = Manifest(
-        run_id=run_id,
-        code=_code_info(),
-        data=ManifestData(
+    if parent is None:
+        data = ManifestData(
             scene_token=scene_token,
             # Placeholder: the date of this run. The load stage should record the real Overpass query date.
             osm_names=OsmNames(overpass_query_date=datetime.now(UTC).date()),
-        ),
+        )
+        parent_ref = None
+    else:
+        data = parent.data
+        parent_ref = ManifestParent(run_id=parent.run_id, from_stage=from_stage)
+    manifest = Manifest(
+        run_id=run_id,
+        parent=parent_ref,
+        code=_code_info(),
+        data=data,
         pipeline=pipeline,
         params=params,
     )
@@ -194,8 +238,16 @@ def start_run(
         seed=params.seed,
         log=logging.getLogger("twin.run"),
     )
-    for name in STAGE_NAMES:
+    keep = STAGES[from_stage].number - 1 if from_stage else 0
+    for index, name in enumerate(STAGE_NAMES):
         stage = getattr(pipeline, name)
+        if index < keep:  # earlier stage of a re-run: linked from the parent, not run
+            _link_stage(parent_dir, run_dir, name)
+            manifest.stages.append(next(s for s in parent.stages if s.name == name))
+            if name in parent.metrics:
+                manifest.metrics[name] = parent.metrics[name]
+            _write_manifest(run_dir, manifest)
+            continue
         started = datetime.now(UTC)
         t0 = time.perf_counter()
         if stage.enabled:
@@ -231,6 +283,100 @@ def _load_model(path: Path | None, model: type) -> Any:
     return model.model_validate(yaml.safe_load(path.read_text()) or {})
 
 
+def _load_yaml(path: Path | None) -> Any:
+    return None if path is None else (yaml.safe_load(path.read_text()) or {})
+
+
+def _deep_merge(base: dict[str, Any], over: Any) -> dict[str, Any]:
+    if not isinstance(over, dict):
+        raise TypeError("override must be a mapping")
+    out = dict(base)
+    for key, value in over.items():
+        if isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = _deep_merge(out[key], value)
+        else:
+            out[key] = value
+    return out
+
+
+def _merge(base: BaseModel, override: Any, model: type) -> Any:
+    """Parent values overridden by the given partial dict or model (set fields only)."""
+    if override is None:
+        return base
+    if isinstance(override, BaseModel):
+        override = override.model_dump(mode="json", exclude_unset=True)
+    return model.model_validate(_deep_merge(base.model_dump(mode="json"), override))
+
+
+def rerun(
+    store: Path | str,
+    parent_run_id: str,
+    from_stage: str,
+    pipeline: Pipeline | dict[str, Any] | None = None,
+    params: Params | dict[str, Any] | None = None,
+) -> str:
+    """Re-run stages from_stage and later of a parent run in a new run folder.
+
+    Stages before from_stage are hard-linked from the parent. Returns the new run id.
+    Raises ValueError, before creating any folder, when the re-run is refused.
+    The parent folder is only read.
+    """
+    if not re.fullmatch(r"\d{8}-\d{6}-[0-9a-f]{6}", parent_run_id):
+        raise ValueError(f"bad run id {parent_run_id!r}")
+    if from_stage not in STAGES:
+        raise ValueError(f"unknown stage {from_stage!r}")
+    store = Path(store)
+    parent_dir = store / parent_run_id
+    if not (parent_dir / "manifest.json").is_file():
+        raise ValueError(f"run {parent_run_id} not found in {store}")
+    parent = Manifest.model_validate_json((parent_dir / "manifest.json").read_text())
+    parent_pipeline = Pipeline.model_validate(
+        yaml.safe_load((parent_dir / "pipeline.yaml").read_text()) or {}
+    )
+    parent_params = Params.model_validate(
+        yaml.safe_load((parent_dir / "params.yaml").read_text()) or {}
+    )
+    new_pipeline = _merge(parent_pipeline, pipeline, Pipeline)
+    new_params = _merge(parent_params, params, Params)
+    check_rerun(parent_pipeline, parent_params, new_pipeline, new_params, from_stage)
+
+    by_name = {s.name: s for s in parent.stages}
+    for name in STAGE_NAMES[: STAGES[from_stage].number - 1]:
+        stage = by_name.get(name)
+        if stage is None or stage.status not in ("ok", "skipped"):
+            status = "missing" if stage is None else stage.status
+            raise ValueError(
+                f"parent run {parent_run_id} stage {name} is {status}; "
+                f"cannot re-run from stage {from_stage}"
+            )
+    new_pipeline, new_params = _checked(
+        parent.data.scene_token, new_pipeline, new_params
+    )
+    return _execute_run(
+        store,
+        parent.data.scene_token,
+        new_pipeline,
+        new_params,
+        parent_dir=parent_dir,
+        parent=parent,
+        from_stage=from_stage,
+    )
+
+
+def _exit_code(store: Path, run_id: str) -> int:
+    """1 when a stage of the run failed (message on stderr), else 0."""
+    run_dir = store / run_id
+    manifest = Manifest.model_validate_json((run_dir / "manifest.json").read_text())
+    failed = [s for s in manifest.stages if s.status not in ("ok", "skipped")]
+    if failed:
+        print(
+            f"twin: stage {failed[0].name} {failed[0].status}; see {run_dir / 'manifest.json'}",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
 def run_command(
     scene: str,
     pipeline_path: Path | None,
@@ -247,13 +393,28 @@ def run_command(
         print(f"twin run: {exc}", file=sys.stderr)
         return 2
     print(run_id)
-    run_dir = Path(store) / run_id
-    manifest = Manifest.model_validate_json((run_dir / "manifest.json").read_text())
-    failed = [s for s in manifest.stages if s.status not in ("ok", "skipped")]
-    if failed:
-        print(
-            f"twin run: stage {failed[0].name} {failed[0].status}; see {run_dir / 'manifest.json'}",
-            file=sys.stderr,
+    return _exit_code(Path(store), run_id)
+
+
+def rerun_command(
+    run_id: str,
+    from_stage: str,
+    pipeline_path: Path | None,
+    params_path: Path | None,
+    store: Path | None,
+) -> int:
+    """`twin rerun`. Exit 0 success, 1 a stage failed, 2 invalid or refused re-run."""
+    store = store or default_store()
+    try:
+        new_id = rerun(
+            store,
+            run_id,
+            from_stage,
+            _load_yaml(pipeline_path),
+            _load_yaml(params_path),
         )
-        return 1
-    return 0
+    except (OSError, yaml.YAMLError, ValueError, TypeError) as exc:
+        print(f"twin rerun: {exc}", file=sys.stderr)
+        return 2
+    print(new_id)
+    return _exit_code(Path(store), new_id)

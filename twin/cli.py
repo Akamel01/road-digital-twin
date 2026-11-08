@@ -4,8 +4,15 @@ import argparse
 import json
 from pathlib import Path
 
-from twin.contracts import AreaIndex, Manifest, Params, Pipeline, StageResult
-from twin.runner import run_command
+from twin.contracts import (
+    STAGE_NAMES,
+    AreaIndex,
+    Manifest,
+    Params,
+    Pipeline,
+    StageResult,
+)
+from twin.runner import rerun_command, run_command
 
 SCHEMA_MODELS = {
     "params": Params,
@@ -49,6 +56,18 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--store", type=Path, help="run store (default: $TWIN_RUNS or /data/twin-runs)"
     )
+    rerun = sub.add_parser("rerun", help="re-run a run from one stage")
+    rerun.add_argument("run_id", help="parent run id")
+    rerun.add_argument(
+        "--from", dest="from_stage", required=True, choices=STAGE_NAMES, metavar="STAGE"
+    )
+    rerun.add_argument(
+        "--pipeline", type=Path, help="pipeline overrides (partial yaml)"
+    )
+    rerun.add_argument("--params", type=Path, help="params overrides (partial yaml)")
+    rerun.add_argument(
+        "--store", type=Path, help="run store (default: $TWIN_RUNS or /data/twin-runs)"
+    )
     return parser
 
 
@@ -61,6 +80,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "run":
         return run_command(args.scene, args.pipeline, args.params, args.store)
+    if args.command == "rerun":
+        return rerun_command(
+            args.run_id, args.from_stage, args.pipeline, args.params, args.store
+        )
     return 0
 
 
