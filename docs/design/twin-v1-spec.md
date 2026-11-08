@@ -13,7 +13,7 @@ Citation keys such as `[kilani-2021-urban-isd]` are entries in [sources.yaml](..
 
 **Terms**
 
-- **Operator:** Ahmed Kamel, project owner. He sets the methodology and is the only admin.
+- **Operator:** Ahmed Kamel, project owner. They set the methodology and are the only admin.
 - **The box:** the operator's Linux workstation, which also hosts Papyrus production.
   - 28 CPU cores.
   - RTX 4070 SUPER with 12 GB, which ollama shares.
