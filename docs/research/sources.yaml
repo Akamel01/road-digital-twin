@@ -871,6 +871,84 @@
     "relevance": 2
   },
   {
+    "id": "vechersky-2018-colourising",
+    "type": "paper",
+    "title": "Colourising Point Clouds Using Independent Cameras",
+    "authors": [
+      "Vechersky, Pavel",
+      "Cox, Mark",
+      "Borges, Paulo",
+      "Lowe, Thomas"
+    ],
+    "year": 2018,
+    "venue": "IEEE Robotics and Automation Letters",
+    "doi": "10.1109/LRA.2018.2854290",
+    "url": "https://doi.org/10.1109/LRA.2018.2854290",
+    "open_access": true,
+    "pdf_url": "https://research.csiro.au/robotics/wp-content/uploads/sites/96/2018/06/PaintCloud-RAL-2018.pdf",
+    "questions": [
+      1
+    ],
+    "relevance": 3
+  },
+  {
+    "id": "katz-2007-hidden-point-removal",
+    "type": "paper",
+    "title": "Direct visibility of point sets",
+    "authors": [
+      "Katz, Sagi",
+      "Tal, Ayellet",
+      "Basri, Ronen"
+    ],
+    "year": 2007,
+    "venue": "ACM Transactions on Graphics",
+    "doi": "10.1145/1276377.1276407",
+    "url": "https://doi.org/10.1145/1276377.1276407",
+    "open_access": false,
+    "questions": [
+      1
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "waechter-2014-let-there-be-color",
+    "type": "paper",
+    "title": "Let There Be Color! Large-Scale Texturing of 3D Reconstructions",
+    "authors": [
+      "Waechter, Michael",
+      "Moehrle, Nils",
+      "Goesele, Michael"
+    ],
+    "year": 2014,
+    "venue": "European Conference on Computer Vision (ECCV)",
+    "doi": "10.1007/978-3-319-10602-1_54",
+    "url": "https://doi.org/10.1007/978-3-319-10602-1_54",
+    "open_access": true,
+    "pdf_url": "https://download.mmag.hrz.tu-darmstadt.de/media/FB20/GCC/paper/Waechter-2014-LTB.pdf",
+    "questions": [
+      1
+    ],
+    "relevance": 2
+  },
+  {
+    "id": "gharibi-2018-true-orthophoto",
+    "type": "paper",
+    "title": "True Orthophoto Generation from Aerial Frame Images and LiDAR Data: An Update",
+    "authors": [
+      "Gharibi, Hamid",
+      "Habib, Ayman"
+    ],
+    "year": 2018,
+    "venue": "Remote Sensing",
+    "doi": "10.3390/rs10040581",
+    "url": "https://doi.org/10.3390/rs10040581",
+    "open_access": true,
+    "questions": [
+      1
+    ],
+    "relevance": 2
+  },
+  {
     "id": "street-gaussians-repo",
     "type": "repo",
     "title": "zju3dv/street_gaussians",
@@ -1119,6 +1197,19 @@
       7
     ],
     "relevance": 2
+  },
+  {
+    "id": "mvs-texturing-repo",
+    "type": "repo",
+    "title": "nmoehrle/mvs-texturing",
+    "url": "https://github.com/nmoehrle/mvs-texturing",
+    "stars": 1112,
+    "licence": "BSD-3-Clause",
+    "last_push": "2026-03-11",
+    "questions": [
+      1
+    ],
+    "relevance": 1
   },
   {
     "id": "pix4d-product",
