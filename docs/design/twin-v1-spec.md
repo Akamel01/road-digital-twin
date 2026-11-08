@@ -363,6 +363,7 @@ If a scene fails the markings threshold, its runs report markings as "not extrac
 | R3 | No Boston mini intersection has enough lidar density. | Select decides on day 1. The no-go branch is in section 6. |
 | R10 | Few drives overlap, so facilities have thin coverage. | Facilities below 50% observed are listed as "not scanned enough", never hidden. |
 | R11 | OpenStreetMap names don't match the HD map. | Names are display only; IDs come from the map. Unmatched facilities show their ID. |
+| R12 | A Topcon US patent (active to about 2039) covers depth-comparison occlusion when colouring mobile-mapping point clouds (research: multi-sensor-sota). | v1 is a non-commercial research demo. The operator reviews it with counsel before any commercial use. This is not legal advice. |
 | R4 | Extracted markings are noisy. | P50 and P95 with coverage are reported as measured. |
 | R5 | Five days is short. | If late, cut in this order (decision 31): (1) the profile sheet, (2) DXF (the PDF stays), (3) the colour stage, (4) ISD. Never cut reconstruction (point cloud, ground, markings, crosswalks, curbs), the controls or the three honesty items. |
 | R6 | The API runs on a shared production machine. | Access on write routes, one run at a time, an 8-CPU cap, no shell, schema-checked parameters, and the 10 GB free-disk check. Public views never touch the box. |

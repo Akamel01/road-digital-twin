@@ -129,3 +129,10 @@ Date: 2026-11-07. Operator decisions, grilling round 3.
     - `isd.object_height_m` stays editable for a stricter check.
     - Per-situation presets (truck eye 2.33 m, SSD object 0.60 m, cyclist eye 1.4 m / object 0 m) come in v1.1.
     - No standard defines a pedestrian or child target height.
+44. **Multi-sensor direction** (map ticket #13):
+    - Colour occlusion stays decision 38 (a).
+    - v1.1 keeps KISS-ICP plus the colour stage, and adds:
+      - DVLC calibration checks;
+      - FAST-LIVO2 as an external benchmark;
+      - RoMe as the cameras-only comparison.
+    - A Topcon US patent on depth-comparison colouring is flagged as risk R12 for the operator. This is not legal advice.
