@@ -63,6 +63,10 @@ _Avoid_: unknown, N/A, error
 **Map-conditioned**:
 A label on a feature's accuracy when its reference depends on the HD map's own drawing choices (curbs scored against the drivable-area edge).
 
+**Unobserved**:
+Part of the ground or a point that no camera saw cleanly. It is left without colour, never filled.
+_Avoid_: missing, no data, hole
+
 ### People
 
 **Operator**:
