@@ -23,8 +23,9 @@ MAX_ZOOM = (
 )
 THIN_ROUNDS = 6  # ponytail: LAZ thinning doubles the voxel up to this many times
 PUBLIC_FILES = ("twin.geojson", "plan.pdf", "plan.dxf", "profile.pdf", "profile.dxf")
-TEAL = (0, 150, 140, 160)
-GREY = (120, 120, 120, 90)
+# Coverage colours match the web legend: observed green, unobserved red (web/components/MapPanel.tsx).
+OBSERVED = (156, 199, 164, 160)  # #9CC7A4
+UNOBSERVED = (224, 112, 79, 150)  # #E0704F
 
 
 def _stage(run_dir: Path, name: str) -> Path:
@@ -120,8 +121,8 @@ def _rasters(
         rasters["ortho"] = ortho
         observed = ortho[..., 3] > 0
     coverage = np.zeros((side, side, 4), np.uint8)
-    coverage[lidar[..., 3] > 0] = GREY
-    coverage[observed] = TEAL
+    coverage[lidar[..., 3] > 0] = UNOBSERVED  # ground the lidar saw but no camera coloured
+    coverage[observed] = OBSERVED
     rasters["coverage"] = coverage
     bbox = (x0, y0, x0 + side * cell, y0 + side * cell)
     return rasters, zoom, bbox

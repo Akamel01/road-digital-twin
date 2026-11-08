@@ -168,8 +168,9 @@ button:focus-visible {
   box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.07);
   display: grid;
   place-items: center;
-  padding: 24px;
   text-align: center;
+  cursor: grab;
+  touch-action: none;
   color: var(--on-glass-3);
   font-size: 13px;
 }
@@ -178,6 +179,277 @@ button:focus-visible {
   margin: 0;
   max-width: 420px;
   line-height: 1.5;
+}
+
+.vp .msg {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 24px;
+  font-size: 13px;
+  color: var(--on-glass-3);
+}
+
+/* ---------- map: pan layer, world transform, tiles and vector overlays ---------- */
+.pan {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.pan.drag {
+  cursor: grabbing;
+}
+
+/* The world is one SVG. Its zoom is a transform on a <g>, so vector-effect: non-scaling-stroke keeps strokes at screen width. */
+.world {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.world > g {
+  transform-origin: 0 0;
+}
+
+.world.fly > g {
+  transition: transform 300ms var(--ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .world.fly > g {
+    transition: none;
+  }
+}
+
+.world polygon.fac {
+  fill: rgb(242 210 122 / 0.07);
+  pointer-events: all;
+  cursor: pointer;
+}
+
+.world polygon.fac:hover {
+  fill: rgb(242 210 122 / 0.22);
+}
+
+.world polygon.hitpoly {
+  fill: transparent;
+  pointer-events: all;
+  cursor: pointer;
+}
+
+.world line.hit {
+  stroke: transparent;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+.world .flabel {
+  fill: #fff;
+  font-family: var(--text);
+  font-weight: 600;
+  pointer-events: none;
+  filter: drop-shadow(0 0 1.5px #000);
+}
+
+.world polyline.hit {
+  stroke: transparent;
+  fill: none;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+/* ---------- map panel: layers and analysis, top-left on the map ---------- */
+.mapctl {
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  width: 212px;
+  padding: 10px;
+  border-radius: 14px;
+  cursor: default;
+  z-index: 1;
+}
+
+.mapctl .hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  border: 0;
+  background: none;
+  padding: 0 2px;
+  cursor: pointer;
+}
+
+.mapctl .hd svg {
+  width: 12px;
+  height: 12px;
+  transition: transform 180ms var(--ease-out);
+}
+
+.mapctl.min .hd svg {
+  transform: rotate(-90deg);
+}
+
+.mapctl.min .body {
+  display: none;
+}
+
+.mapctl .grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+  margin: 8px 0 10px;
+}
+
+.tg {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--on-glass-2);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 150ms ease-out, color 150ms ease-out;
+}
+
+.tg:hover {
+  background: var(--glass-clear);
+}
+
+.tg[aria-pressed="true"] {
+  color: #fff;
+}
+
+.tg .sw {
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+  flex: none;
+  opacity: 0.35;
+  transition: opacity 150ms ease-out;
+}
+
+.tg[aria-pressed="true"] .sw {
+  opacity: 1;
+}
+
+.seg {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 8px;
+}
+
+.an {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--glass-clear);
+  color: var(--on-glass-2);
+  font-size: 12.5px;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 150ms ease-out, color 150ms ease-out;
+}
+
+.an:hover {
+  background: var(--glass-clear-strong);
+}
+
+.an[aria-pressed="true"] {
+  background: var(--pill-active);
+  color: var(--ink);
+}
+
+.an small {
+  margin-left: auto;
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.legend {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--on-glass-2);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.legend i {
+  display: inline-block;
+  width: 14px;
+  height: 4px;
+  border-radius: 2px;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+
+.mapctl .note {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--on-glass-3);
+}
+
+/* ---------- map controls: zoom buttons and scale bar ---------- */
+.zoom {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 12px;
+  z-index: 1;
+}
+
+.zoom button {
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.zoom button:hover {
+  background: var(--glass-clear);
+}
+
+.scale {
+  position: absolute;
+  left: 12px;
+  bottom: 10px;
+  font: 600 11px/1 var(--text);
+  color: #fff;
+  text-shadow: 0 1px 2px #000;
+  pointer-events: none;
+}
+
+.scale i {
+  display: block;
+  height: 5px;
+  border: 1.5px solid #fff;
+  border-top: 0;
+  margin-top: 4px;
 }
 
 .strip {
