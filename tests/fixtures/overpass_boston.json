@@ -1,0 +1,47 @@
+{
+  "version": 0.6,
+  "generator": "hand-written synthetic Overpass response (Overpass API, out geom)",
+  "osm3s": {
+    "copyright": "The data included in this document is from www.openstreetmap.org. The data is made available under ODbL."
+  },
+  "elements": [
+    {
+      "type": "way",
+      "id": 101,
+      "tags": {"highway": "primary", "name": "Main Street"},
+      "geometry": [
+        {"lat": 42.35, "lon": -71.053},
+        {"lat": 42.35, "lon": -71.050},
+        {"lat": 42.35, "lon": -71.047}
+      ]
+    },
+    {
+      "type": "way",
+      "id": 102,
+      "tags": {"highway": "secondary", "name": "Park Avenue"},
+      "geometry": [
+        {"lat": 42.347, "lon": -71.050},
+        {"lat": 42.350, "lon": -71.050},
+        {"lat": 42.353, "lon": -71.050}
+      ]
+    },
+    {
+      "type": "way",
+      "id": 103,
+      "tags": {"highway": "residential", "name": "Elm Street"},
+      "geometry": [
+        {"lat": 42.35007, "lon": -71.053},
+        {"lat": 42.35007, "lon": -71.047}
+      ]
+    },
+    {
+      "type": "way",
+      "id": 104,
+      "tags": {"highway": "residential", "name": "Far Road"},
+      "geometry": [
+        {"lat": 42.360, "lon": -71.060},
+        {"lat": 42.360, "lon": -71.040}
+      ]
+    }
+  ]
+}
