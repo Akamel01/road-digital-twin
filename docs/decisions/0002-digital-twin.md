@@ -89,3 +89,15 @@ Date: 2026-11-07. Operator decisions, grilling round 3.
     Never cut: reconstruction (point cloud, ground, markings, crosswalks, curbs), the controls, and the three honesty items.
 32. **"2D" means a true-colour orthoimage**, plus RGB on the 3D points. Both come from an optional `colour` stage after ground, which projects the nuScenes camera images. Its method is settled on the wayfinder map.
 33. **Operator review:** about 1 h a day. If T4–T7 can't wait, Claude merges after its own review and leaves a rollback note. The three honesty items always wait for the operator.
+34. **The UI follows the approved mockup** (`prototypes/plan-view/index.html`, map ticket #9):
+    - area → facility → element navigation;
+    - a map panel with layers and analysis views;
+    - one right column, holding the pipeline summary card and the facility/inspector card.
+35. **v1 shows a city area** (operator agreed with the recommendation). Each Boston drive in nuScenes mini is built on its own, and the drives are shown together in EPSG:32619. Merging overlapping drives into one point cloud is v1.1 (#14). This replaces "one scene" in #27.
+36. **Colour stage (#8), Q9–Q11 agreed:**
+    - Blend with the per-channel median of the 5 views with the smallest footprint within 12 m.
+    - Edge-offset QA goes in `colour/qa.json`. With `height_valid=false` the orthoimage is still made, labelled "indeterminate (height)".
+    - Colour is stage 6. It requires mask, align, ground and features, and nothing requires it.
+
+    Q8 (occlusion) waits for the multi-sensor research (#13).
+37. **Multi-sensor work needs a dedicated state-of-the-art search** before its method is fixed (operator, 2026-11-07; #13).
