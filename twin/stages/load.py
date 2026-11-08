@@ -35,13 +35,19 @@ VERSION = "v1.0-mini"
 LOCATION = "boston-seaport"
 # DECISION: nuScenes reads data from NUSCENES_ROOT, default /data/nuscenes (as tests/itest does).
 DATAROOT_DEFAULT = "/data/nuscenes"
+# DECISION: shared Overpass cache at /data/osm (spec section 6); overridable with TWIN_OSM_CACHE.
+OSM_CACHE_DEFAULT = "/data/osm"
 # nuscenes-devkit 1.1.9 scripts/export_poses.py, line 22: REFERENCE_COORDINATES["boston-seaport"]
 # is [42.336849169438615, -71.05785369873047] (lat, lon). It is the lat/lon of map (0, 0).
 MAP_ORIGIN_LATLON = (42.336849169438615, -71.05785369873047)
 EXTENT_MARGIN_M = 60.0
 # DECISION: the four map layers the accuracy stage reads (spec section 6, Accuracy).
 MAP_LAYERS = ("drivable_area", "ped_crossing", "lane_divider", "road_divider")
-VEHICLE_PREFIX = "vehicle."
+BOX_PREFIXES = (
+    "vehicle.",
+    "human.",
+    "animal",
+)  # dynamic agents; barriers and static objects stay in the cloud
 PARKED_ATTRIBUTE = "vehicle.parked"
 CAMERA_PREFIX = "CAM_"
 OUTPUT_FILES = (
@@ -219,19 +225,19 @@ def interpolate_box(box_a: dict, box_b: dict, t_a: int, t_b: int, t: int) -> dic
         "parked": bool(parked),
     }
 
-    # DECISION: only vehicle.* categories become boxes; pedestrians and other categories are left out of boxes.json.
+    # DECISION: boxes cover vehicle.*, human.* and animal (all dynamic agents). movable_object.* (barriers, cones) and static_object.* stay in the cloud, because they block sight.
 
 
-def vehicle_tracks(keyframes: list[dict]) -> dict[str, list[tuple[int, dict]]]:
-    """Keyframe vehicle annotations grouped by instance token, sorted by time.
+def dynamic_tracks(keyframes: list[dict]) -> dict[str, list[tuple[int, dict]]]:
+    """Keyframe dynamic-agent annotations grouped by instance token, sorted by time.
 
     keyframes: [{"timestamp": us, "anns": [{"instance", "category", "center", "size",
-    "rotation", "parked"}]}]. Only categories under `vehicle.` are kept.
+    "rotation", "parked"}]}]. Only categories under BOX_PREFIXES are kept.
     """
     tracks: dict[str, list[tuple[int, dict]]] = {}
     for kf in keyframes:
         for ann in kf["anns"]:
-            if not ann["category"].startswith(VEHICLE_PREFIX):
+            if not ann["category"].startswith(BOX_PREFIXES):
                 continue
             tracks.setdefault(ann["instance"], []).append((kf["timestamp"], ann))
     for track in tracks.values():
@@ -292,6 +298,11 @@ def to_run_facility(rec: dict, tr: Transformer) -> dict:
     return out
 
 
+def osm_cache_dir() -> Path:
+    """Shared Overpass cache (spec section 6): /data/osm, or TWIN_OSM_CACHE."""
+    return Path(os.environ.get("TWIN_OSM_CACHE") or OSM_CACHE_DEFAULT)
+
+
 def name_facilities(
     facilities: list[dict],
     streets: list | None,
@@ -299,7 +310,10 @@ def name_facilities(
     """Display name per facility: the OSM street name, else the facility ID."""
     names = []
     for rec in facilities:
-        name = name_facility(rec, streets) if streets is not None else None
+        try:
+            name = name_facility(rec, streets) if streets is not None else None
+        except Exception:  # noqa: BLE001 # DECISION: best-effort naming; a bad geometry keeps the ID
+            name = None
         names.append(name or rec["id"])
     return names
 
@@ -394,7 +408,7 @@ def assemble(source: Any, scene_token: str, tr: Transformer) -> LoadedScene:
     )
 
     # DECISION: sweeps before the first keyframe are not in the sweep chain (chain starts at the first keyframe's LIDAR_TOP).
-    tracks = vehicle_tracks(source.keyframes(scene_token))
+    tracks = dynamic_tracks(source.keyframes(scene_token))
     per_sweep = boxes_per_sweep(tracks, [int(r["timestamp"]) for r in recs])
     boxes = [[to_run_box(b, tr) for b in group] for group in per_sweep]
 
@@ -617,13 +631,12 @@ def run(ctx: Any, params: Any) -> StageResult:
     scene = load_scene(dataroot, ctx.scene_token, params)
 
     # Names: one cached Overpass query. Any network or parse error leaves IDs as names.
-    # DECISION: osm cache lives in the stage folder (brief) rather than /data/osm/ (spec section 6).
     streets, query_date = None, None
     try:
         streets, query_date = fetch_streets(
-            wgs84_bbox(scene.extent, tr), out / "osm-cache"
+            wgs84_bbox(scene.extent, tr), osm_cache_dir()
         )
-    except (OSError, ValueError) as exc:
+    except Exception as exc:  # noqa: BLE001 # DECISION: names are best-effort; any failure keeps facility IDs
         ctx.log.warning("osm names unavailable, using facility IDs: %s", exc)
     names = name_facilities(scene.facilities, streets)
     write_outputs(out, scene, names)

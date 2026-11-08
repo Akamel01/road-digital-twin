@@ -16,13 +16,13 @@ from twin.stages.load import (
     OUTPUT_FILES,
     assemble,
     boxes_per_sweep,
+    dynamic_tracks,
     interpolate_box,
     name_facilities,
     run_crs,
     slerp,
     sweep_to_global,
     to_run_pose,
-    vehicle_tracks,
     write_outputs,
     yaw_of,
 )
@@ -87,7 +87,7 @@ def test_parked_from_nearest_keyframe_tie_goes_earlier():
     assert interpolate_box(a, b, 0, 1000, 500)["parked"] is True
 
 
-def test_boxes_per_sweep_only_vehicles_and_keyframe_end():
+def test_boxes_per_sweep_dynamic_agents_only_and_keyframe_end():
     kf = [
         {
             "timestamp": 0,
@@ -98,19 +98,102 @@ def test_boxes_per_sweep_only_vehicles_and_keyframe_end():
                     "category": "human.pedestrian.adult",
                     **_box(5, 5, 0),
                 },
+                {"instance": "dog", "category": "animal", **_box(7, 0, 0)},
+                {
+                    "instance": "barrier",
+                    "category": "movable_object.barrier",
+                    **_box(9, 9, 0),
+                },
+                {
+                    "instance": "sign",
+                    "category": "static_object.bicycle_rack",
+                    **_box(2, 2, 0),
+                },
             ],
         },
         {
             "timestamp": 1000,
-            "anns": [{"instance": "car", "category": "vehicle.car", **_box(10, 0, 0)}],
+            "anns": [
+                {"instance": "car", "category": "vehicle.car", **_box(10, 0, 0)},
+                {
+                    "instance": "ped",
+                    "category": "human.pedestrian.adult",
+                    **_box(5, 5, 0),
+                },
+                {"instance": "dog", "category": "animal", **_box(7, 0, 0)},
+            ],
         },
     ]
-    tracks = vehicle_tracks(kf)
-    assert list(tracks) == ["car"]
+    tracks = dynamic_tracks(kf)
+    # Pedestrians, animals and vehicles get boxes; barriers and static objects do not.
+    assert sorted(tracks) == ["car", "dog", "ped"]
     out = boxes_per_sweep(tracks, [0, 500, 1000, 1500])
-    assert [len(g) for g in out] == [1, 1, 1, 0]  # 1500 is past the last keyframe
-    assert out[1][0]["center"] == pytest.approx([5, 0, 0])
-    assert out[2][0]["center"] == pytest.approx([10, 0, 0])  # exactly on last keyframe
+    assert [len(g) for g in out] == [3, 3, 3, 0]  # 1500 is past the last keyframe
+    cats = {b["token"]: b["category"] for b in out[0]}
+    assert cats == {
+        "car": "vehicle.car",
+        "ped": "human.pedestrian.adult",
+        "dog": "animal",
+    }
+    car = next(b for b in out[1] if b["token"] == "car")
+    assert car["center"] == pytest.approx([5, 0, 0])
+    car_last = next(b for b in out[2] if b["token"] == "car")
+    assert car_last["center"] == pytest.approx([10, 0, 0])  # exactly on last keyframe
+
+
+def test_barrier_is_not_boxed_but_pedestrian_is():
+    kf = [
+        {
+            "timestamp": 0,
+            "anns": [
+                {
+                    "instance": "p",
+                    "category": "human.pedestrian.adult",
+                    **_box(0, 0, 0),
+                },
+                {
+                    "instance": "b",
+                    "category": "movable_object.barrier",
+                    **_box(1, 1, 0),
+                },
+            ],
+        },
+        {
+            "timestamp": 1000,
+            "anns": [
+                {
+                    "instance": "p",
+                    "category": "human.pedestrian.adult",
+                    **_box(2, 0, 0),
+                },
+                {
+                    "instance": "b",
+                    "category": "movable_object.barrier",
+                    **_box(1, 1, 0),
+                },
+            ],
+        },
+    ]
+    tracks = dynamic_tracks(kf)
+    assert "p" in tracks
+    assert "b" not in tracks
+    assert [b["token"] for b in boxes_per_sweep(tracks, [500])[0]] == ["p"]
+
+
+def test_name_is_facility_id_when_geometry_breaks_naming():
+    fac = {
+        "id": "S-1234",
+        "type": "segment",
+        "centreline": {"type": "Polygon"},
+    }  # malformed
+    assert name_facilities([fac], [("Main Street", None)]) == ["S-1234"]
+
+
+def test_osm_cache_dir_defaults_to_data_osm_and_honours_env(monkeypatch):
+    monkeypatch.delenv("TWIN_OSM_CACHE", raising=False)
+    assert str(load.osm_cache_dir()) == "/data/osm"
+    monkeypatch.setenv("TWIN_OSM_CACHE", "/tmp/elsewhere")
+    assert str(load.osm_cache_dir()) == "/tmp/elsewhere"
 
 
 # ------------------------------------------------------------------ georeference
