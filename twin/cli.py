@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from twin.contracts import AreaIndex, Manifest, Params, Pipeline, StageResult
+from twin.runner import run_command
 
 SCHEMA_MODELS = {
     "params": Params,
@@ -37,6 +38,17 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command")
     schema = sub.add_parser("schema", help="write JSON Schemas for the contracts")
     schema.add_argument("--out", type=Path, default=Path("schemas"))
+    run = sub.add_parser("run", help="run the pipeline on one scene")
+    run.add_argument("--scene", required=True, help="scene token")
+    run.add_argument(
+        "--pipeline", type=Path, help="pipeline.yaml (default: all stages on)"
+    )
+    run.add_argument(
+        "--params", type=Path, help="params.yaml (default: contract defaults)"
+    )
+    run.add_argument(
+        "--store", type=Path, help="run store (default: $TWIN_RUNS or /data/twin-runs)"
+    )
     return parser
 
 
@@ -47,6 +59,8 @@ def main(argv: list[str] | None = None) -> int:
         for path in write_schemas(args.out):
             print(path)
         return 0
+    if args.command == "run":
+        return run_command(args.scene, args.pipeline, args.params, args.store)
     return 0
 
 
