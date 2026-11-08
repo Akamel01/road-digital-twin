@@ -46,6 +46,7 @@ The success signal: from the UI, a reviewer can trace one reported number back t
 3. **Intersection sight distance (ISD)** at that intersection, using a named method with editable parameters. A leg shows "indeterminate" when it lacks scan coverage or valid height.
 4. **Plan-view accuracy** of the extracted markings, crosswalks and curbs against the nuScenes HD map. Each element reports P50 and P95 distance in metres, plus coverage, and names its reference layer. Curbs are labelled "map-conditioned".
 5. **Drawings:** a plan sheet and a profile sheet, each in DXF and PDF.
+5a. **True-colour 2D and 3D** (decision 32): an orthoimage and RGB points from the camera images, made by an optional `colour` stage after ground. The method is still to be settled on the wayfinder map.
 6. **A web UI** at `twin.papyrus-ai.net`, in two parts.
    - **Public views:** a pinned showcase run, with plan, profile, ISD, accuracy and downloads.
    - **Developer panel:** anyone can view it; only the operator can act. The operator can:
@@ -325,7 +326,7 @@ If a scene fails the markings threshold, its runs report markings as "not extrac
 | R2 | ICP drifts or fails. | Masking first, anchoring to dataset x/y/yaw, the ground-z QA check, and the fallback to dataset poses. When height fails, the UI shows "indeterminate (height)". |
 | R3 | No Boston mini intersection has enough lidar density. | Select decides on day 1. The no-go branch is in section 6. |
 | R4 | Extracted markings are noisy. | P50 and P95 with coverage are reported as measured. |
-| R5 | Five days is short. | If late, cut in this order: (1) curbs, (2) DXF (the PDF stays), (3) the profile sheet. Never cut the three honesty items or the controls. |
+| R5 | Five days is short. | If late, cut in this order (decision 31): (1) the profile sheet, (2) DXF (the PDF stays), (3) the colour stage, (4) ISD. Never cut reconstruction (point cloud, ground, markings, crosswalks, curbs), the controls or the three honesty items. |
 | R6 | The API runs on a shared production machine. | Access on write routes, one run at a time, an 8-CPU cap, no shell, schema-checked parameters, and the 10 GB free-disk check. Public views never touch the box. |
 | R7 | nuScenes is non-commercial, and the site is on a company domain. | A "non-commercial research demo" label, attribution, and no paid features. |
 | R8 | Scale: one scene, one run at a time, one shared machine, and an unbounded run store. | Accepted for v1; the free-disk check guards the machine. A batch queue, retention and more workers wait until after v1.1. |

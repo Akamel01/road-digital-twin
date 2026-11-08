@@ -79,3 +79,13 @@ Date: 2026-11-07. Operator decisions, grilling round 3.
 
     These checks are finalised in v1.1.
 29. **The main product is the digital reconstruction of reality, in 2D and 3D** (operator, 2026-11-07). The point cloud, ground surface and extracted features come first. Profile, ISD and drawings are uses of the reconstruction.
+30. **Wayfinder destination:** every T0–T11 ticket is ready for an agent, with no decision left open, and the map closes on day 1. Building happens outside the map.
+31. **Cut order** (replaces R5):
+    1. the profile sheet;
+    2. DXF (the PDF stays);
+    3. the colour stage;
+    4. ISD.
+
+    Never cut: reconstruction (point cloud, ground, markings, crosswalks, curbs), the controls, and the three honesty items.
+32. **"2D" means a true-colour orthoimage**, plus RGB on the 3D points. Both come from an optional `colour` stage after ground, which projects the nuScenes camera images. Its method is settled on the wayfinder map.
+33. **Operator review:** about 1 h a day. If T4–T7 can't wait, Claude merges after its own review and leaves a rollback note. The three honesty items always wait for the operator.
