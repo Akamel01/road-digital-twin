@@ -43,3 +43,5 @@ extend-exclude = ["prototypes"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = ["-m", "not itest"]
+markers = ["itest: needs real datasets on disk (see make itest); skipped by default"]

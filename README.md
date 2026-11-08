@@ -32,6 +32,14 @@ This repo covers the first two stages of a road-safety pipeline:
 
 Datasets are never committed. The repo ships download scripts only and follows each dataset's licence.
 
+## Data on the box
+
+Run on the box (`ssh akamel-linux`), not on the Mac:
+
+1. `scripts/get_nuscenes_mini.sh` (installs to `/data/nuscenes` by default; re-running is a no-op once installed).
+2. When asked, paste the two signed download links from nuscenes.org: v1.0-mini and map expansion v1.3. The script never logs in and never stores the links.
+3. `make itest`. The integration test loads nuScenes mini and checks for 10 scenes. It skips with a message when the data is absent, so it is safe on the Mac.
+
 ## Dependencies and licences
 
 Runtime dependencies are pinned in `pyproject.toml` and locked in `uv.lock`. Licences come from each package's PyPI metadata, or its LICENSE file where the metadata is unclear.
