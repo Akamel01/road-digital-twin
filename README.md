@@ -32,6 +32,33 @@ This repo covers the first two stages of a road-safety pipeline:
 
 Datasets are never committed. The repo ships download scripts only and follows each dataset's licence.
 
+## Dependencies and licences
+
+Runtime dependencies are pinned in `pyproject.toml` and locked in `uv.lock`. Licences come from each package's PyPI metadata, or its LICENSE file where the metadata is unclear.
+
+| Package | Pinned version | Licence |
+|---|---|---|
+| numpy | 2.4.6 | BSD-3-Clause (with bundled components under other permissive licences) |
+| pyyaml | 6.0.3 | MIT |
+| pydantic | 2.14.3 | MIT |
+| filelock | 4.2.9 | MIT |
+| open3d | 0.20.0 | MIT |
+| kiss-icp | 1.3.0 | MIT |
+| cloth-simulation-filter | 1.1.7 | Apache-2.0 |
+| laspy (with lazrs) | 2.7.0 | BSD-2-Clause |
+| pyproj | 3.7.2 | MIT |
+| shapely | 2.2.0 | BSD-3-Clause |
+| ezdxf | 1.4.5 | MIT |
+| matplotlib | 3.11.2 | PSF-based licence (matplotlib licence agreement) |
+| nuscenes-devkit | 1.1.9 | Apache-2.0 (code, per `LICENSE.txt`). PyPI metadata field reads `cc-by-nc-sa-4.0`, which is the nuScenes dataset licence. The devkit does not ship data. |
+| fastapi | 0.162.2 | MIT |
+| uvicorn | 0.54.0 | BSD-3-Clause |
+| PyJWT | 2.15.1 | MIT |
+
+Dev tools (not shipped): pytest, ruff.
+
+No nuScenes data is stored in this repo or used in CI. Datasets follow their own licences.
+
 ## Licence
 
 Apache-2.0. See [LICENSE](LICENSE).
