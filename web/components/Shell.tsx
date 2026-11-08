@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import MapView from "@/components/MapView";
 import Rail from "@/components/Rail";
 import TopBar from "@/components/TopBar";
 import { type AreaIndex, loadArea } from "@/lib/showcase";
@@ -74,8 +75,17 @@ export default function Shell() {
         <div className="vp" role="region" aria-label="Map">
           {error ? (
             <p role="alert">{error}</p>
+          ) : area ? (
+            <MapView
+              area={area}
+              facility={facility}
+              element={element}
+              onElement={(e) => {
+                if (facility) go({ f: facility.id, e });
+              }}
+            />
           ) : (
-            <p>Map arrives in 12b.{facility ? ` Open: ${facility.name}.` : ""}</p>
+            <p>Loading map…</p>
           )}
           <div className="legal">{LEGAL}</div>
         </div>

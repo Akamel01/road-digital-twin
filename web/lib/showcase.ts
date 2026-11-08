@@ -6,6 +6,7 @@ export interface Drive {
   run_id: string;
   scene_token: string;
   name: string;
+  bbox: number[] | null; // minx, miny, maxx, maxy in EPSG:32619 metres
 }
 
 export interface AreaFacility {
