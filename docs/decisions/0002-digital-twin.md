@@ -101,3 +101,4 @@ Date: 2026-11-07. Operator decisions, grilling round 3.
 
     Q8 (occlusion) waits for the multi-sensor research (#13).
 37. **Multi-sensor work needs a dedicated state-of-the-art search** before its method is fixed (operator, 2026-11-07; #13).
+38. **Colour-stage occlusion (Q8): option (a)**, chosen by the operator. A depth buffer per image from all points plus the annotated boxes at the image time. Full colour-stage method: map ticket #8. The multi-sensor research (#13) can reopen it only with a clearly better method.
