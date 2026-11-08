@@ -3,6 +3,7 @@
 Stage names, methods and requires come from twin.contracts.STAGES.
 """
 
+import importlib
 from collections.abc import Callable
 from typing import Any
 
@@ -28,4 +29,11 @@ def register(stage: str, method: str) -> Callable[[StageFn], StageFn]:
 
 
 def lookup(stage: str, method: str) -> StageFn | None:
+    """Find a stage method. Stage code lives in twin/stages/<stage>.py and registers on import."""
+    if (stage, method) not in _REGISTRY:
+        try:
+            importlib.import_module(f"twin.stages.{stage}")
+        except ModuleNotFoundError as exc:
+            if exc.name != f"twin.stages.{stage}":
+                raise
     return _REGISTRY.get((stage, method))

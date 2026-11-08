@@ -179,3 +179,9 @@ def test_colour_length_mismatch_raises(run_dir):
     )
     with pytest.raises(ValueError):
         _run(run_dir)
+
+
+def test_runner_finds_outputs_stage_without_explicit_import():
+    from twin import registry
+
+    assert registry.lookup("outputs", "dxf-pdf") is not None
