@@ -1,0 +1,277 @@
+/* Developer panel. Tokens come from app/globals.css :root. */
+
+.root {
+  position: fixed;
+  inset: 0;
+  overflow-y: auto;
+  background: var(--canopy-900);
+  color: var(--on-glass);
+  font-family: var(--text);
+  font-size: 13px;
+  padding: var(--gut);
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 600 13px/1 var(--text);
+  color: var(--on-glass-2);
+}
+
+.brand svg {
+  width: 20px;
+  height: 20px;
+}
+
+.back,
+.devLink {
+  padding: 4px 10px;
+  border-radius: 8px;
+  color: var(--on-glass-2);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.back:hover,
+.devLink:hover {
+  background: var(--glass-clear);
+}
+
+.devLink {
+  margin-left: auto;
+  font-size: 13px;
+}
+
+.banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  border-radius: 12px;
+  background: var(--glass-clear);
+  color: var(--on-glass-2);
+}
+
+.banner p {
+  margin: 0;
+}
+
+.signIn,
+.button {
+  display: inline-block;
+  padding: 6px 12px;
+  border: 1px solid var(--glass-edge);
+  border-radius: 8px;
+  background: var(--glass-clear);
+  color: var(--on-glass);
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.signIn:hover,
+.button:not(:disabled):hover {
+  background: var(--glass-clear-strong);
+}
+
+.notice {
+  padding: 14px;
+  color: var(--on-glass-2);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+@media (min-width: 980px) {
+  .grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr);
+    align-items: start;
+  }
+}
+
+.panel {
+  padding: 14px;
+  min-width: 0;
+}
+
+.panelHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.h2 {
+  margin: 0;
+  font: 700 15px/1.2 var(--display);
+}
+
+.muted {
+  color: var(--on-glass-3);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th,
+.table td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--glass-edge);
+  vertical-align: top;
+}
+
+.table th {
+  color: var(--on-glass-3);
+  font-weight: 600;
+}
+
+.rowButton {
+  border: 0;
+  background: none;
+  padding: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rowButton[aria-pressed="true"] {
+  text-decoration: underline;
+}
+
+.pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--glass-clear);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.pill[data-status="ok"] {
+  color: var(--ok);
+}
+
+.pill[data-status="failed"] {
+  color: var(--danger);
+}
+
+.pill[data-status="running"] {
+  color: var(--warn);
+}
+
+.stage {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--glass-edge);
+}
+
+.stageHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.stageHead select {
+  font: inherit;
+  color: var(--ink);
+  background: var(--panel-light);
+  border: 0;
+  border-radius: 6px;
+  padding: 3px 6px;
+}
+
+.stageHead strong {
+  min-width: 90px;
+}
+
+.stageFiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stageFiles a {
+  color: var(--on-glass-2);
+}
+
+.params {
+  margin-top: 8px;
+}
+
+.params summary {
+  cursor: pointer;
+  color: var(--on-glass-2);
+}
+
+.fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px 12px;
+  margin-top: 8px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.field label {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  color: var(--on-glass-2);
+  overflow-wrap: anywhere;
+}
+
+.field small {
+  color: var(--on-glass-3);
+  font-size: 11px;
+}
+
+.field input,
+.field select {
+  font: inherit;
+  color: var(--ink);
+  background: var(--panel-light);
+  border: 0;
+  border-radius: 6px;
+  padding: 4px 6px;
+  min-width: 0;
+}
+
+.field input:disabled,
+.field select:disabled {
+  opacity: 0.7;
+}
+
+.metrics td:last-child {
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}

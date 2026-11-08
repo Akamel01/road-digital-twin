@@ -5,6 +5,7 @@ twin/access.py. There is no shell access and no subprocess call; bodies are JSON
 validated by twin.contracts, never YAML.
 """
 
+import os
 import re
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -108,9 +109,11 @@ def create_app(store: Path, verifier: Verifier | None = None) -> FastAPI:
     if verifier is None:
         verifier = verifier_from_env()
     app = FastAPI(title="twin control API")
+    # TWIN_EXTRA_ORIGIN is a dev-only hook for a local web/ dev server (e.g. http://localhost:3000). Unset in production.
+    extra = [o.strip() for o in os.environ.get("TWIN_EXTRA_ORIGIN", "").split(",") if o.strip()]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[ALLOWED_ORIGIN],
+        allow_origins=[ALLOWED_ORIGIN, *extra],
         allow_credentials=True,
         allow_methods=["GET", "POST"],
         allow_headers=["Content-Type"],
