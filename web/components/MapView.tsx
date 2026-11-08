@@ -17,6 +17,7 @@ import {
 } from "@/lib/mapdata";
 import { sightsOf, type Sight } from "@/lib/sight";
 import { typeLabel, type AreaFacility, type AreaIndex } from "@/lib/showcase";
+import { PHONE, useMedia } from "@/lib/media";
 import {
   fitView,
   frameOf,
@@ -76,6 +77,7 @@ interface Props {
 }
 
 export default function MapView({ area, facility, element, onFacility, onElement }: Props) {
+  const phone = useMedia(PHONE);
   const [loaded, setLoaded] = useState<LoadedDrive[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [layers, setLayers] = useState<Layers>(DEFAULT_LAYERS);
@@ -86,6 +88,9 @@ export default function MapView({ area, facility, element, onFacility, onElement
   const [dragging, setDragging] = useState(false);
   const panRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ x: number; y: number; view: View; moved: number } | null>(null);
+  // Touch: every active pointer, and the pinch that two of them start (distance and midpoint at the start).
+  const pointers = useRef(new Map<number, { x: number; y: number }>());
+  const pinch = useRef<{ d: number; mx: number; my: number; view: View } | null>(null);
 
   const frame = useMemo(
     () => frameOf(area.drives.flatMap((d) => (d.bbox ? [d.bbox] : []))),
@@ -183,13 +188,44 @@ export default function MapView({ area, facility, element, onFacility, onElement
     if (target && size.w && size.h) commit(fitView(target, size, facility ? 1.5 : 1.02, MAX_K), true);
   }
 
+  // Pointer position inside the map box, the frame the view's translation is in.
+  function local(clientX: number, clientY: number): [number, number] {
+    const r = panRef.current?.getBoundingClientRect();
+    return [clientX - (r?.left ?? 0), clientY - (r?.top ?? 0)];
+  }
+
   function onPointerDown(e: ReactPointerEvent) {
-    if (!cur) return;
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (!cur || pointers.current.size > 2) return;
+    if (pointers.current.size === 2) {
+      const [a, b] = [...pointers.current.values()];
+      const [mx, my] = local((a.x + b.x) / 2, (a.y + b.y) / 2);
+      pinch.current = { d: Math.hypot(a.x - b.x, a.y - b.y), mx, my, view: cur };
+      drag.current = null; // a pinch is not a tap, and it does not pan
+      setDragging(false);
+      return;
+    }
     drag.current = { x: e.clientX, y: e.clientY, view: cur, moved: 0 };
     setDragging(true);
   }
 
   function onPointerMove(e: ReactPointerEvent) {
+    const p = pointers.current.get(e.pointerId);
+    if (p) {
+      p.x = e.clientX;
+      p.y = e.clientY;
+    }
+    const pv = pinch.current;
+    if (pv && pointers.current.size === 2) {
+      // Zoom by the finger spacing. The world point under the starting midpoint follows the current midpoint, so the pinch also pans.
+      const [a, b] = [...pointers.current.values()];
+      const [mx, my] = local((a.x + b.x) / 2, (a.y + b.y) / 2);
+      const k = Math.min(MAX_K, Math.max(minK, pv.view.k * (Math.hypot(a.x - b.x, a.y - b.y) / pv.d)));
+      const wx = (pv.mx - pv.view.tx) / pv.view.k;
+      const wy = (pv.my - pv.view.ty) / pv.view.k;
+      commit({ k, tx: mx - wx * k, ty: my - wy * k });
+      return;
+    }
     const d = drag.current;
     if (!d) return;
     const dx = e.clientX - d.x;
@@ -200,6 +236,14 @@ export default function MapView({ area, facility, element, onFacility, onElement
 
   // A press that did not move is a click. It opens a facility (area level) or selects an element (facility level).
   function onPointerUp(e: ReactPointerEvent) {
+    pointers.current.delete(e.pointerId);
+    const wasPinch = pinch.current !== null;
+    if (pointers.current.size < 2) pinch.current = null;
+    if (wasPinch) {
+      drag.current = null;
+      setDragging(false);
+      return;
+    }
     const d = drag.current;
     drag.current = null;
     setDragging(false);
@@ -313,7 +357,9 @@ export default function MapView({ area, facility, element, onFacility, onElement
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        onPointerLeave={() => {
+        onPointerLeave={(e) => {
+          pointers.current.delete(e.pointerId);
+          if (pointers.current.size < 2) pinch.current = null;
           drag.current = null;
           setDragging(false);
         }}
@@ -359,7 +405,8 @@ export default function MapView({ area, facility, element, onFacility, onElement
                       y={r.y0 - 2 / k}
                       fontSize={12 / k}
                     >
-                      {`${f.id} · ${typeLabel(f.type)}`}
+                      {/* Phone: the code only, so the labels do not collide when the area is fitted. */}
+                      {phone ? f.id : `${f.id} · ${typeLabel(f.type)}`}
                     </text>
                   );
                 })}

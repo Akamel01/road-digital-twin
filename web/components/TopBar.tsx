@@ -48,13 +48,14 @@ export default function TopBar({ areaName, facility, element, onUp, railCollapse
       <nav className="crumbs" aria-label="Location">
         {facility ? (
           <>
-            <button type="button" onClick={() => onUp("area")}>
+            {/* Phone shows one back button and the current level; the CSS hides the area crumb inside an element. */}
+            <button type="button" className={`crumb-up${element ? " crumb-hide" : ""}`} onClick={() => onUp("area")}>
               {areaName}
             </button>
-            <i>›</i>
+            <i className={element ? "crumb-hide" : undefined}>›</i>
             {element ? (
               <>
-                <button type="button" onClick={() => onUp("facility")}>
+                <button type="button" className="crumb-up" onClick={() => onUp("facility")}>
                   {facility.name}
                 </button>
                 <i>›</i>
