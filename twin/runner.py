@@ -69,6 +69,7 @@ class StageContext:
     scene_token: str
     seed: int
     log: logging.Logger
+    min_observed: float = 0.5  # facilities.min_observed: ground marks facilities below it
 
     def stage_dir(self, name: str) -> Path:
         return self.run_dir / f"{STAGES[name].number}_{name}"
@@ -319,6 +320,7 @@ def _create_locked(
         scene_token=scene_token,
         seed=params.seed,
         log=logging.getLogger("twin.run"),
+        min_observed=params.facilities.min_observed,
     )
     keep = STAGES[from_stage].number - 1 if from_stage else 0
     return _Job(store, lock, ctx, manifest, pipeline, params, keep, parent_dir, parent)
