@@ -85,6 +85,10 @@ def build_parser() -> argparse.ArgumentParser:
     fake = sub.add_parser("fake-run", help="write synthetic runs and a showcase bundle")
     fake.add_argument("--out", type=Path, default=Path("runs"))
     fake.add_argument("--drives", type=int, choices=(1, 2), default=2)
+    serve = sub.add_parser("serve", help="run the control API")
+    serve.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8090)
     return parser
 
 
@@ -113,6 +117,10 @@ def main(argv: list[str] | None = None) -> int:
         for path in write_fake_runs(args.out, args.drives):
             print(path)
         return 0
+    if args.command == "serve":
+        from twin.api import serve_command
+
+        return serve_command(args.store, args.host, args.port)
     return 0
 
 
