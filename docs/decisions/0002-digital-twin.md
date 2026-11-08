@@ -56,3 +56,8 @@ Date: 2026-11-07. Operator decisions, grilling round 3.
     It uses the Mission Control style (dark photo, glass panels, Manrope) and the Crown living-mark for status.
 19. **Hosting:** a static site at `twin.papyrus-ai.net` on Cloudflare. The code lives in this repo, with design tokens copied from drone-survey.
 20. **The UI is public**, with nuScenes attribution (CC BY-NC-SA 4.0) in the footer.
+
+## Round 6 (2026-11-07): v1 purpose, after the EGM review
+
+21. **v1 purpose: a demo for recruiters.** AuditorAI integration is not a v1 goal; the output files plus a manifest are the implicit contract for later.
+22. **The UI doubles as a developer dashboard and controller.** From it the operator tweaks, tests, calibrates and evaluates, and adjusts the framework and the pipeline. Other users see the developer panel read-only. This replaces "static and read-only" in #18–#19. The details are open; see the open questions.
