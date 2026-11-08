@@ -1,0 +1,58 @@
+{
+  "$defs": {
+    "PipelineStage": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "method": {
+          "title": "Method",
+          "type": "string"
+        }
+      },
+      "required": [
+        "method"
+      ],
+      "title": "PipelineStage",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "accuracy": {
+      "$ref": "#/$defs/PipelineStage"
+    },
+    "align": {
+      "$ref": "#/$defs/PipelineStage"
+    },
+    "colour": {
+      "$ref": "#/$defs/PipelineStage"
+    },
+    "features": {
+      "$ref": "#/$defs/PipelineStage"
+    },
+    "ground": {
+      "$ref": "#/$defs/PipelineStage"
+    },
+    "isd": {
+      "$ref": "#/$defs/PipelineStage"
+    },
+    "load": {
+      "$ref": "#/$defs/PipelineStage"
+    },
+    "mask": {
+      "$ref": "#/$defs/PipelineStage"
+    },
+    "outputs": {
+      "$ref": "#/$defs/PipelineStage"
+    },
+    "profile": {
+      "$ref": "#/$defs/PipelineStage"
+    }
+  },
+  "title": "Pipeline",
+  "type": "object"
+}

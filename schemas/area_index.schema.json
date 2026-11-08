@@ -1,0 +1,108 @@
+{
+  "$defs": {
+    "AreaFacility": {
+      "additionalProperties": false,
+      "properties": {
+        "best_run": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Best Run"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "not_scanned_enough": {
+          "title": "Not Scanned Enough",
+          "type": "boolean"
+        },
+        "observed_core": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Observed Core",
+          "type": "number"
+        },
+        "runs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Runs",
+          "type": "array"
+        },
+        "type": {
+          "enum": [
+            "intersection",
+            "segment",
+            "access_point"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "name",
+        "best_run",
+        "observed_core",
+        "not_scanned_enough"
+      ],
+      "title": "AreaFacility",
+      "type": "object"
+    },
+    "Drive": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "run_id": {
+          "pattern": "^\\d{8}-\\d{6}-[0-9a-f]{6}$",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "scene_token": {
+          "title": "Scene Token",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "scene_token",
+        "name"
+      ],
+      "title": "Drive",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "drives": {
+      "items": {
+        "$ref": "#/$defs/Drive"
+      },
+      "title": "Drives",
+      "type": "array"
+    },
+    "facilities": {
+      "items": {
+        "$ref": "#/$defs/AreaFacility"
+      },
+      "title": "Facilities",
+      "type": "array"
+    }
+  },
+  "title": "AreaIndex",
+  "type": "object"
+}
