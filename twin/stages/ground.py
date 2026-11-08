@@ -34,8 +34,7 @@ LAZ_SCALE_M = 0.001
 POINT_FIELDS = ("x", "y", "z", "intensity", "sweep")
 OUTPUT_FILES = ("ground.laz", "nonground.laz", "surface.npz", "qa.json")
 
-# DECISION: RANSAC iteration count per tile (the spec sets none). Open3D seeds its own RNG, so inliers can
-# differ slightly between runs; the repeatability criterion (section 8) is checked on accuracy, not on this.
+# DECISION: RANSAC iteration count per tile (the spec sets none). Open3D's RNG is seeded from params.seed.
 RANSAC_ITERATIONS = 1000
 # DECISION: a tile needs at least this many points for a plane fit.
 MIN_PLANE_POINTS = 3
@@ -49,9 +48,6 @@ CSF_RIGIDNESS = 3
 # DECISION: the sweep-disagreement QA only uses points within this height of the cell's ground surface, so
 # points from one sweep that sit off the road are compared and points above (vehicles, canopy) are not.
 QA_BAND_M = 0.5
-# DECISION: the facilities.min_observed contract default. Not plumbed into this stage's params (the runner
-# passes only GroundParams); change it here if facilities.min_observed changes in params.yaml.
-MIN_OBSERVED = 0.5
 
 
 # ------------------------------------------------------------------ aggregation
@@ -256,6 +252,8 @@ def _run(
 ) -> StageResult:
     out: Path = ctx.stage_dir("ground")
     out.mkdir(exist_ok=True)
+    o3d.utility.random.seed(ctx.seed)
+    min_observed = ctx.min_observed
     align_dir = ctx.input_dir("align")
     align_qa = json.loads((align_dir / "qa.json").read_text())
     refined = np.array(
@@ -301,7 +299,7 @@ def _run(
         xyz[:, :2], xyz[:, 2], sweep, origin, cell, shape_yx, zmean
     )
     observed = observed_core(features, origin, cell, count)
-    not_scanned = sorted(k for k, v in observed.items() if v < MIN_OBSERVED)
+    not_scanned = sorted(k for k, v in observed.items() if v < min_observed)
 
     reasons = []
     if align_qa.get("fallback_used"):
@@ -338,7 +336,7 @@ def _run(
         "n_ground": int(ground.sum()),
         "n_nonground": int((~ground).sum()),
         "observed_core": {k: round(v, 4) for k, v in observed.items()},
-        "min_observed": MIN_OBSERVED,
+        "min_observed": min_observed,
         "not_scanned_enough": not_scanned,
     }
     (out / "qa.json").write_text(json.dumps(qa, indent=2))
