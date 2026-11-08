@@ -137,3 +137,16 @@ def test_cors_allows_only_panel_origin(client):
     assert ok.headers["access-control-allow-credentials"] == "true"
     other = client.get("/api/r/registry", headers={"Origin": "https://evil.example"})
     assert "access-control-allow-origin" not in other.headers
+
+
+def test_extra_origin_only_when_env_set(store, access, monkeypatch):
+    local = "http://localhost:3000"
+    monkeypatch.delenv("TWIN_EXTRA_ORIGIN", raising=False)
+    client = TestClient(create_app(store, access.verifier))
+    assert "access-control-allow-origin" not in client.get("/api/r/runs", headers={"Origin": local}).headers
+
+    monkeypatch.setenv("TWIN_EXTRA_ORIGIN", f"{local}, http://127.0.0.1:3000")
+    client = TestClient(create_app(store, access.verifier))
+    resp = client.get("/api/r/runs", headers={"Origin": local})
+    assert resp.headers["access-control-allow-origin"] == local
+    assert resp.headers["access-control-allow-credentials"] == "true"
