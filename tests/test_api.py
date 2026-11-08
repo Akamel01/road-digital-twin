@@ -33,6 +33,9 @@ def test_registry(client):
     load = body["stages"][0]
     assert load["methods"] == ["nuscenes"] and load["requires"] == []
     assert "properties" in body["params_schema"]
+    assert body["param_stage"]["ground"] == "ground"
+    assert body["param_stage"]["select"] is None
+    assert body["param_stage"]["seed"] == "load"
 
 
 def test_runs_newest_first(client, store):

@@ -275,3 +275,42 @@
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
+
+.changeBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  border-radius: 10px;
+  background: var(--glass-clear);
+  color: var(--on-glass-2);
+}
+
+.newRun {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 10px;
+}
+
+.newRun input {
+  font: inherit;
+  color: var(--ink);
+  background: var(--panel-light);
+  border: 0;
+  border-radius: 6px;
+  padding: 4px 6px;
+  min-width: 0;
+}
+
+.compare {
+  margin-top: 16px;
+}
+
+.changed td {
+  background: var(--glass-clear);
+  color: var(--on-glass);
+}

@@ -1,25 +1,23 @@
 import { useEffect, useState } from "react";
-import ParamForm from "@/components/dev/ParamForm";
+import Compare from "@/components/dev/Compare";
+import ParamForm, { type EditValue, type Edits } from "@/components/dev/ParamForm";
 import styles from "@/components/dev/dev.module.css";
 import {
-  ApiStatus,
-  ApiUnreachable,
+  actionText,
+  cancelRun,
+  errorText,
+  earliestStage,
   fetchRun,
   flatten,
+  paramKeysFor,
   type JsonSchema,
   type Manifest,
   type Registry,
   type RegistryStage,
+  rerunRun,
+  setPath,
   stageFileUrl,
 } from "@/lib/devapi";
-
-const UNREACHABLE = "Live API unreachable — showing nothing; public views still work.";
-
-export function errorText(e: unknown): string {
-  if (e instanceof ApiUnreachable) return UNREACHABLE;
-  if (e instanceof ApiStatus) return e.status === 404 ? "Run not found." : `Live API returned HTTP ${e.status}.`;
-  return "Live API error.";
-}
 
 // Same rule as twin/api.py _status: the first of failed, cancelled, running, pending, else ok.
 export function runStatus(m: Manifest): string {
@@ -31,13 +29,26 @@ export function runStatus(m: Manifest): string {
 interface Props {
   runId: string | null;
   registry: Registry | null;
+  signedIn: boolean;
+  tick: number; // the panel bumps this after a write, so the run reloads
   onSelect: (id: string) => void;
+  onChanged: () => void;
 }
 
 type Loaded = { id: string; manifest?: Manifest; error?: string };
 
-export default function RunDetail({ runId, registry, onSelect }: Props) {
+function withEdit(prev: Edits, path: string, value: EditValue | undefined): Edits {
+  const next = { ...prev };
+  if (value === undefined) delete next[path];
+  else next[path] = value;
+  return next;
+}
+
+export default function RunDetail({ runId, registry, signedIn, tick, onSelect, onChanged }: Props) {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
+  const [edits, setEdits] = useState<Edits>({});
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // Polls every 5 s while a stage is running. Results are tagged with the run id, so a stale one is ignored.
   useEffect(() => {
@@ -61,7 +72,7 @@ export default function RunDetail({ runId, registry, onSelect }: Props) {
       alive = false;
       clearTimeout(timer);
     };
-  }, [runId]);
+  }, [runId, tick]);
 
   if (!runId) return <Shell><p className={styles.muted}>Select a run.</p></Shell>;
   if (!loaded || loaded.id !== runId) return <Shell><p className={styles.muted}>Loading run…</p></Shell>;
@@ -70,13 +81,41 @@ export default function RunDetail({ runId, registry, onSelect }: Props) {
   const schema: JsonSchema | null = registry?.params_schema ?? null;
   const stageSpec = (name: string): RegistryStage | undefined => registry?.stages.find((s) => s.name === name);
   const metricRows = Object.entries(flatten(m.metrics));
+  const status = runStatus(m);
+
+  // Changed parameters: the re-run starts at the earliest stage that uses one of them.
+  const changed = Object.keys(edits);
+  const fromStage = registry ? earliestStage(registry, changed) : null;
+
+  // One write at a time. On success the panel reloads its lists; `select` moves to the new run.
+  async function write(call: () => Promise<{ run_id: string }>, select: boolean) {
+    setBusy(true);
+    setActionError(null);
+    try {
+      const res = await call();
+      onChanged();
+      if (select) onSelect(res.run_id);
+      else setEdits({});
+    } catch (e) {
+      setActionError(actionText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Re-run sends only the changed params as a partial override; the API merges them onto the parent.
+  function rerun(from: string) {
+    const params: Record<string, unknown> = {};
+    for (const [path, value] of Object.entries(edits)) setPath(params, path, value);
+    return write(() => rerunRun(m.run_id, { from_stage: from, params }), true);
+  }
 
   return (
     <Shell>
       <div className={styles.panelHead}>
         <h2 className={styles.h2}>{m.run_id}</h2>
-        <span className={styles.pill} data-status={runStatus(m)}>
-          {runStatus(m)}
+        <span className={styles.pill} data-status={status}>
+          {status}
         </span>
       </div>
       <p className={styles.muted}>
@@ -91,10 +130,37 @@ export default function RunDetail({ runId, registry, onSelect }: Props) {
           </>
         ) : null}
       </p>
+      {actionError ? (
+        <p className={styles.notice} role="alert">
+          {actionError}
+        </p>
+      ) : null}
+      {signedIn && changed.length > 0 ? (
+        <div className={styles.changeBar} role="status">
+          <span>Changed: {changed.join(", ")}</span>
+          {fromStage === null ? <span className={styles.muted}>Setup parameters only: nothing to re-run.</span> : null}
+          <button type="button" className={styles.button} disabled={busy} onClick={() => setEdits({})}>
+            Discard
+          </button>
+          <button
+            type="button"
+            className={styles.button}
+            disabled={busy || fromStage === null}
+            onClick={() => fromStage && rerun(fromStage)}
+          >
+            {fromStage ? `Re-run from ${fromStage}` : "Re-run"}
+          </button>
+        </div>
+      ) : null}
       <div className={styles.panelHead}>
         <h3 className={styles.h2}>Stages</h3>
-        {/* Cancel and re-run are writes: disabled until sign-in (ticket 13b). */}
-        <button type="button" className={styles.button} disabled title="Sign in to cancel">
+        <button
+          type="button"
+          className={styles.button}
+          disabled={!signedIn || busy || (status !== "running" && status !== "pending")}
+          title={signedIn ? undefined : "Sign in to cancel"}
+          onClick={() => write(() => cancelRun(m.run_id), false)}
+        >
           Cancel run
         </button>
       </div>
@@ -124,7 +190,13 @@ export default function RunDetail({ runId, registry, onSelect }: Props) {
                 {st.status}
               </span>
               <span className={styles.muted}>{st.seconds.toFixed(1)} s</span>
-              <button type="button" className={styles.button} disabled title="Sign in to re-run">
+              <button
+                type="button"
+                className={styles.button}
+                disabled={!signedIn || busy || changed.length === 0}
+                title={signedIn ? "Re-run from this stage with the changed params" : "Sign in to re-run"}
+                onClick={() => rerun(st.name)}
+              >
                 Re-run from here
               </button>
             </div>
@@ -148,12 +220,20 @@ export default function RunDetail({ runId, registry, onSelect }: Props) {
             {schema ? (
               <details className={styles.params}>
                 <summary>Parameters</summary>
-                <ParamForm stage={st.name} schema={schema} params={m.params} />
+                <ParamForm
+                  keys={registry ? paramKeysFor(registry, st.name) : []}
+                  schema={schema}
+                  params={m.params}
+                  edits={edits}
+                  disabled={!signedIn || busy}
+                  onEdit={(path, value) => setEdits((prev) => withEdit(prev, path, value))}
+                />
               </details>
             ) : null}
           </section>
         );
       })}
+      {m.parent ? <Compare a={m.parent.run_id} b={m.run_id} tick={tick} /> : null}
       <h3 className={styles.h2} style={{ marginTop: 16 }}>
         Metrics
       </h3>
