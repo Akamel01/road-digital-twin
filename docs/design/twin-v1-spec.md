@@ -338,12 +338,12 @@ If a scene fails the markings threshold, its runs report markings as "not extrac
 - **Required distance:** 0.278 × `design_speed_kmh` × `time_gap_s`.
 - **Heights:** eye and object height default to 1.08 m. 0.60 m is the stopping-sight-distance object, not an ISD target (decision 43); a stricter run can set it from the panel.
 - **Sight line:** each leg has one, from the eye point to the object point at the required distance.
-- **Blocking:** a point blocks the line if it lies above the ground surface, below the line, and within `isd.band_m` of it horizontally. So canopy above the line doesn't block.
+- **Blocking:** a point blocks the line if it lies above the ground surface and within `isd.band_m` of the line in 3D, so it reaches the line's height. Canopy above the line and kerbs below it don't block (decision 2026-11-08).
 - **Indeterminate:** a leg is indeterminate if any `coverage_window_m` stretch has fewer than `coverage_min_pts` ground points, or if `height_valid=false`.
 - **Parked vehicles:** each leg is computed twice, without and with `parked.npz`.
 
 **Accuracy.**
-- Measures the one-way distance from each extracted vertex to its reference layer, read through `NuScenesMap`.
+- Measures the one-way distance to its reference layer from points every 0.25 m along each extracted element (so every metre counts equally; decision 2026-11-08), read through `NuScenesMap`.
 - Lane markings use `lane_divider` and `road_divider`. Both are map lines, not painted edges; `road_divider` is a median line and a weaker reference.
 - Crosswalks use `ped_crossing`.
 - Curbs use the `drivable_area` boundary, labelled "map-conditioned".
