@@ -2,7 +2,7 @@
 
 This page lists what the full nuScenes release holds, how it is laid out on the box, and which parts the twin uses. Counts were measured on the box in `/data/nuscenes`.
 
-Licence: CC BY-NC-SA 4.0, non-commercial. Registration at nuscenes.org is required to get the download links. The links are signed and private, so they are never committed.
+Licence: CC BY-NC-SA 4.0, non-commercial. Registration at nuscenes.org is required to get the download links. The site hands the links out after login, so they are kept in a local list and never committed.
 
 ## Archives
 
@@ -100,7 +100,20 @@ Road users are masked out of the twin's point cloud by this data (see the mask s
 
 ## Road infrastructure
 
-The map expansion v1.3 gives per-location JSON layers in `maps/expansion/`. The layers used for the twin are lanes, crosswalks, stop lines and traffic lights. The basemap PNGs in `maps/basemap/` are the drawing the layers sit on.
+The map expansion v1.3 gives one JSON file per location in `maps/expansion/`. Layer counts for `boston-seaport.json`:
+
+| Layer | Count | Layer | Count |
+|---|---|---|---|
+| lane | 1,215 | lane_connector | 1,631 |
+| lane_divider | 671 | road_divider | 377 |
+| road_segment | 928 | road_block | 969 |
+| ped_crossing | 340 | walkway | 301 |
+| stop_line | 775 | traffic_light | 307 |
+| carpark_area | 275 | drivable_area | 2 |
+
+The layers are built from shared `polygon` (6,504), `line` (6,459) and `node` (38,565) records. `connectivity` and `arcline_path_3` give lane-to-lane links and lane centrelines. The twin's accuracy stage compares its markings, crosswalks and curbs against these layers. The basemap PNGs in `maps/basemap/` are the drawing the layers sit on.
+
+The map has no traffic signs, curb ramps or curb heights. Those come from the sensor data only.
 
 The lidarseg and panoptic labels mark the ground classes: `flat.driveable_surface`, `flat.sidewalk`, `flat.terrain`, `flat.other`, plus the static classes `static.manmade`, `static.vegetation` and `static.other`. These labels cover the road surface and its edges per lidar point. The labels are a second source, not the HD map.
 
