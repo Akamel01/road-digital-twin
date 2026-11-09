@@ -343,7 +343,7 @@ If a scene fails the markings threshold, its runs report markings as "not extrac
 - **Parked vehicles:** each leg is computed twice, without and with `parked.npz`.
 
 **Accuracy.**
-- Measures the one-way distance from each extracted vertex to its reference layer, read through `NuScenesMap`.
+- Measures the one-way distance to its reference layer from points every 0.25 m along each extracted element (so every metre counts equally; decision 2026-11-08), read through `NuScenesMap`.
 - Lane markings use `lane_divider` and `road_divider`. Both are map lines, not painted edges; `road_divider` is a median line and a weaker reference.
 - Crosswalks use `ped_crossing`.
 - Curbs use the `drivable_area` boundary, labelled "map-conditioned".
