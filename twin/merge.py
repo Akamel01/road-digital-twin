@@ -284,7 +284,9 @@ def area_merge_command(name: str, store: Path | None) -> int:
 
     base = Path(store) if store else default_store()
     area = json.loads((base / "areas" / f"{name}.json").read_text())
-    os.environ["NUSCENES_VERSION"] = area["dataset_version"]  # read by load at import
+    os.environ["NUSCENES_VERSION"] = area[
+        "dataset_version"
+    ]  # read by load when it opens the dataset
     out = base / "areas" / f"{name}-merged"
     out.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(level=logging.INFO)
