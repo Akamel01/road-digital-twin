@@ -78,11 +78,17 @@ export function loadRunMetrics(run: string): Promise<RunMetrics> {
   return p;
 }
 
+export interface ProfileLine {
+  id: string; // "facility/label", the same id as centrelines.geojson's line property
+  label: string; // direction label, e.g. "N-S"
+  points: ProfilePoint[];
+}
+
 /**
- * The profile rows for one facility from the run's profile.csv (facility,line,s_m,z_m,n), read by column
- * name. A facility can have several road lines; this returns the first one. The line picker is a later ticket.
+ * Every road line of one facility from the run's profile.csv (facility,line,s_m,z_m,n), read by column
+ * name, in the order the lines first appear. Each line's points are sorted by s.
  */
-export async function loadProfile(run: string, facility: string): Promise<ProfilePoint[]> {
+export async function loadProfile(run: string, facility: string): Promise<ProfileLine[]> {
   const text = await getText(`showcase/${run}/profile.csv`);
   const [header, ...body] = text.trim().split("\n");
   const cols = header.split(",");
@@ -90,14 +96,19 @@ export async function loadProfile(run: string, facility: string): Promise<Profil
   const iLine = cols.indexOf("line");
   const iS = cols.indexOf("s_m");
   const iZ = cols.indexOf("z_m");
-  const rows = body.map((l) => l.trim().split(",")).filter((c) => c[iFacility] === facility);
-  const first = rows.length ? rows[0][iLine] : null;
-  const out: ProfilePoint[] = [];
-  for (const c of rows) {
-    if (c[iLine] !== first || !c[iS] || !c[iZ]) continue;
-    out.push({ s: Number(c[iS]), z: Number(c[iZ]) });
+  const lines = new Map<string, ProfilePoint[]>();
+  for (const l of body) {
+    const c = l.trim().split(",");
+    if (c[iFacility] !== facility || !c[iS] || !c[iZ]) continue;
+    const pts = lines.get(c[iLine]) ?? [];
+    pts.push({ s: Number(c[iS]), z: Number(c[iZ]) });
+    lines.set(c[iLine], pts);
   }
-  return out.sort((a, b) => a.s - b.s);
+  return [...lines].map(([id, points]) => ({
+    id,
+    label: id.slice(id.indexOf("/") + 1),
+    points: points.sort((a, b) => a.s - b.s),
+  }));
 }
 
 /** Stage method name from the run's manifest, or null when the stage has no record. */

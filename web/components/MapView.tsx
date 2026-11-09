@@ -3,8 +3,10 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import MapPanel, { type Analysis, type Layer, type Layers } from "@/components/MapPanel";
 import {
+  type Centreline,
   errCol,
   isElement,
+  loadCentrelines,
   loadDrive,
   loadRasterMeta,
   RASTERS,
@@ -68,15 +70,23 @@ function rectOf(pts: Point[]): Rect {
 
 const ptsAttr = (pts: Point[]) => pts.map(([x, y]) => `${x},${y}`).join(" ");
 
+/** The first vertex inside the facility rectangle, where a line meets the core. Falls back to the middle vertex. */
+function entryOf(pts: Point[], r: Rect | null): Point {
+  const inside = r && pts.find(([x, y]) => x >= r.x0 && x <= r.x1 && y >= r.y0 && y <= r.y1);
+  return inside || pts[Math.floor(pts.length / 2)];
+}
+
 interface Props {
   area: AreaIndex;
   facility: AreaFacility | null;
   element: string | null;
+  line: string | null; // the selected centreline id; owned by the shell, shared with the profile strip
   onFacility: (id: string) => void;
   onElement: (e: string) => void;
+  onLine: (id: string) => void;
 }
 
-export default function MapView({ area, facility, element, onFacility, onElement }: Props) {
+export default function MapView({ area, facility, element, line, onFacility, onElement, onLine }: Props) {
   const phone = useMedia(PHONE);
   const [loaded, setLoaded] = useState<LoadedDrive[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -122,6 +132,28 @@ export default function MapView({ area, facility, element, onFacility, onElement
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  // The facility's road lines come from its best drive, the same run the profile strip reads.
+  const [centre, setCentre] = useState<{ key: string; lines: Centreline[] } | null>(null);
+  const clRun = facility?.best_run ?? null;
+  const clFid = facility?.id ?? null;
+  useEffect(() => {
+    if (!clRun || !clFid) return;
+    const key = `${clRun}|${clFid}`;
+    let live = true;
+    // A bundle with no centrelines file just has no lines to draw.
+    loadCentrelines(clRun, clFid).then(
+      (lines) => {
+        if (live) setCentre({ key, lines });
+      },
+      () => {
+        if (live) setCentre({ key, lines: [] });
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [clRun, clFid]);
 
   // Each facility's geometry comes from its best drive (first run that has it).
   const geoIndex = useMemo(() => {
@@ -248,11 +280,16 @@ export default function MapView({ area, facility, element, onFacility, onElement
     drag.current = null;
     setDragging(false);
     if (!d || d.moved > 4 || !(e.target instanceof Element)) return;
-    const hit = e.target.closest("[data-el],[data-fac]");
+    const hit = e.target.closest("[data-el],[data-fac],[data-line]");
     if (!hit) return;
     const fac = hit.getAttribute("data-fac");
     if (fac && !facility) {
       onFacility(fac);
+      return;
+    }
+    const ln = hit.getAttribute("data-line");
+    if (ln && facility) {
+      onLine(ln);
       return;
     }
     const el = hit.getAttribute("data-el");
@@ -341,6 +378,15 @@ export default function MapView({ area, facility, element, onFacility, onElement
   }
 
   const scaleM = cur ? [5, 10, 20, 50, 100, 200].find((v) => v * cur.k >= 60) ?? 200 : 0;
+
+  // Road lines of the open facility. The selected one (or the first, when none is picked) is highlighted.
+  const clKey = `${clRun}|${clFid}`;
+  const lines = facility && frame && centre?.key === clKey ? centre.lines : [];
+  const selId = lines.find((l) => l.id === line)?.id ?? lines[0]?.id ?? null;
+  const linesView = lines.map((l) => {
+    const pts = l.points.map((p) => toLocal(frame!, p));
+    return { ...l, pts, at: entryOf(pts, facRect) };
+  });
 
   const areaFacilities = frame
     ? area.facilities.flatMap((f) => {
@@ -527,6 +573,45 @@ export default function MapView({ area, facility, element, onFacility, onElement
                     />
                   ),
                 )}
+                  {/* Road lines last, so their wide hit strokes sit above the element hits. Phone: 44 px targets. */}
+                  {facility &&
+                    linesView.map((l) => {
+                      const sel = l.id === selId;
+                      return (
+                        <polyline
+                          key={`cl-${l.id}`}
+                          points={ptsAttr(l.pts)}
+                          fill="none"
+                          stroke={sel ? "var(--fac)" : "rgb(255 255 255 / .6)"}
+                          strokeWidth={sel ? 2.4 : 1.2}
+                          vectorEffect="non-scaling-stroke"
+                        />
+                      );
+                    })}
+                  {facility &&
+                    linesView.map((l) => (
+                      <text
+                        key={`cll-${l.id}`}
+                        className="flabel"
+                        x={l.at[0] + 4 / k}
+                        y={l.at[1] - 4 / k}
+                        fontSize={12 / k}
+                      >
+                        {l.label}
+                      </text>
+                    ))}
+                  {facility &&
+                    linesView.map((l) => (
+                      <polyline
+                        key={`clh-${l.id}`}
+                        className="hit"
+                        data-line={l.id}
+                        points={ptsAttr(l.pts)}
+                        fill="none"
+                        strokeWidth={phone ? 44 : 12}
+                        vectorEffect="non-scaling-stroke"
+                      />
+                    ))}
                 </>
               )}
             </g>

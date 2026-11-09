@@ -33,6 +33,8 @@ export default function Shell() {
   const [error, setError] = useState<string | null>(null);
   const [railCollapsed, setRailCollapsed] = useState(false); // the \ shortcut and the top-bar button
   const [sumMax, setSumMax] = useState(false); // pipeline summary maximised: the inspector shrinks to a bar
+  // The selected road line (a centreline id). It lives here, not in the map, so a 3D view can read it too.
+  const [linePick, setLinePick] = useState<{ facility: string; line: string } | null>(null);
   // Phone only: the bottom sheet's height. Unset means the default: half with a facility open, else peek.
   const [sheetPick, setSheet] = useState<Sheet | null>(null);
   const phone = useMedia(PHONE);
@@ -68,6 +70,14 @@ export default function Shell() {
   const facility = area?.facilities.find((f) => f.id === route.f) ?? null;
   const element = facility && route.e ? route.e : null;
   const sheet: Sheet = sheetPick ?? (facility ? "half" : "peek");
+  // A pick belongs to one facility; another facility starts again at its first line.
+  const line = facility && linePick?.facility === facility.id ? linePick.line : null;
+  const pickLine = useCallback(
+    (id: string) => {
+      if (facility) setLinePick({ facility: facility.id, line: id });
+    },
+    [facility],
+  );
 
   const up = useCallback(
     (level: "area" | "facility") => {
@@ -124,8 +134,10 @@ export default function Shell() {
               area={area}
               facility={facility}
               element={element}
+              line={line}
               onFacility={(id) => go({ f: id })}
               onElement={openElement}
+              onLine={pickLine}
             />
           ) : (
             <p>Loading map…</p>
@@ -134,7 +146,7 @@ export default function Shell() {
         </div>
         {!phone && (
           <div className="strip">
-            <Profile facility={facility} />
+            <Profile facility={facility} line={line} />
           </div>
         )}
       </main>
@@ -150,7 +162,7 @@ export default function Shell() {
             phone={phone}
             sheet={sheet}
             onSheet={setSheet}
-            profile={phone ? <div className="strip"><Profile facility={facility} /></div> : null}
+            profile={phone ? <div className="strip"><Profile facility={facility} line={line} /></div> : null}
             onOpenFacility={(id) => go({ f: id })}
             onOpenElement={openElement}
             onUp={up}
