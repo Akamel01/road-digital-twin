@@ -19,11 +19,13 @@ from typing import Any
 import laspy
 import numpy as np
 import open3d as o3d
+import shapely
 from shapely.geometry import MultiPoint, mapping
 from shapely.ops import unary_union
 
-from twin.contracts import CurbsParams, FeaturesParams, StageResult
+from twin.contracts import CurbsParams, FeaturesParams, SelectParams, StageResult
 from twin.registry import register
+from twin.select import go, paint_contrast, road_density
 
 OUTPUT_FILES = ("markings.geojson", "crosswalks.geojson", "qa.json")
 # Operator decision (2026-11-08): markings follow the points, binned 1.0 m along the stripe axis.
@@ -372,6 +374,15 @@ def extract(
     return markings, crosswalks, counts
 
 
+def _measured_footprint(ground_dir) -> list:
+    """Union of the 0.5 m surface cells that have ground points: the area road_density divides by."""
+    with np.load(ground_dir / "surface.npz") as f:
+        measured, origin, cell = f["count"] > 0, f["origin"], float(f["cell_m"])
+    iy, ix = np.nonzero(measured)
+    x0, y0 = origin[0] + ix * cell, origin[1] + iy * cell
+    return [shapely.union_all(shapely.box(x0, y0, x0 + cell, y0 + cell))]
+
+
 def _read_ground(path) -> np.ndarray:
     las = laspy.read(path)
     return np.column_stack(
@@ -391,8 +402,7 @@ def run_intensity(ctx: Any, params: FeaturesParams) -> StageResult:
 
     markings, crosswalks, counts = extract(xyz, params)
     fc = lambda feats: json.dumps({"type": "FeatureCollection", "features": feats})
-    (out / "markings.geojson").write_text(fc(markings))
-    (out / "crosswalks.geojson").write_text(fc(crosswalks))
+    curbs: list[dict] = []
     files = list(OUTPUT_FILES)
     if params.curbs.enabled:
         near = _near_ground_nonground(
@@ -401,9 +411,24 @@ def run_intensity(ctx: Any, params: FeaturesParams) -> StageResult:
         curbs = extract_curbs(
             np.vstack([xyz[:, :3], near]), params.curbs, params.min_points
         )
-        (out / CURB_FILE).write_text(fc(curbs))
         files.append(CURB_FILE)
         counts["n_curbs"] = len(curbs)
+    # Pose quality of the drive, copied onto every element so an auditor sees it per element.
+    align_qa = json.loads((ctx.input_dir("align") / "qa.json").read_text())
+    pose = {
+        "method": align_qa["method"],
+        "fallback_used": align_qa["fallback_used"],
+        "xy_drift_p95_m": align_qa.get("xy_drift_p95_m"),
+    }
+    for feat in (*markings, *crosswalks, *curbs):
+        feat["properties"]["pose"] = pose
+    # Markings extractability: the select check (density plus paint contrast) on this drive's ground.
+    density = road_density(xyz[:, :3], _measured_footprint(ground_dir))
+    contrast = paint_contrast(xyz[:, 3])
+    (out / "markings.geojson").write_text(fc(markings))
+    (out / "crosswalks.geojson").write_text(fc(crosswalks))
+    if params.curbs.enabled:
+        (out / CURB_FILE).write_text(fc(curbs))
     else:
         (out / CURB_FILE).unlink(
             missing_ok=True
@@ -417,6 +442,9 @@ def run_intensity(ctx: Any, params: FeaturesParams) -> StageResult:
         # Copied from ground so consumers read one place. Markings are not gated on them here.
         "height_valid": ground_qa.get("height_valid"),
         "not_scanned_enough": ground_qa.get("not_scanned_enough", []),
+        "markings_extractable": go(density, contrast, SelectParams()),
+        "density_pts_m2": round(density, 3),
+        "paint_contrast": round(contrast, 3),
         **counts,
     }
     (out / "qa.json").write_text(json.dumps(qa, indent=2))

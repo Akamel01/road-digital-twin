@@ -114,6 +114,17 @@ def _ctx(tmp_path, ground_xyzi, nonground_xyzi=None):
     (run / "4_ground" / "qa.json").write_text(
         json.dumps({"height_valid": True, "not_scanned_enough": ["S-0001"]})
     )
+    (run / "3_align").mkdir()
+    (run / "3_align" / "qa.json").write_text(
+        json.dumps(
+            {
+                "method": "kiss-icp",
+                "fallback_used": False,
+                "fallback_reason": None,
+                "xy_drift_p95_m": 0.12,
+            }
+        )
+    )
     return StageContext(
         run_dir=run, scene_token="s", seed=0, log=logging.getLogger("t")
     )
@@ -307,3 +318,38 @@ def test_taller_nonground_is_not_curb_input(tmp_path):
     _, out = _curb_run(tmp_path, road, nonground=wall)
 
     assert json.loads((out / "curbs.geojson").read_text())["features"] == []
+
+
+def test_every_feature_carries_pose(tmp_path):
+    markings, crosswalks, _ = _run(
+        tmp_path, _lane_and_crosswalk(np.random.default_rng(0))
+    )
+    curbs = json.loads(
+        (
+            _curb_run(tmp_path / "c", _road_with_curb(np.random.default_rng(0), 0.15))[
+                1
+            ]
+            / "curbs.geojson"
+        ).read_text()
+    )["features"]
+
+    assert markings and crosswalks and curbs
+    for f in (*markings, *crosswalks, *curbs):
+        assert f["properties"]["pose"] == {
+            "method": "kiss-icp",
+            "fallback_used": False,
+            "xy_drift_p95_m": 0.12,
+        }
+
+
+def test_extractable_on_paint_and_not_on_flat_intensity(tmp_path):
+    _, _, out = _run(tmp_path, _lane_and_crosswalk(np.random.default_rng(0)))
+    assert json.loads((out / "qa.json").read_text())["markings_extractable"] is True
+
+    rng = np.random.default_rng(0)
+    flat = _background(rng)
+    flat[:, 3] = rng.uniform(10, 12, len(flat))  # contrast about 1.1, below 1.5
+    _, _, out = _run(tmp_path / "flat", flat)
+    qa = json.loads((out / "qa.json").read_text())
+    assert qa["markings_extractable"] is False
+    assert qa["paint_contrast"] < 1.5
