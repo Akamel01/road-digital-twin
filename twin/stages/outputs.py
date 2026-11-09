@@ -142,12 +142,20 @@ def run(ctx: Any, params: Any) -> StageResult:
     )
 
 
-def _xy(geom: dict) -> list[tuple[float, float]]:
-    """2D vertices of a LineString, or the outer ring of a Polygon."""
-    coords = (
-        geom["coordinates"][0] if geom["type"] == "Polygon" else geom["coordinates"]
-    )
-    return [(float(c[0]), float(c[1])) for c in coords]
+def _polylines(geom: dict) -> list[list[tuple[float, float]]]:
+    """2D polylines of a Polygon, MultiPolygon, LineString or MultiLineString.
+
+    Each polygon ring (exterior and holes) and each line becomes one polyline.
+    """
+    g = shape(geom)
+    out = []
+    for part in getattr(g, "geoms", [g]):
+        rings = (
+            [part.exterior, *part.interiors] if part.geom_type == "Polygon" else [part]
+        )
+        for ring in rings:
+            out.append([(float(c[0]), float(c[1])) for c in ring.coords])
+    return out
 
 
 def _plan_inputs(ctx: Any, features: list[dict]) -> tuple[dict, list, list]:
@@ -159,10 +167,11 @@ def _plan_inputs(ctx: Any, features: list[dict]) -> tuple[dict, list, list]:
     for feat in features:
         props = feat["properties"]
         layer = props["layer"]
-        pts = _xy(feat["geometry"])
-        lines.setdefault(layer.upper(), []).append(pts)
+        polys = _polylines(feat["geometry"])
+        lines.setdefault(layer.upper(), []).extend(polys)
         if layer == "facilities":
             facilities[props.get("id")] = props
+            pts = polys[0]  # outer ring of the facility, as before
             cx = sum(p[0] for p in pts) / len(pts)
             cy = sum(p[1] for p in pts) / len(pts)
             labels.append((str(props.get("id", "")), (cx, cy)))
