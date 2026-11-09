@@ -232,11 +232,13 @@ def worker(
         print("twin worker: another worker is running", file=sys.stderr)
         return 3
     try:
-        print(
-            f"worker: store {store}; requeued {recover(store)}, "
-            f"interrupted runs {recover_interrupted(store)}",
-            flush=True,
-        )
+        print(f"worker: store {store}; requeued {recover(store)}", flush=True)
+        try:
+            print(f"interrupted runs: {recover_interrupted(store)}", flush=True)
+        except (
+            ValueError
+        ) as exc:  # a run from another code version has an unreadable manifest
+            print(f"run recovery skipped: {exc}", flush=True)
         count = 0
         while not jobs or count < jobs:
             status = process_one(store, hold)
