@@ -110,6 +110,13 @@ def build_parser() -> argparse.ArgumentParser:
     define.add_argument(
         "--store", type=Path, help="run store (default: $TWIN_RUNS or /data/twin-runs)"
     )
+    ev = sub.add_parser("eval", help="go/no-go report for a run against the gates")
+    ev.add_argument("run", help="run id (or run folder)")
+    ev.add_argument("--baseline", help="run to compare every metric with")
+    ev.add_argument("--rerun", help="rerun with the same inputs, for G1 determinism")
+    ev.add_argument(
+        "--store", type=Path, help="run store (default: $TWIN_RUNS or /data/twin-runs)"
+    )
     publish = sub.add_parser("publish", help="copy runs into a showcase folder")
     publish.add_argument("run_ids", nargs="+", metavar="run-id")
     publish.add_argument("--out", type=Path, required=True, help="showcase folder")
@@ -158,6 +165,10 @@ def main(argv: list[str] | None = None) -> int:
             args.store,
             args.include_rain,
         )
+    if args.command == "eval":
+        from twin.gates import eval_command
+
+        return eval_command(args.run, args.baseline, args.rerun, args.store)
     if args.command == "publish":
         from twin.publish import publish_command
 
