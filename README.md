@@ -59,6 +59,8 @@ Run on the box (`ssh akamel-linux`), not on the Mac:
 2. When asked, paste the two signed download links from nuscenes.org: v1.0-mini and map expansion v1.3. The script never logs in and never stores the links.
 3. `make itest`. The integration test loads nuScenes mini and checks for 10 scenes. It skips with a message when the data is absent, so it is safe on the Mac.
 
+The full release is fetched by `scripts/get_nuscenes_full.sh URL_LIST`. The inventory of what it holds, and how it is laid out, is in [`docs/data/nuscenes.md`](docs/data/nuscenes.md).
+
 ## Dependencies and licences
 
 Runtime dependencies are pinned in `pyproject.toml` and locked in `uv.lock`. Licences come from each package's PyPI metadata, or its LICENSE file where the metadata is unclear.

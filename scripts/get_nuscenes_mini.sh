@@ -77,7 +77,7 @@ rm -f "$TMP/mini.tgz"
 echo "Downloading map expansion v1.3 ..." >&2
 download "$MAP_URL" "$TMP/map.zip" "map expansion"
 mkdir -p "$DEST/maps"
-unzip -q -o "$TMP/map.zip" -d "$DEST/maps"
+python3 -m zipfile -e "$TMP/map.zip" "$DEST/maps"
 rm -f "$TMP/map.zip"
 
 verify "$DEST" || die "extracted files do not match the expected nuScenes mini layout under $DEST"
