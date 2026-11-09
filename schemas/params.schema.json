@@ -199,6 +199,13 @@
           "minimum": 0.02,
           "title": "Voxel M",
           "type": "number"
+        },
+        "z_drift_knot_s": {
+          "default": 20.0,
+          "maximum": 60,
+          "minimum": 2,
+          "title": "Z Drift Knot S",
+          "type": "number"
         }
       },
       "title": "GroundParams",

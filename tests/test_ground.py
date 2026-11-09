@@ -29,7 +29,7 @@ def _polygon(x0, x1, y0, y1):
     return {"type": "Polygon", "coordinates": [ring]}
 
 
-def _write_run(tmp_path, sweeps, align_qa=None, facilities=None):
+def _write_run(tmp_path, sweeps, align_qa=None, facilities=None, dt_us=50_000):
     """sweeps: list of (N, 4) world-frame arrays (x, y, z, intensity), one per sweep.
 
     Dataset poses translate each sweep along x by 0.2 m per sweep; align's refined poses equal them,
@@ -42,8 +42,7 @@ def _write_run(tmp_path, sweeps, align_qa=None, facilities=None):
         m[0, 3] = 0.2 * k
         mats.append(m.tolist())
     entries = [
-        {"sweep": k, "timestamp_us": k * 50_000, "matrix": m}
-        for k, m in enumerate(mats)
+        {"sweep": k, "timestamp_us": k * dt_us, "matrix": m} for k, m in enumerate(mats)
     ]
     (run / "1_load").mkdir(parents=True)
     (run / "1_load" / "poses.json").write_text(
@@ -108,9 +107,13 @@ def test_plane_ground_rmse_under_2cm(tmp_path, method):
 
 
 def test_sweep_offset_flags_height_invalid(tmp_path):
+    # one sweep 0.2 m off in the middle of a 20 s scene: a step, not a smooth drift, so it is not corrected away.
+    # ransac_dist_m is wide so the offset sweep still counts as ground (a tight one drops it as non-ground)
     rng = np.random.default_rng(0)
-    ctx, out = _write_run(tmp_path, _sweeps(rng, offset_sweep=2, offset_m=0.2))
-    registry.lookup("ground", "ransac-tiles")(ctx, GroundParams())
+    sweeps = _drift_sweeps(rng, drift_m=0.0, n_above=0)
+    sweeps[10][:, 2] += 0.2
+    ctx, out = _write_run(tmp_path, sweeps, dt_us=1_000_000)
+    registry.lookup("ground", "ransac-tiles")(ctx, GroundParams(ransac_dist_m=0.3))
     qa = json.loads((out / "qa.json").read_text())
     assert qa["z_disagreement_p95_m"] > GroundParams().qa_max_p95_m
     assert qa["height_valid"] is False
@@ -150,3 +153,44 @@ def test_observed_core_marks_not_scanned(tmp_path):
     assert qa["observed_core"]["I-scanned"] > 0.95
     assert qa["observed_core"]["S-empty"] == 0.0
     assert qa["not_scanned_enough"] == ["S-empty"]
+
+
+def _drift_sweeps(rng, drift_m=0.15, n=21, n_above=300):
+    """Random-sampled sloped plane per sweep, z drift growing linearly with sweep index, plus points above it."""
+    out = []
+    for k in range(n):
+        xy = rng.uniform([0, 0], [20, 10], size=(6000, 2))
+        z = SLOPE * xy[:, 0] + rng.normal(0, NOISE_M, len(xy)) + drift_m * k / (n - 1)
+        pts = [np.column_stack([xy, z, np.full(len(xy), 0.2)])]
+        # non-ground: 0.3 m above the plane, in different cells for each sweep (so one sweep sees them, others the road)
+        if k % 2:
+            axy = rng.uniform([0, 0], [20, 10], size=(n_above, 2))
+            az = SLOPE * axy[:, 0] + 0.3 + drift_m * k / (n - 1)
+            pts.append(np.column_stack([axy, az, np.full(n_above, 0.2)]))
+        out.append(np.vstack(pts))
+    return out
+
+
+def test_z_drift_is_corrected(tmp_path):
+    rng = np.random.default_rng(1)
+    ctx, out = _write_run(tmp_path, _drift_sweeps(rng), dt_us=1_000_000)
+    registry.lookup("ground", "ransac-tiles")(ctx, GroundParams())
+    qa = json.loads((out / "qa.json").read_text())
+    assert qa["z_disagreement_p95_before_correction_m"] > 0.1
+    assert qa["z_disagreement_p95_m"] < 0.05
+    assert qa["z_drift_correction_p95_m"] > 0.03
+    assert qa["height_valid"] is True
+
+
+def test_nonground_points_do_not_inflate_qa(tmp_path):
+    rng = np.random.default_rng(2)
+    clean = _drift_sweeps(rng, drift_m=0.0, n_above=0)
+    rng = np.random.default_rng(2)
+    dirty = _drift_sweeps(rng, drift_m=0.0, n_above=600)
+    q = []
+    for name, sw in (("a", clean), ("b", dirty)):
+        ctx, out = _write_run(tmp_path / name, sw, dt_us=1_000_000)
+        registry.lookup("ground", "ransac-tiles")(ctx, GroundParams())
+        q.append(json.loads((out / "qa.json").read_text()))
+    assert q[1]["z_disagreement_p95_m"] < 0.05
+    assert abs(q[1]["z_disagreement_p95_m"] - q[0]["z_disagreement_p95_m"]) < 0.02
