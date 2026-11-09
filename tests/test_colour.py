@@ -126,6 +126,9 @@ def test_run_writes_outputs_and_labels_indeterminate_height(tmp_path, monkeypatc
         1,
     )
     (stage_dirs["ground"] / "qa.json").write_text(json.dumps({"height_valid": False}))
+    (stage_dirs["features"] / "markings.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": []})
+    )
     (stage_dirs["align"] / "poses.json").write_text(
         json.dumps(
             {
@@ -171,3 +174,61 @@ def test_run_writes_outputs_and_labels_indeterminate_height(tmp_path, monkeypatc
     with np.load(stage_dirs["colour"] / "rgb.npz") as f:
         assert f["rgb"].shape == (len(ground_xyz) + 1, 3)
         assert f["observed"][: len(ground_xyz)].mean() > 0.95
+
+
+def _marking(mid, xy, reliability="observed"):
+    coords = [[float(x), float(y), 0.0] for x, y in xy]
+    return {
+        "type": "Feature",
+        "properties": {"id": mid, "reliability": reliability, "evidence": ["lidar"]},
+        "geometry": {"type": "LineString", "coordinates": coords},
+    }
+
+
+def _ortho_with_stripe(x_lo, x_hi, paint=230, base=90, gsd=0.05):
+    """Ortho of ground cells: cells whose centre lies in [x_lo, x_hi) are painted, the rest are asphalt.
+
+    Cell grid origin is (-1, 0): a corner point pins it, and cell centres sit at half-cell offsets so every
+    cell index is exact.
+    """
+    xs = -1.0 + (np.arange(200) + 0.5) * gsd
+    ys = (np.arange(200) + 0.5) * gsd
+    gx, gy = np.meshgrid(xs, ys)
+    xy = np.vstack([np.column_stack([gx.ravel(), gy.ravel()]), [[-1.0, 0.0]]])
+    lum = np.where((gx.ravel() >= x_lo) & (gx.ravel() < x_hi), paint, base)
+    rgb = np.repeat(np.r_[lum, base][:, None], 3, axis=1).astype(np.uint8)
+    rgba, origin = colour.ortho_raster(xy, rgb, np.ones(len(xy), bool), gsd)
+    return rgba, origin
+
+
+LIDAR_LINE = [(0.0, 1.0), (0.0, 9.0)]  # north-south, at x = 0
+
+
+def test_stripe_shift_is_measured_within_one_cm():
+    for shift, lo, hi in [(0.10, 0.05, 0.15), (0.20, 0.15, 0.25)]:
+        rgba, origin = _ortho_with_stripe(lo, hi)
+        offs = colour.marking_offsets(rgba, origin, 0.05, [_marking("m", LIDAR_LINE)])
+        assert len(offs["m"]) >= colour.EDGE_MIN_SAMPLES
+        assert np.abs(np.abs(offs["m"]) - shift).max() <= 0.01, f"shift {shift}"
+
+
+def test_marking_with_painted_stripe_is_confirmed():
+    rgba, origin = _ortho_with_stripe(0.05, 0.15)
+    markings = [_marking("near", LIDAR_LINE)]
+    offs = colour.marking_offsets(rgba, origin, 0.05, markings)
+    assert colour.camera_confirmed(offs) == ["near"], "0.10 m is within EDGE_TOL_M"
+
+
+def test_stripe_absent_from_image_is_not_confirmed():
+    rgba, origin = _ortho_with_stripe(3.0, 3.1)  # paint far from the lidar line, outside the search window
+    offs = colour.marking_offsets(rgba, origin, 0.05, [_marking("gone", LIDAR_LINE)])
+    assert len(offs["gone"]) == 0
+    assert colour.camera_confirmed(offs) == []
+
+
+def test_modelled_markings_are_not_measured():
+    rgba, origin = _ortho_with_stripe(0.05, 0.15)
+    offs = colour.marking_offsets(
+        rgba, origin, 0.05, [_marking("inferred", LIDAR_LINE, reliability="modelled")]
+    )
+    assert offs == {}

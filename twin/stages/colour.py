@@ -4,13 +4,17 @@ Source of truth: docs/design/twin-v1-spec.md, sections 3, 4, 6 (Colour) and 8.
 Prior work: docs/research/camera-ground-projection.md (steps 1 to 5: camera pose, projection, z-buffer with
 boxes, range filter, top-K median) and docs/research/multi-sensor-sota.md section 2 (decision 38).
 Visibility, camera poses and box blockers come from twin.stages.zbuffer.
+Edge QA (spec section 6, Colour): painted edges in the orthoimage against features' observed markings,
+per decisions 0002 and 0004 (camera confirmation). Prior work: multi-sensor-sota section 2 (edge-based
+colour correction, Yamakawa 2016, has no code, so the method here is our own) and section 5.
 Inputs: ground's ground.laz, nonground.laz and qa.json; align's poses.json (refined sweep poses);
-load's cameras.json, boxes.json. Outputs: ortho.png, ortho.pgw, rgb.npz, qa.json.
+load's cameras.json, boxes.json; features' markings.geojson. Outputs: ortho.png, ortho.pgw, rgb.npz, qa.json.
 """
 
 from __future__ import annotations
 
 import bisect
+import itertools
 import json
 import os
 from collections.abc import Iterable
@@ -153,6 +157,108 @@ def boxes_at(sweep_boxes: list[dict], t: int) -> list[dict]:
     return out
 
 
+# DECISION: a marking is camera-confirmed when the median |offset| of its painted stripe centres is at most this (m).
+# Source: decision 0002 item 4, the 20 cm position target for lane and curb edges.
+EDGE_TOL_M = 0.20
+# DECISION: lidar polylines are sampled every EDGE_STEP_M (m); each sample takes a cross-section out to
+# EDGE_SEARCH_M either side. Ceiling: a stripe more than EDGE_SEARCH_M off the lidar line is not found.
+EDGE_STEP_M = 0.25
+EDGE_SEARCH_M = 0.5
+# DECISION: a cross-section is measurable when its 5th to 95th percentile luminance differ by at least this (0-255).
+EDGE_MIN_CONTRAST = 40.0
+# DECISION: a painted run wider than this (m) is not one stripe, so the cross-section is dropped.
+EDGE_MAX_WIDTH_M = 1.0
+# DECISION: a marking needs at least this many measured cross-sections to be confirmed.
+EDGE_MIN_SAMPLES = 4
+
+
+def _cross_section_offset(lum: np.ndarray, ok: np.ndarray, s: np.ndarray) -> float | None:
+    """Signed centre (m) of the painted stripe nearest the lidar line, from one cross-section.
+
+    lum, ok and s run along the normal: lum the luminance of each sample, ok whether it is an observed pixel,
+    s its distance from the lidar line. Painted = at least the midpoint of the 5th and 95th percentile
+    luminance. Edges are placed where luminance crosses that midpoint between pixel centres. Returns None
+    when there is no contrast, no painted sample, or the run reaches the search window edge.
+    """
+    if ok.sum() < 3:
+        return None
+    lo, hi = np.percentile(lum[ok], [5, 95])
+    if hi - lo < EDGE_MIN_CONTRAST:
+        return None
+    thr = (lo + hi) / 2
+    painted = ok & (lum >= thr)
+    hits = np.flatnonzero(painted)
+    if hits.size == 0:
+        return None
+    seed = hits[np.argmin(np.abs(s[hits]))]
+    left = right = seed
+    while left > 0 and painted[left - 1]:
+        left -= 1
+    while right < len(s) - 1 and painted[right + 1]:
+        right += 1
+    if left == 0 or right == len(s) - 1 or not (ok[left - 1] and ok[right + 1]):
+        return None  # the run reaches the window edge or an unobserved pixel, so an edge is missing
+    a, b = left - 1, left  # unpainted, painted
+    e_l = s[a] + (thr - lum[a]) / (lum[b] - lum[a]) * (s[b] - s[a])
+    a, b = right, right + 1  # painted, unpainted
+    e_r = s[a] + (lum[a] - thr) / (lum[a] - lum[b]) * (s[b] - s[a])
+    if e_r - e_l > EDGE_MAX_WIDTH_M:
+        return None
+    return float((e_l + e_r) / 2)
+
+
+def marking_offsets(
+    rgba: np.ndarray, origin: np.ndarray, cell_m: float, markings: list[dict]
+) -> dict[str, np.ndarray]:
+    """Per observed marking id: signed offsets (m) of the painted stripe centre from its lidar line.
+
+    rgba and origin are ortho_raster's output (row 0 is the north edge). Markings with another reliability
+    are skipped. A marking gets one offset per measured cross-section; an empty array means none was measured.
+    """
+    ny, nx = rgba.shape[:2]
+    lum = rgba[..., :3].astype(float).mean(axis=2)
+    observed = rgba[..., 3] > 0
+    n_side = int(np.ceil(EDGE_SEARCH_M / cell_m))
+    s_grid = (np.arange(-n_side, n_side) + 0.5) * cell_m  # pixel-centre offsets, so each sample is one pixel
+    out: dict[str, np.ndarray] = {}
+    for feat in markings:
+        props = feat["properties"]
+        if props.get("reliability") != "observed":
+            continue
+        line = np.asarray(feat["geometry"]["coordinates"], float)[:, :2]
+        offs = []
+        for a, b in itertools.pairwise(line):
+            seg = b - a
+            length = float(np.hypot(*seg))
+            if length <= 0:
+                continue
+            u = seg / length
+            normal = np.array([-u[1], u[0]])
+            n_steps = max(1, int(length // EDGE_STEP_M))
+            for t in (np.arange(n_steps) + 0.5) * (length / n_steps):
+                xy = a + t * u + s_grid[:, None] * normal
+                j = np.floor((xy[:, 1] - origin[1]) / cell_m).astype(np.int64)
+                i = np.floor((xy[:, 0] - origin[0]) / cell_m).astype(np.int64)
+                row, col = ny - 1 - j, i  # ortho_raster flips rows so that row 0 is north
+                inside = (row >= 0) & (row < ny) & (col >= 0) & (col < nx)
+                row, col = np.clip(row, 0, ny - 1), np.clip(col, 0, nx - 1)
+                ok = inside & observed[row, col]
+                off = _cross_section_offset(lum[row, col], ok, s_grid)
+                if off is not None:
+                    offs.append(off)
+        out[props["id"]] = np.array(offs, float)
+    return out
+
+
+def camera_confirmed(offsets: dict[str, np.ndarray]) -> list[str]:
+    """Marking ids whose painted edges agree with the lidar line: enough samples, median |offset| within EDGE_TOL_M."""
+    return sorted(
+        mid
+        for mid, o in offsets.items()
+        if len(o) >= EDGE_MIN_SAMPLES and float(np.median(np.abs(o))) <= EDGE_TOL_M
+    )
+
+
 @register("colour", "zbuffer-topk")
 def run(ctx: Any, params: ColourParams) -> StageResult:
     out: Path = ctx.stage_dir("colour")
@@ -202,6 +308,11 @@ def run(ctx: Any, params: ColourParams) -> StageResult:
     np.savez_compressed(out / "rgb.npz", rgb=rgb, observed=observed)
 
     label = ORTHO_LABEL if height_valid else INDETERMINATE_LABEL
+    markings = json.loads((ctx.input_dir("features") / "markings.geojson").read_text())[
+        "features"
+    ]
+    offsets = marking_offsets(ortho, origin, cell, markings)
+    pooled = np.abs(np.concatenate([np.empty(0), *offsets.values()]))
     qa = {
         "method": "zbuffer-topk",
         "ortho_label": label,
@@ -213,8 +324,11 @@ def run(ctx: Any, params: ColourParams) -> StageResult:
         "n_cameras_skipped_outside_sweeps": len(cams) - len(usable),
         "top_k": params.top_k,
         "gsd_m": cell,
-        # Not measured yet: needs the features stage's marking edges (spec section 6, QA).
-        "edge_offset_p95_m": None,
+        # P95 of |offset| over every measured cross-section of every observed marking (spec section 6, QA).
+        "edge_offset_p95_m": float(np.percentile(pooled, 95)) if pooled.size else None,
+        "edge_offset_samples": int(pooled.size),
+        "edge_offset_tol_m": EDGE_TOL_M,
+        "camera_confirmed": camera_confirmed(offsets),
     }
     (out / "qa.json").write_text(json.dumps(qa, indent=2))
     return StageResult(
