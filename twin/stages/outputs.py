@@ -198,19 +198,15 @@ def _sightlines(ctx: Any, facilities: dict) -> list:
     return out
 
 
-def _profile_inputs(ctx: Any, facilities: dict) -> list:
-    """(label, s_m, z_m) per facility, from profile/profile.csv."""
+def _profile_inputs(ctx: Any) -> list:
+    """(line id, s_m, z_m) per road line, from profile/profile.csv. One block per line."""
     rows: dict[str, tuple[list, list]] = {}
     with (ctx.stage_dir("profile") / "profile.csv").open(newline="") as f:
         for row in csv.DictReader(f):
-            s_list, z_list = rows.setdefault(row["facility"], ([], []))
+            s_list, z_list = rows.setdefault(row["line"], ([], []))
             s_list.append(float(row["s_m"]))
             z_list.append(float(row["z_m"]))
-    profiles = []
-    for fid, (s_list, z_list) in rows.items():
-        name = (facilities.get(fid) or {}).get("name", "")
-        profiles.append((f"{name} ({fid})".strip(), s_list, z_list))
-    return profiles
+    return [(line, s_list, z_list) for line, (s_list, z_list) in rows.items()]
 
 
 def _height_valid(ctx: Any) -> bool:
@@ -239,14 +235,9 @@ def _sheets(ctx: Any, features: list[dict], files: list[str]) -> None:
 
     if not (ctx.stage_dir("profile") / "profile.csv").is_file():
         return
-    facilities = {
-        f["properties"].get("id"): f["properties"]
-        for f in features
-        if f["properties"]["layer"] == "facilities"
-    }
     drawings.write_profile(
         out / "profile.dxf",
-        profiles=_profile_inputs(ctx, facilities),
+        profiles=_profile_inputs(ctx),
         height_valid=_height_valid(ctx),
         source=source,
         licence=SHEET_LICENCE,

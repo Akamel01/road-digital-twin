@@ -202,7 +202,7 @@ def _sheet_inputs(run_dir: Path, *, height_valid: bool = True) -> None:
     """Profile, ISD and ground QA for the sheet tests. Facility 'int-1' has an eye point."""
     prof = run_dir / "7_profile"
     prof.mkdir()
-    rows = ["facility,s_m,z_m,n"] + [f"int-1,{s},{10 + 0.02 * s},20" for s in range(6)]
+    rows = ["facility,line,s_m,z_m,n"] + [f"int-1,int-1/main,{s},{10 + 0.02 * s},20" for s in range(6)]
     (prof / "profile.csv").write_text("\n".join(rows) + "\n")
     isd = run_dir / "8_isd"
     isd.mkdir()

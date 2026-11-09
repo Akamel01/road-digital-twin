@@ -106,7 +106,7 @@ def test_stage_files_are_readable(out):
     assert (
         (run / "7_profile" / "profile.csv")
         .read_text()
-        .startswith("facility,s_m,z_m,n")
+        .startswith("facility,line,s_m,z_m,n")
     )
     assert Image.open(run / "6_colour" / "ortho.png").size == (256, 256)
     assert (run / "10_outputs" / "profile.pdf").read_bytes().startswith(b"%PDF")

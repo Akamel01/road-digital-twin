@@ -44,7 +44,7 @@ The success signal: from the UI, a reviewer can trace one reported number back t
    - 3D lane markings and crosswalks extracted from the lidar;
    - curb lines found from height steps.
 1a. **Facilities** (decision 40): every intersection, segment and access point in the area, from the HD map, with a stable ID and an OpenStreetMap street name. A facility whose core is less than 50% observed is listed as "not scanned enough", with no metrics.
-2. **Vertical profiles** along each intersection approach, each segment and each access point. They are descriptive only (R1), and flagged invalid when height quality fails.
+2. **Vertical profiles** along each road centreline, per direction: through an intersection the line continues across it, so a 4-leg intersection has two. They are descriptive only (R1), and flagged invalid when height quality fails.
 3. **Sight distance in 3D**, using a named method with editable parameters: ISD per intersection leg (AASHTO Case B) and exit ISD left and right at each access point. A leg shows "indeterminate" when it lacks scan coverage or valid height.
 4. **Plan-view accuracy** of the extracted markings, crosswalks and curbs against the nuScenes HD map. Each element reports P50 and P95 distance in metres, plus coverage, and names its reference layer. Curbs are labelled "map-conditioned".
 5. **Drawings:** a plan sheet and a profile sheet, each in DXF and PDF.
@@ -177,7 +177,7 @@ T0 writes these as pydantic models in `twin/contracts.py` and exports JSON Schem
 | 4 | ground | `ransac-tiles`, `csf` | align | `ground.laz`, `nonground.laz`, `surface.npz` (0.5 m grid: z, count), `qa.json` (`rmse_m`, `z_disagreement_p95_m`, `height_valid`) |
 | 5 | features | `intensity` (+ curbs `height-step`) | ground | `markings.geojson`, `crosswalks.geojson`, `curbs.geojson` (3D; properties `id`, `kind`, `n_points`) |
 | 6 | colour | `zbuffer-topk` | mask, align, ground, features | `ortho.png` + `ortho.pgw` (5 cm, RGBA; alpha 0 = unobserved), `rgb.npz` (per point RGB + `observed`), `qa.json` (`edge_offset_p95_m`, `views_median`, `height_valid` copied) |
-| 7 | profile | `centreline` | ground | `profile.csv` (`facility`, `s_m`, `z_m`, `n`), `centrelines.geojson` |
+| 7 | profile | `centreline` | ground | `profile.csv` (`facility`, `line`, `s_m`, `z_m`, `n`), `centrelines.geojson` (one line per road direction; through an intersection the line continues across it) |
 | 8 | isd | `aashto-b` | ground, mask | `isd.json`: per facility and leg/exit `required_m`, `available_m`, `available_with_parked_m`, `status` (`ok`, `short` or `indeterminate`), `reason` |
 | 9 | accuracy | `one-way` | features, load | `accuracy.json`: per element and per facility `reference_layer`, `p50_m`, `p95_m`, `coverage`, `n`, `label` |
 | 10 | outputs | `dxf-pdf` | features | `twin.laz` (RGB when colour ran), `twin.geojson`, `plan.dxf`, `plan.pdf`, `profile.dxf`, `profile.pdf` (if profile is enabled) |
