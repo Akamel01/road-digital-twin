@@ -1,4 +1,4 @@
-"""Stage 8 isd: synthetic flat road, one intersection leg due east. No data, no devkit."""
+"""Stage 8 isd: synthetic plan, no data. Approaches leave an intersection core of half-width 10 m at the origin."""
 
 import json
 import logging
@@ -12,10 +12,13 @@ from twin.sightline import INDETERMINATE
 from twin.stages.ground import _write_laz
 
 CELL = 0.5
-ORIGIN = (-10.0, -10.0)
-N = 260  # 130 m square: x and y from -10 to 120
+ORIGIN = (-130.0, -130.0)
+N = 520  # 260 m square, so approaches on every side are covered
 REQUIRED = 0.278 * 50.0 * 7.5  # 104.25 m, default params
-LEG_END = (110.0, 0.0)
+CORE = 10.0
+LENGTH = 110.0
+EYE_SETBACK = 4.4
+DIRS = {"N": (0.0, 1.0), "E": (1.0, 0.0), "S": (0.0, -1.0), "W": (-1.0, 0.0)}
 
 
 def _surface(count=50):
@@ -25,13 +28,6 @@ def _surface(count=50):
         "origin": np.array(ORIGIN, dtype=float),
         "cell_m": np.float64(CELL),
     }
-
-
-def _points(xs, ys, zs):
-    xyz = np.column_stack(
-        [np.asarray(xs, float), np.asarray(ys, float), np.asarray(zs, float)]
-    )
-    return xyz.reshape(-1, 3)
 
 
 def _fields(xyz):
@@ -45,39 +41,64 @@ def _fields(xyz):
     }
 
 
-def _write_run(tmp_path, nonground=None, parked=None, height_valid=True, observed=1.0):
+def _grid(x, ys, zs):
+    """Points on a plane at x, over ys and zs (dense enough that a sight line cannot slip between them)."""
+    yy, zz = np.meshgrid(ys, zs)
+    return np.column_stack([np.full(yy.size, x), yy.ravel(), zz.ravel()])
+
+
+def _intersection(dirs):
+    """Legs start on the core edge and run 110 m outward. Each eye sits 4.4 m back from the core edge."""
+    legs, eyes = [], []
+    for name in dirs:
+        dx, dy = DIRS[name]
+        start = [CORE * dx, CORE * dy]
+        far = [(CORE + LENGTH) * dx, (CORE + LENGTH) * dy]
+        eye = [(CORE + EYE_SETBACK) * dx, (CORE + EYE_SETBACK) * dy]
+        legs.append(
+            {
+                "approach": name,
+                "geometry": {"type": "LineString", "coordinates": [start, far]},
+            }
+        )
+        eyes.append(
+            {
+                "approach": name,
+                "source": "setback",
+                "geometry": {"type": "Point", "coordinates": eye},
+            }
+        )
+    return {
+        "type": "Feature",
+        "geometry": {
+            "type": "Polygon",
+            "coordinates": [
+                [
+                    [-CORE, -CORE],
+                    [CORE, -CORE],
+                    [CORE, CORE],
+                    [-CORE, CORE],
+                    [-CORE, -CORE],
+                ]
+            ],
+        },
+        "properties": {
+            "id": "I-test",
+            "type": "intersection",
+            "legs": legs,
+            "eye_points": eyes,
+        },
+    }
+
+
+def _write_run(
+    tmp_path, feature, nonground=None, parked=None, height_valid=True, observed=1.0
+):
     run = tmp_path / "run"
     load = run / "1_load"
     load.mkdir(parents=True)
     ident = {"matrix": np.eye(4).tolist()}
     (load / "poses.json").write_text(json.dumps({"poses": [ident]}))
-    feature = {
-        "type": "Feature",
-        "geometry": {
-            "type": "Polygon",
-            "coordinates": [[[-5, -5], [5, -5], [5, 5], [-5, 5], [-5, -5]]],
-        },
-        "properties": {
-            "id": "I-test",
-            "type": "intersection",
-            "legs": [
-                {
-                    "approach": "E",
-                    "geometry": {
-                        "type": "LineString",
-                        "coordinates": [[0, 0], list(LEG_END)],
-                    },
-                }
-            ],
-            "eye_points": [
-                {
-                    "approach": "E",
-                    "source": "setback",
-                    "geometry": {"type": "Point", "coordinates": [0, 0]},
-                }
-            ],
-        },
-    }
     (load / "facilities.geojson").write_text(
         json.dumps({"type": "FeatureCollection", "features": [feature]})
     )
@@ -109,57 +130,83 @@ def _run(ctx):
     return registry.lookup("isd", "aashto-b")(ctx, IsdParams())
 
 
-def _leg(out):
+def _legs(out):
     doc = json.loads((out / "isd.json").read_text())
-    return doc["facilities"][0]["legs"][0]
+    return {leg["leg"]: leg for leg in doc["facilities"][0]["legs"]}
 
 
-def test_open_road_meets_required(tmp_path):
-    ctx, out = _write_run(tmp_path)
+def test_cross_each_approach_has_left_and_right(tmp_path):
+    ctx, out = _write_run(tmp_path, _intersection(["N", "E", "S", "W"]))
     assert _run(ctx).status == "ok"
-    leg = _leg(out)
-    assert leg["required_m"] == round(REQUIRED, 2)
-    assert leg["status"] == "ok"
-    assert leg["available_m"] == round(REQUIRED, 2)
-    assert leg["available_with_parked_m"] == round(REQUIRED, 2)
+    legs = _legs(out)
+    assert set(legs) == {"N", "E", "S", "W"}
+    for leg in legs.values():
+        assert leg["required_m"] == round(REQUIRED, 2)
+        assert leg["status"] == "ok"
+        for side in ("left", "right"):
+            assert leg[side]["status"] == "ok"
+            assert leg[side]["available_m"] == round(REQUIRED, 2)
+            assert leg[side]["available_with_parked_m"] == round(REQUIRED, 2)
+    # N viewer faces south: west is on its right, east on its left.
+    assert legs["N"]["right"]["leg"] == "W"
+    assert legs["N"]["left"]["leg"] == "E"
 
 
-def test_wall_at_40_m_limits_available(tmp_path):
-    ys = np.linspace(-5, 5, 41)
-    zs = np.linspace(0.2, 3.0, 15)
-    yy, zz = np.meshgrid(ys, zs)
-    wall = _points(np.full(yy.size, 40.0), yy.ravel(), zz.ravel())
-    ctx, out = _write_run(tmp_path, nonground=wall)
+def test_wall_on_east_leg_shortens_only_views_along_east(tmp_path):
+    # Wall across the east approach, 40 m out from its core edge (x = 10 + 40), 3 m high, wide enough to cover
+    # every sight line from the north and south approaches.
+    wall = _grid(50.0, np.arange(-60.0, 60.0001, 0.2), np.arange(0.2, 3.0001, 0.2))
+    ctx, out = _write_run(tmp_path, _intersection(["N", "E", "S", "W"]), nonground=wall)
     _run(ctx)
-    leg = _leg(out)
-    assert leg["status"] == "short"
-    assert abs(leg["available_m"] - 40.0) <= 0.5
-    assert leg["available_with_parked_m"] <= leg["available_m"]
+    legs = _legs(out)
+    # Views along the east approach from north and south: shortened to about 40 m.
+    assert abs(legs["N"]["left"]["available_m"] - 40.0) <= 0.5 + 1e-6
+    assert abs(legs["S"]["right"]["available_m"] - 40.0) <= 0.5 + 1e-6
+    # Views along the other approaches are unchanged.
+    assert legs["N"]["right"]["available_m"] == round(REQUIRED, 2)
+    assert legs["S"]["left"]["available_m"] == round(REQUIRED, 2)
+    assert legs["E"]["left"]["available_m"] == round(REQUIRED, 2)
+    assert legs["E"]["right"]["available_m"] == round(REQUIRED, 2)
+    assert legs["W"]["left"]["available_m"] == round(REQUIRED, 2)
+    assert legs["W"]["right"]["available_m"] == round(REQUIRED, 2)
 
 
-def test_parked_box_blocks_only_with_parked(tmp_path):
-    ys = np.linspace(-1, 1, 20)
-    zs = np.linspace(0.5, 1.5, 10)
-    yy, zz = np.meshgrid(ys, zs)
-    box = _points(np.full(yy.size, 60.0), yy.ravel(), zz.ravel())
-    ctx, out = _write_run(tmp_path, parked=box)
+def test_t_stem_has_both_sides_through_legs_have_one_null(tmp_path):
+    # Through approaches E and W, stem S. Opposite approaches are not crossings.
+    ctx, out = _write_run(tmp_path, _intersection(["E", "S", "W"]))
     _run(ctx)
-    leg = _leg(out)
-    assert leg["available_m"] == round(REQUIRED, 2)
-    assert leg["available_with_parked_m"] < leg["available_m"]
-    assert abs(leg["available_with_parked_m"] - 60.0) <= 0.5
+    legs = _legs(out)
+    assert legs["S"]["left"] is not None and legs["S"]["right"] is not None
+    assert legs["E"]["right"] is None and legs["E"]["left"]["leg"] == "S"
+    assert legs["W"]["left"] is None and legs["W"]["right"]["leg"] == "S"
+    assert legs["E"]["status"] == "ok"
+    assert "no crossing approach" in legs["E"]["reason"]
+
+
+def test_parked_row_blocks_only_with_parked(tmp_path):
+    # Parked vehicles across the east approach, 60 m out from its core edge (x = 70).
+    row = _grid(70.0, np.arange(-60.0, 60.0001, 0.2), np.arange(0.5, 1.5001, 0.2))
+    ctx, out = _write_run(tmp_path, _intersection(["N", "E", "S", "W"]), parked=row)
+    _run(ctx)
+    north_left = _legs(out)["N"]["left"]
+    assert north_left["available_m"] == round(REQUIRED, 2)
+    assert north_left["available_with_parked_m"] <= north_left["available_m"]
+    assert abs(north_left["available_with_parked_m"] - 60.0) <= 0.5 + 1e-6
 
 
 def test_height_invalid_is_indeterminate(tmp_path):
-    ctx, out = _write_run(tmp_path, height_valid=False)
+    ctx, out = _write_run(
+        tmp_path, _intersection(["N", "E", "S", "W"]), height_valid=False
+    )
     _run(ctx)
-    leg = _leg(out)
-    assert leg["status"] == INDETERMINATE
-    assert leg["available_m"] is None
+    for leg in _legs(out).values():
+        assert leg["status"] == INDETERMINATE
+        assert leg["left"]["available_m"] is None
+        assert leg["right"]["available_m"] is None
 
 
 def test_not_scanned_facility_is_skipped(tmp_path):
-    ctx, out = _write_run(tmp_path, observed=0.2)
+    ctx, out = _write_run(tmp_path, _intersection(["N", "E", "S", "W"]), observed=0.2)
     result = _run(ctx)
     doc = json.loads((out / "isd.json").read_text())
     assert doc["facilities"] == []

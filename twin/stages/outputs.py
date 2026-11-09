@@ -170,31 +170,43 @@ def _plan_inputs(ctx: Any, features: list[dict]) -> tuple[dict, list, list]:
 
 
 def _sightlines(ctx: Any, facilities: dict) -> list:
-    """Sight lines: eye point along each leg line, length available_m, clipped to the leg."""
+    """Sight lines: from each leg's eye point, one line per side (left, right) to its crossing approach, ending
+    at available_m along that approach from its core edge (clipped to the approach)."""
     path = ctx.stage_dir("isd") / "isd.json"
     if not path.is_file():
         return []
     out = []
     for fac in json.loads(path.read_text()).get("facilities", []):
         props = facilities.get(fac["facility"]) or {}
-        legs = {leg["approach"]: shape(leg["geometry"]) for leg in props.get("legs", [])}
-        eyes = {e["approach"]: shape(e["geometry"]) for e in props.get("eye_points", [])}
+        lines = {
+            leg["approach"]: shape(leg["geometry"]) for leg in props.get("legs", [])
+        }
+        eyes = {
+            e["approach"]: shape(e["geometry"]) for e in props.get("eye_points", [])
+        }
         for leg in fac["legs"]:
             name = leg["leg"]
             eye = eyes.get(name)
             if eye is None:
                 continue
             eye_xy = (eye.x, eye.y)
-            if leg["status"] == "indeterminate":
+            views = [
+                (side, leg[side])
+                for side in ("left", "right")
+                if leg.get(side) is not None
+            ]
+            if not views and leg["status"] == "indeterminate":
                 out.append((eye_xy, None, False, f"{name}: indeterminate"))
-                continue
-            line = legs.get(name)
-            if line is None:
-                continue
-            start_d = line.project(eye)
-            end = line.interpolate(min(start_d + float(leg["available_m"]), line.length))
-            text = f"{name}: {leg['available_m']:.1f} m (need {leg['required_m']:.1f} m)"
-            out.append((eye_xy, (end.x, end.y), leg["status"] == "short", text))
+            for side, view in views:
+                if view["status"] == "indeterminate" or view["available_m"] is None:
+                    out.append((eye_xy, None, False, f"{name} {side}: indeterminate"))
+                    continue
+                cross = lines.get(view["leg"])
+                if cross is None:
+                    continue
+                end = cross.interpolate(min(float(view["available_m"]), cross.length))
+                text = f"{name} {side}: {view['available_m']:.1f} m (need {leg['required_m']:.1f} m)"
+                out.append((eye_xy, (end.x, end.y), view["status"] == "short", text))
     return out
 
 

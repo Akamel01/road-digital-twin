@@ -590,7 +590,10 @@ def _profile(d: Path, c: _Ctx) -> dict:
             "geometry": mapping(Polygon([(x0, y0), (x1, y0), (x1, y1), (x0, y1)])),
             "properties": {
                 "type": f.type,
-                "legs": [{"geometry": mapping(_leg_local(f.core, n))} for n in LEGS.get(f.type, [])],
+                "legs": [
+                    {"geometry": mapping(_leg_local(f.core, n))}
+                    for n in LEGS.get(f.type, [])
+                ],
             },
         }
         for label, line in facility_lines(feature):  # the profile stage's own line rule
@@ -618,34 +621,59 @@ def _profile(d: Path, c: _Ctx) -> dict:
 def _isd(d: Path, c: _Ctx) -> dict:
     facs = []
     for f in c.facilities:
-        names = LEGS.get(f.type, [])
+        names = {"intersection": ["north", "east"], "access_point": ["exit"]}.get(
+            f.type, []
+        )
         not_scanned = c.observed[f.id] < Params().facilities.min_observed
         legs = []
         for k, name in enumerate(names):
+            # Fake data: an intersection leg's left side looks along the other approach; access exits have no side.
+            other = names[1 - k] if f.type == "intersection" else None
             available = ISD_AVAILABLE_M - 10 * k
             if (f.name, name) == SHORT_LEG:
                 available = ISD_REQUIRED_M - 20
             if not_scanned:
-                status, reason = "indeterminate", "facility not scanned enough"
-            elif available >= ISD_REQUIRED_M:
-                status, reason = "ok", f"with parked vehicles {ISD_PARKED_M} m"
+                status, reason, available = (
+                    "indeterminate",
+                    "facility not scanned enough",
+                    None,
+                )
             else:
-                status, reason = "short", f"with parked vehicles {ISD_PARKED_M} m"
+                status = "ok" if available >= ISD_REQUIRED_M else "short"
+                reason = (
+                    f"left {other}: with parked vehicles {ISD_PARKED_M} m"
+                    if other
+                    else f"with parked vehicles {ISD_PARKED_M} m"
+                )
+            left = None
+            if other:
+                left = {
+                    "leg": other,
+                    "available_m": available,
+                    "available_with_parked_m": None
+                    if available is None
+                    else ISD_PARKED_M,
+                    "status": status,
+                }
             legs.append(
                 {
                     "leg": name,
                     "required_m": ISD_REQUIRED_M,
-                    "available_m": available,
-                    "available_with_parked_m": ISD_PARKED_M,
+                    "left": left,
+                    "right": None,
                     "status": status,
                     "reason": reason,
                 }
             )
         facs.append({"facility": f.id, "legs": legs})
-    doc = {"case": "B1", "facilities": facs}
+    not_scanned = sorted(
+        f.id
+        for f in c.facilities
+        if c.observed[f.id] < Params().facilities.min_observed
+    )
+    doc = {"case": "B1", "facilities": facs, "not_scanned_enough": not_scanned}
     _dump(d / "isd.json", doc)
-    # No real isd stage is merged yet; this keeps the shape the web reads (manifest metrics isd.facilities).
-    return doc
+    return {"isd": doc}
 
 
 def _entry(
@@ -674,7 +702,9 @@ def _accuracy(d: Path, c: _Ctx) -> dict:
     """Same document as the real one-way stage: method, buffer_m, elements, facilities, qa."""
     base = 0.01 * c.index
     elements = {
-        "markings": _entry("lane_divider, road_divider", 0.05 + base, 0.13 + base, 0.71, 42),
+        "markings": _entry(
+            "lane_divider, road_divider", 0.05 + base, 0.13 + base, 0.71, 42
+        ),
         "crosswalks": _entry("ped_crossing", 0.07 + base, 0.18 + base, 0.5, 2),
         "curbs": _entry(
             "drivable_area", 0.08 + base, 0.21 + base, 0.64, 18, "map-conditioned"
@@ -829,7 +859,10 @@ def _write_run(out: Path, index: int, showcase: Path) -> str:
     )
     write_tiles(showcase, run_id, ctx.rasters, _raster_bbox())
     (showcase / run_id).mkdir(parents=True, exist_ok=True)
-    for name in (*PUBLIC_FILES, "twin.laz"):  # what publish copies; LAZ is not thinned here
+    for name in (
+        *PUBLIC_FILES,
+        "twin.laz",
+    ):  # what publish copies; LAZ is not thinned here
         shutil.copy(run_dir / "10_outputs" / name, showcase / run_id / name)
     shutil.copy(run_dir / "manifest.json", showcase / run_id / "manifest.json")
     for name in ("profile.csv", "centrelines.geojson"):
