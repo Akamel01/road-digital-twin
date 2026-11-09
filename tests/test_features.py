@@ -8,8 +8,9 @@ import numpy as np
 from shapely.geometry import shape
 
 from twin import registry
-from twin.contracts import FeaturesParams
+from twin.contracts import FeaturesParams, GroundParams
 from twin.runner import StageContext
+from twin.stages.ground import ransac_ground, surface_grid
 
 STRIPE = 200.0
 ARC_R = 30.0
@@ -72,7 +73,34 @@ def _gapped_line(rng):
     return _ground_with(rng, [_band(xs, np.array([0.0]))])
 
 
-def _ctx(tmp_path, ground_xyzi):
+def _write_nonground_and_surface(ground_dir, ground_xyzi, nonground_xyzi):
+    """nonground.laz and surface.npz as the ground stage writes them (0.5 m mean-z grid)."""
+    if nonground_xyzi is None:
+        nonground_xyzi = np.empty((0, 4))
+    allp = np.vstack([ground_xyzi[:, :3], nonground_xyzi[:, :3]])
+    header = laspy.LasHeader(point_format=6, version="1.4")
+    header.scales = np.array([0.001] * 3)
+    header.offsets = allp.min(axis=0)
+    las = laspy.LasData(header)
+    las.xyz = nonground_xyzi[:, :3]
+    las.intensity = nonground_xyzi[:, 3].astype(np.uint16)
+    las.write(ground_dir / "nonground.laz")
+    origin = ground_xyzi[:, :2].min(axis=0)
+    span = np.floor((ground_xyzi[:, :2].max(axis=0) - origin) / 0.5).astype(int)
+    shape = (int(span[1]) + 1, int(span[0]) + 1)
+    zmean, count = surface_grid(
+        ground_xyzi[:, :2], ground_xyzi[:, 2], origin, 0.5, shape
+    )
+    np.savez_compressed(
+        ground_dir / "surface.npz",
+        z=zmean,
+        count=count,
+        origin=origin,
+        cell_m=np.float64(0.5),
+    )
+
+
+def _ctx(tmp_path, ground_xyzi, nonground_xyzi=None):
     run = tmp_path / "run"
     (run / "4_ground").mkdir(parents=True)
     header = laspy.LasHeader(point_format=6, version="1.4")
@@ -82,6 +110,7 @@ def _ctx(tmp_path, ground_xyzi):
     las.xyz = ground_xyzi[:, :3]
     las.intensity = ground_xyzi[:, 3].astype(np.uint16)
     las.write(run / "4_ground" / "ground.laz")
+    _write_nonground_and_surface(run / "4_ground", ground_xyzi, nonground_xyzi)
     (run / "4_ground" / "qa.json").write_text(
         json.dumps({"height_valid": True, "not_scanned_enough": ["S-0001"]})
     )
@@ -188,18 +217,18 @@ def test_marking_height_is_measured_per_vertex():
     assert np.allclose(verts[:, 2], 0.04 * verts[:, 0], atol=0.01)
 
 
-def _road_with_curb(rng, step):
-    """Flat road (x < 0) and a sidewalk `step` m higher (x >= 0), 20 m along y. 5 mm noise, 0.05 m spacing."""
+def _road_with_curb(rng, step, edge=0.0):
+    """Flat road (x < edge) and a sidewalk `step` m higher (x >= edge), 20 m along y. 5 mm noise, 0.05 m spacing."""
     x, y = np.meshgrid(
         np.arange(-10.0, 10.0, 0.05), np.arange(0.0, 20.0, 0.05), indexing="ij"
     )
     x, y = x.ravel(), y.ravel()
-    z = np.where(x >= 0, step, 0.0) + rng.normal(0, 0.005, x.size)
+    z = np.where(x >= edge, step, 0.0) + rng.normal(0, 0.005, x.size)
     return np.column_stack([x, y, z, rng.uniform(0, 30, x.size)])
 
 
-def _curb_run(tmp_path, ground, **curbs):
-    ctx = _ctx(tmp_path, ground)
+def _curb_run(tmp_path, ground, nonground=None, **curbs):
+    ctx = _ctx(tmp_path, ground, nonground)
     result = registry.lookup("features", "intensity")(ctx, FeaturesParams(curbs=curbs))
     assert result.status == "ok"
     return result, ctx.stage_dir("features")
@@ -243,3 +272,38 @@ def test_curbs_off_writes_no_file(tmp_path):
     assert "curbs.geojson" not in result.files
     assert not (out / "curbs.geojson").exists()
     assert (out / "qa.json").is_file()
+
+
+def test_curb_found_through_the_ground_split(tmp_path):
+    """Step 2.5 m in: the 5 m RANSAC tile straddles it, so the sidewalk lands in nonground.laz."""
+    cloud = _road_with_curb(np.random.default_rng(0), 0.15, edge=2.5)
+    is_ground = ransac_ground(cloud[:, :3], GroundParams())
+    assert (
+        ~is_ground & (cloud[:, 0] >= 2.5)
+    ).any()  # some sidewalk really is non-ground
+    _, out = _curb_run(tmp_path, cloud[is_ground], nonground=cloud[~is_ground])
+
+    curbs = json.loads((out / "curbs.geojson").read_text())["features"]
+    assert len(curbs) == 1
+    coords = np.array(curbs[0]["geometry"]["coordinates"])
+    assert (coords[:, 0] > 2.4).all() and (coords[:, 0] < 2.9).all()
+    assert np.allclose(coords[:, 2], 0.15, atol=0.02)
+
+
+def test_taller_nonground_is_not_curb_input(tmp_path):
+    """A 1 m tall wall on the sidewalk stays out of curb input: no curb line from it."""
+    rng = np.random.default_rng(0)
+    road = _road_with_curb(rng, 0.0)
+    road[:, 2] = np.where(road[:, 0] >= 2.5, 0.0, 0.0) + rng.normal(0, 0.005, len(road))
+    wall_x = np.full(400, 2.5)
+    wall = np.column_stack(
+        [
+            wall_x,
+            np.linspace(0, 20, 400),
+            np.linspace(0.0, 1.0, 400),
+            np.full(400, 10.0),
+        ]
+    )
+    _, out = _curb_run(tmp_path, road, nonground=wall)
+
+    assert json.loads((out / "curbs.geojson").read_text())["features"] == []

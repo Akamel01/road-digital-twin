@@ -45,6 +45,13 @@ CURB_CELL_M = 0.25
 # DECISION: curb-top points within this distance (m) of each other form one curb line.
 CURB_EPS_M = 0.5
 CURB_FILE = "curbs.geojson"
+# DECISION: non-ground points count as curb input when they are at most step_max_m + this (m) above the
+# ground surface. Ground's per-tile plane leaves a straddling sidewalk in nonground.laz. Taller
+# non-ground (cars, walls, poles) stays out.
+CURB_ABOVE_SLACK_M = 0.05
+# DECISION: empty surface cells take the mean of measured neighbours, out to this distance (m), so a
+# straddled tile's non-ground side still has a height reference. Used only for the keep filter.
+SURFACE_FILL_M = 3.0
 
 
 def high_intensity(xyz: np.ndarray, intensity: np.ndarray, pct: float) -> np.ndarray:
@@ -181,6 +188,52 @@ def extract_curbs(xyz: np.ndarray, params: CurbsParams, min_points: int) -> list
                 )
             )
     return curbs
+
+
+def _near_ground_nonground(ground_dir, max_above_m: float) -> np.ndarray:
+    """Non-ground points at most max_above_m above the ground surface of their cell.
+
+    Cells with no surface (no ground point in them) are skipped. Heights come from surface.npz (mean
+    ground z per cell).
+    """
+    las = laspy.read(ground_dir / "nonground.laz")
+    xyz = np.column_stack([las.x, las.y, las.z]).astype(np.float64)
+    with np.load(ground_dir / "surface.npz") as f:
+        zg, origin, cell = f["z"], f["origin"], float(f["cell_m"])
+    zg = _fill_surface(zg, cell)
+    ny, nx = zg.shape
+    ij = np.floor((xyz[:, :2] - origin) / cell).astype(np.int64)
+    inside = (ij >= 0).all(axis=1) & (ij[:, 0] < nx) & (ij[:, 1] < ny)
+    surf = np.full(len(xyz), np.nan)
+    surf[inside] = zg[ij[inside, 1], ij[inside, 0]]
+    return xyz[xyz[:, 2] - surf <= max_above_m]  # NaN surface compares False
+
+
+def _fill_surface(zg: np.ndarray, cell: float) -> np.ndarray:
+    """Fill empty surface cells from measured neighbours, out to SURFACE_FILL_M, by repeated 8-neighbour mean.
+
+    Used only as the height reference for the keep filter. Curb vertices never take these values.
+    """
+    z = zg.copy()
+    for _ in range(max(1, round(SURFACE_FILL_M / cell))):
+        nan = np.isnan(z)
+        if not nan.any():
+            break
+        pad = np.pad(z, 1, constant_values=np.nan)
+        acc = np.zeros_like(z)
+        cnt = np.zeros_like(z)
+        ny, nx = z.shape
+        for di in (0, 1, 2):
+            for dj in (0, 1, 2):
+                if di == 1 and dj == 1:
+                    continue
+                nb = pad[di : di + ny, dj : dj + nx]
+                ok = ~np.isnan(nb)
+                acc[ok] += nb[ok]
+                cnt[ok] += 1
+        fill = nan & (cnt > 0)
+        z[fill] = acc[fill] / cnt[fill]
+    return z
 
 
 def _lift(coords: Any, z: float) -> Any:
@@ -342,7 +395,12 @@ def run_intensity(ctx: Any, params: FeaturesParams) -> StageResult:
     (out / "crosswalks.geojson").write_text(fc(crosswalks))
     files = list(OUTPUT_FILES)
     if params.curbs.enabled:
-        curbs = extract_curbs(xyz, params.curbs, params.min_points)
+        near = _near_ground_nonground(
+            ground_dir, params.curbs.step_max_m + CURB_ABOVE_SLACK_M
+        )
+        curbs = extract_curbs(
+            np.vstack([xyz[:, :3], near]), params.curbs, params.min_points
+        )
         (out / CURB_FILE).write_text(fc(curbs))
         files.append(CURB_FILE)
         counts["n_curbs"] = len(curbs)
