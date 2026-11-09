@@ -174,3 +174,15 @@ def test_min_points_removes_isolated_noise(tmp_path):
     markings, crosswalks, _ = _run(tmp_path, ground)
     assert markings == []
     assert crosswalks == []
+
+
+def test_marking_height_is_measured_per_vertex():
+    """A stripe on a 4% grade keeps its grade: each vertex z is the bin's median, not a flat mean."""
+    from twin.stages.features import binned_pieces
+
+    x = np.linspace(0, 10, 400)
+    xyz = np.column_stack([x, np.zeros_like(x), 0.04 * x])
+    pieces = binned_pieces(xyz, np.array([5.0, 0.0]), np.array([1.0, 0.0]))
+    assert len(pieces) == 1
+    verts = pieces[0][0]
+    assert np.allclose(verts[:, 2], 0.04 * verts[:, 0], atol=0.01)

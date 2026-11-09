@@ -94,14 +94,14 @@ def _components(adj: list[list[int]]) -> list[list[int]]:
 
 
 def binned_pieces(
-    xy: np.ndarray, c: np.ndarray, u: np.ndarray, bin_m: float = BIN_M
+    xyz: np.ndarray, c: np.ndarray, u: np.ndarray, bin_m: float = BIN_M
 ) -> list[tuple[np.ndarray, int]]:
-    """Pieces of one stripe: median (x, y) per bin along the axis. An empty bin ends a piece.
+    """Pieces of one stripe: median (x, y, z) per bin along the axis. An empty bin ends a piece.
 
     A piece of one bin uses that bin's two real extreme points as vertices. Returns (vertices, n_points)
     per piece; no point is invented.
     """
-    t = (xy - c) @ u
+    t = (xyz[:, :2] - c) @ u
     # Equal bins that span the stripe, about bin_m long each. This avoids a sliver bin at the end.
     nb = max(1, round((t.max() - t.min()) / bin_m))
     width = (t.max() - t.min()) / nb
@@ -111,9 +111,9 @@ def binned_pieces(
     for group in np.split(bins, np.flatnonzero(np.diff(bins) > 1) + 1):
         in_piece = np.isin(b, group)
         if len(group) >= 2:
-            verts = np.array([np.median(xy[b == g], axis=0) for g in group])
+            verts = np.array([np.median(xyz[b == g], axis=0) for g in group])
         else:
-            sel, tt = xy[in_piece], t[in_piece]
+            sel, tt = xyz[in_piece], t[in_piece]
             verts = np.array([sel[np.argmin(tt)], sel[np.argmax(tt)]])
         pieces.append((verts, int(in_piece.sum())))
     return pieces
@@ -148,7 +148,7 @@ def extract(
 ) -> tuple[list[dict], list[dict], dict[str, int]]:
     """Markings (LineStrings) and crosswalks (Polygons) from ground points xyz (N, 3) with intensity.
 
-    Returns (markings, crosswalks, counts). Coordinates are in run CRS with z from the cluster mean.
+    Returns (markings, crosswalks, counts). Coordinates are in run CRS with marking z measured per vertex (bin median) and crosswalk z the stripes' mean.
     """
     xyz, intensity = xyz[:, :3], xyz[:, 3]
     keep = high_intensity(xyz, intensity, params.intensity_pct)
@@ -162,6 +162,7 @@ def extract(
         clusters.append(
             {
                 "xy": p[:, :2],
+                "xyz": p[:, :3],
                 "z": float(p[:, 2].mean()),
                 "n": len(p),
                 "c": c,
@@ -227,8 +228,8 @@ def extract(
     for i, cl in enumerate(clusters):
         if i in used or cl["len"] < LINE_MIN_LEN_M:
             continue
-        for verts, n in binned_pieces(cl["xy"], cl["c"], cl["u"]):
-            length = float(np.hypot(*np.diff(verts, axis=0).T).sum())
+        for verts, n in binned_pieces(cl["xyz"], cl["c"], cl["u"]):
+            length = float(np.hypot(*np.diff(verts[:, :2], axis=0).T).sum())
             if length <= 0:
                 continue
             markings.append(
@@ -236,7 +237,7 @@ def extract(
                     "marking",
                     f"marking-{len(markings) + 1:04d}",
                     "LineString",
-                    _lift(verts.tolist(), cl["z"]),
+                    [[float(v) for v in vert] for vert in verts],
                     {
                         "n_points": n,
                         "length_m": round(length, 3),
