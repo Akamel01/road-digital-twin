@@ -518,18 +518,19 @@ def _colour(d: Path, c: _Ctx) -> dict:
 
 
 def _profile(d: Path, c: _Ctx) -> dict:
-    rows = ["facility,s_m,z_m,n"]
+    rows = ["facility,line,s_m,z_m,n"]
     feats = []
     for f in c.facilities:
         x0, x1, y0, y1 = f.core
         yc = (y0 + y1) / 2
         coords = []
+        line = f"{f.id}/main"
         for s in np.arange(0.0, x1 - x0 + 1e-9, 1.0):
             x = x0 + float(s)
             z = float(fx.ground_z(x, yc))
-            rows.append(f"{f.id},{s:.1f},{z:.3f},20")
+            rows.append(f"{f.id},{line},{s:.1f},{z:.3f},20")
             coords.append(_p3(x, yc, z))
-        feats.append(_feat("LineString", coords, facility=f.id))
+        feats.append(_feat("LineString", coords, facility=f.id, line=line, label="main"))
     (d / "profile.csv").write_text("\n".join(rows) + "\n")
     _dump(d / "centrelines.geojson", _fc(feats))
     return {}

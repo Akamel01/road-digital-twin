@@ -247,7 +247,7 @@ def _adjacent(a: Polygon, b: Polygon) -> bool:
     return a.buffer(0.25).intersection(b.buffer(0.25)).area > 0.25
 
 
-def _fallback_centreline(core: Polygon) -> LineString:
+def fallback_centreline(core: Polygon) -> LineString:
     """Used when no lane centreline lies in the core: the midline along the long axis of the
     core's minimum rotated rectangle."""
     # DECISION: rectangle midline, not a lane. Only a rough line, enough for name lookup.
@@ -322,7 +322,7 @@ def _segment_records(view: MapView) -> list[dict]:
         if not ends and not at_edge:
             continue
         tokens = [s.token for s in members]
-        line = _centreline(core, view.lanes) or _fallback_centreline(core)
+        line = _centreline(core, view.lanes) or fallback_centreline(core)
         records.append(
             {
                 "type": "segment",

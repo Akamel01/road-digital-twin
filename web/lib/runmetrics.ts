@@ -78,13 +78,24 @@ export function loadRunMetrics(run: string): Promise<RunMetrics> {
   return p;
 }
 
-/** The profile rows for one facility from the run's profile.csv (facility,s_m,z_m,n). */
+/**
+ * The profile rows for one facility from the run's profile.csv (facility,line,s_m,z_m,n), read by column
+ * name. A facility can have several road lines; this returns the first one. The line picker is a later ticket.
+ */
 export async function loadProfile(run: string, facility: string): Promise<ProfilePoint[]> {
   const text = await getText(`showcase/${run}/profile.csv`);
+  const [header, ...body] = text.trim().split("\n");
+  const cols = header.split(",");
+  const iFacility = cols.indexOf("facility");
+  const iLine = cols.indexOf("line");
+  const iS = cols.indexOf("s_m");
+  const iZ = cols.indexOf("z_m");
+  const rows = body.map((l) => l.trim().split(",")).filter((c) => c[iFacility] === facility);
+  const first = rows.length ? rows[0][iLine] : null;
   const out: ProfilePoint[] = [];
-  for (const line of text.split("\n").slice(1)) {
-    const [id, s, z] = line.trim().split(",");
-    if (id === facility && s && z) out.push({ s: Number(s), z: Number(z) });
+  for (const c of rows) {
+    if (c[iLine] !== first || !c[iS] || !c[iZ]) continue;
+    out.push({ s: Number(c[iS]), z: Number(c[iZ]) });
   }
   return out.sort((a, b) => a.s - b.s);
 }
