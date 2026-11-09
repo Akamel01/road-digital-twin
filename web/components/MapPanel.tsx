@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ERR_COL } from "@/lib/mapdata";
+import { PHONE, useMedia } from "@/lib/media";
 
 export type Layer = "lidar" | "ortho" | "markings" | "crosswalks" | "curbs";
 export type Analysis = "accuracy" | "safety" | "coverage";
@@ -56,10 +57,19 @@ interface Props {
 
 export default function MapPanel({ layers, onLayer, analysis, onAnalysis, note }: Props) {
   const [min, setMin] = useState(false);
+  // Phone: the panel is a "Layers" pill on the map; it opens as a popover. Starts closed.
+  const phone = useMedia(PHONE);
+  const [open, setOpen] = useState(false);
+  const collapsed = phone ? !open : min;
   return (
-    <div className={`mapctl glass${min ? " min" : ""}`}>
-      <button type="button" className="hd" aria-expanded={!min} onClick={() => setMin((v) => !v)}>
-        <span className="over">Map</span>
+    <div className={`mapctl glass${collapsed ? " min" : ""}`}>
+      <button
+        type="button"
+        className="hd"
+        aria-expanded={!collapsed}
+        onClick={() => (phone ? setOpen((v) => !v) : setMin((v) => !v))}
+      >
+        <span className="over">{phone ? "Layers" : "Map"}</span>
         <Chevron />
       </button>
       <div className="body">

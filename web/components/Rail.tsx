@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Summary from "@/components/Summary";
+import SheetHead, { type Sheet } from "@/components/SheetHead";
 import { AreaPanel, ElementPanel, FacilityPanel, MiniBar } from "@/components/Inspector";
 import { loadRunMetrics, type RunMetrics } from "@/lib/runmetrics";
 import { type AreaFacility, type AreaIndex, typeLabel } from "@/lib/showcase";
@@ -17,9 +18,14 @@ interface Props {
   onOpenFacility: (id: string) => void;
   onOpenElement: (e: string) => void;
   onUp: (level: "area" | "facility") => void;
+  phone: boolean; // phone: this column is the bottom sheet, with its peek line on top and the profile strip under the inspector
+  sheet: Sheet;
+  onSheet: (s: Sheet) => void;
+  profile: ReactNode;
 }
 
 // The right column: the pipeline summary card, then the inspector (or a bar when the summary is maximised).
+// On tablet and desktop it is the side panel. On phone the same parts stack inside the bottom sheet.
 export default function Rail({
   area,
   areaName,
@@ -30,6 +36,10 @@ export default function Rail({
   onOpenFacility,
   onOpenElement,
   onUp,
+  phone,
+  sheet,
+  onSheet,
+  profile,
 }: Props) {
   // Every drive's manifest, loaded once. A drive that fails to load leaves its numbers as "—".
   const [runs, setRuns] = useState<Record<string, RunMetrics>>({});
@@ -60,21 +70,29 @@ export default function Rail({
     />
   );
 
+  // The peek line shows the same headline figure as the summary's step 4: P95 accuracy.
+  const head = phone ? (
+    <SheetHead title={facility ? facility.name : areaName} figure={steps[3].figs[0]} sheet={sheet} onSheet={onSheet} />
+  ) : null;
+
   if (sumMax) {
     return (
       <>
+        {head}
         {summary}
         <MiniBar
           title={facility ? facility.name : areaName}
           detail={facility ? `${typeLabel(facility.type)} · ${element ? "element details" : "facility details"}` : `${area.facilities.length} facilities · area details`}
           onRestore={() => onSumMax(false)}
         />
+        {profile}
       </>
     );
   }
 
   return (
     <>
+      {head}
       {summary}
       <aside className="insp light" aria-label="Inspector">
         {!facility && (
@@ -101,6 +119,7 @@ export default function Rail({
           />
         )}
       </aside>
+      {profile}
     </>
   );
 }
