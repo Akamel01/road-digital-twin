@@ -4,8 +4,9 @@ Source of truth: docs/design/twin-v1-spec.md, sections 4, 6 (Markings and crossw
 Prior work: docs/research/related-work.md section 3 (guan-2014-road-markings-mls, read at title level only;
 its method is not reused); docs/research/multi-sensor-sota.md section 3 (no lidar marking method there).
 Clustering uses Open3D cluster_dbscan, which is already a dependency.
-Input: ground's ground.laz and qa.json. Output: markings.geojson, crosswalks.geojson, qa.json.
-Curbs (features.curbs, height-step method) are not part of this stage yet.
+Curbs (features.curbs, height-step method, section 6) are found from the same ground points.
+Input: ground's ground.laz and qa.json. Output: markings.geojson, crosswalks.geojson, qa.json, and
+curbs.geojson only when features.curbs.enabled is true.
 Geometry follows the points: gaps are not bridged and no modelled geometry is produced here. Any later
 inferred feature must be a separate feature with reliability "modelled" and evidence [].
 """
@@ -21,7 +22,7 @@ import open3d as o3d
 from shapely.geometry import MultiPoint, mapping
 from shapely.ops import unary_union
 
-from twin.contracts import FeaturesParams, StageResult
+from twin.contracts import CurbsParams, FeaturesParams, StageResult
 from twin.registry import register
 
 OUTPUT_FILES = ("markings.geojson", "crosswalks.geojson", "qa.json")
@@ -38,6 +39,19 @@ CROSS_GROUP_M = 6.0
 CROSS_MAX_ANGLE_DEG = 15.0
 # DECISION: a crosswalk needs at least this many stripes in one group.
 CROSS_MIN_STRIPES = 3
+# DECISION: curb step test on a grid of this cell side (m). Each cell takes its median z.
+# Ceiling: a cell straddling the edge dilutes the step; a finer cell is noisier.
+CURB_CELL_M = 0.25
+# DECISION: curb-top points within this distance (m) of each other form one curb line.
+CURB_EPS_M = 0.5
+CURB_FILE = "curbs.geojson"
+# DECISION: non-ground points count as curb input when they are at most step_max_m + this (m) above the
+# ground surface. Ground's per-tile plane leaves a straddling sidewalk in nonground.laz. Taller
+# non-ground (cars, walls, poles) stays out.
+CURB_ABOVE_SLACK_M = 0.05
+# DECISION: empty surface cells take the mean of measured neighbours, out to this distance (m), so a
+# straddled tile's non-ground side still has a height reference. Used only for the keep filter.
+SURFACE_FILL_M = 3.0
 
 
 def high_intensity(xyz: np.ndarray, intensity: np.ndarray, pct: float) -> np.ndarray:
@@ -117,6 +131,109 @@ def binned_pieces(
             verts = np.array([sel[np.argmin(tt)], sel[np.argmax(tt)]])
         pieces.append((verts, int(in_piece.sum())))
     return pieces
+
+
+def curb_top_mask(xyz: np.ndarray, params: CurbsParams) -> np.ndarray:
+    """Points on the high side of a height step: their cell's median z is step_min_m to step_max_m above
+    the median z of a 4-neighbour cell. Lower-side and flat cells are not marked.
+    """
+    tile = np.floor((xyz[:, :2] - xyz[:, :2].min(axis=0)) / CURB_CELL_M).astype(
+        np.int64
+    )
+    dims = tuple(int(d) for d in tile.max(axis=0) + 1)
+    key = np.ravel_multi_index(tile.T, dims)
+    order = np.lexsort((xyz[:, 2], key))
+    _cells, start, count = np.unique(key[order], return_index=True, return_counts=True)
+    med = np.full(int(np.prod(dims)), np.nan)
+    med[_cells] = xyz[order, 2][start + (count - 1) // 2]
+    grid = np.pad(med.reshape(dims), 1, constant_values=np.nan)
+    nx, ny = dims
+    core = grid[1:-1, 1:-1]
+    high = np.zeros(dims, bool)
+    for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        nb = grid[1 + di : 1 + di + nx, 1 + dj : 1 + dj + ny]
+        dz = core - nb  # NaN (no ground in the neighbour cell) compares False
+        high |= (dz >= params.step_min_m) & (dz <= params.step_max_m)
+    return high[tile[:, 0], tile[:, 1]]
+
+
+def extract_curbs(xyz: np.ndarray, params: CurbsParams, min_points: int) -> list[dict]:
+    """Curb LineStrings from ground points xyz (N, 3). Vertex z is the bin median of measured points."""
+    pts = xyz[curb_top_mask(xyz, params)]
+    if len(pts) == 0:
+        return []
+    labels = cluster_xy(pts[:, :2], CURB_EPS_M, min_points)
+    curbs: list[dict] = []
+    for lab in np.unique(labels[labels >= 0]):
+        p = pts[labels == lab]
+        c, u = _axis(p[:, :2])
+        t = (p[:, :2] - c) @ u
+        if t.max() - t.min() < LINE_MIN_LEN_M:
+            continue
+        for verts, n in binned_pieces(p, c, u):
+            length = float(np.hypot(*np.diff(verts[:, :2], axis=0).T).sum())
+            if length <= 0:
+                continue
+            curbs.append(
+                _feature(
+                    "curb",
+                    f"curb-{len(curbs) + 1:04d}",
+                    "LineString",
+                    [[float(v) for v in vert] for vert in verts],
+                    {
+                        "n_points": n,
+                        "length_m": round(length, 3),
+                        "points_per_m": round(n / length, 3),
+                    },
+                )
+            )
+    return curbs
+
+
+def _near_ground_nonground(ground_dir, max_above_m: float) -> np.ndarray:
+    """Non-ground points at most max_above_m above the ground surface of their cell.
+
+    Cells with no surface (no ground point in them) are skipped. Heights come from surface.npz (mean
+    ground z per cell).
+    """
+    las = laspy.read(ground_dir / "nonground.laz")
+    xyz = np.column_stack([las.x, las.y, las.z]).astype(np.float64)
+    with np.load(ground_dir / "surface.npz") as f:
+        zg, origin, cell = f["z"], f["origin"], float(f["cell_m"])
+    zg = _fill_surface(zg, cell)
+    ny, nx = zg.shape
+    ij = np.floor((xyz[:, :2] - origin) / cell).astype(np.int64)
+    inside = (ij >= 0).all(axis=1) & (ij[:, 0] < nx) & (ij[:, 1] < ny)
+    surf = np.full(len(xyz), np.nan)
+    surf[inside] = zg[ij[inside, 1], ij[inside, 0]]
+    return xyz[xyz[:, 2] - surf <= max_above_m]  # NaN surface compares False
+
+
+def _fill_surface(zg: np.ndarray, cell: float) -> np.ndarray:
+    """Fill empty surface cells from measured neighbours, out to SURFACE_FILL_M, by repeated 8-neighbour mean.
+
+    Used only as the height reference for the keep filter. Curb vertices never take these values.
+    """
+    z = zg.copy()
+    for _ in range(max(1, round(SURFACE_FILL_M / cell))):
+        nan = np.isnan(z)
+        if not nan.any():
+            break
+        pad = np.pad(z, 1, constant_values=np.nan)
+        acc = np.zeros_like(z)
+        cnt = np.zeros_like(z)
+        ny, nx = z.shape
+        for di in (0, 1, 2):
+            for dj in (0, 1, 2):
+                if di == 1 and dj == 1:
+                    continue
+                nb = pad[di : di + ny, dj : dj + nx]
+                ok = ~np.isnan(nb)
+                acc[ok] += nb[ok]
+                cnt[ok] += 1
+        fill = nan & (cnt > 0)
+        z[fill] = acc[fill] / cnt[fill]
+    return z
 
 
 def _lift(coords: Any, z: float) -> Any:
@@ -276,6 +393,21 @@ def run_intensity(ctx: Any, params: FeaturesParams) -> StageResult:
     fc = lambda feats: json.dumps({"type": "FeatureCollection", "features": feats})
     (out / "markings.geojson").write_text(fc(markings))
     (out / "crosswalks.geojson").write_text(fc(crosswalks))
+    files = list(OUTPUT_FILES)
+    if params.curbs.enabled:
+        near = _near_ground_nonground(
+            ground_dir, params.curbs.step_max_m + CURB_ABOVE_SLACK_M
+        )
+        curbs = extract_curbs(
+            np.vstack([xyz[:, :3], near]), params.curbs, params.min_points
+        )
+        (out / CURB_FILE).write_text(fc(curbs))
+        files.append(CURB_FILE)
+        counts["n_curbs"] = len(curbs)
+    else:
+        (out / CURB_FILE).unlink(
+            missing_ok=True
+        )  # off means no curb file, even from an earlier pass
     qa = {
         "method": "intensity",
         "intensity_pct": params.intensity_pct,
@@ -288,4 +420,4 @@ def run_intensity(ctx: Any, params: FeaturesParams) -> StageResult:
         **counts,
     }
     (out / "qa.json").write_text(json.dumps(qa, indent=2))
-    return StageResult(status="ok", files=list(OUTPUT_FILES), metrics=qa)
+    return StageResult(status="ok", files=files, metrics=qa)
