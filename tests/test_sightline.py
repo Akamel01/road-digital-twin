@@ -55,6 +55,16 @@ def test_wall_blocks():
     assert _run(_surface(), nonground=wall).status == BLOCKED
 
 
+def test_kerb_under_line_does_not_block():
+    kerb = _points(7.5, (0.1, 0.15))
+    assert _run(_surface(), nonground=kerb).status == CLEAR
+
+
+def test_fence_crossing_line_blocks():
+    fence = _points(7.5, (0.1, 1.2))
+    assert _run(_surface(), nonground=fence).status == BLOCKED
+
+
 def test_wall_outside_band_does_not_block():
     # 0.3 m band: a wall 1 m to the side of the line is not on it.
     wall = np.column_stack([np.full(40, 7.5), np.full(40, 1.0), np.linspace(0.1, 2.0, 40)])

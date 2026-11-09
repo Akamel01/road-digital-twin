@@ -94,32 +94,34 @@ def _first_short_window(
 def _blocked(
     surface: Surface,
     obstacles: np.ndarray,
-    a: np.ndarray,
-    u: np.ndarray,
-    length: float,
-    eye_z: float,
-    obj_z: float,
+    eye3: np.ndarray,
+    obj3: np.ndarray,
     band_m: float,
 ) -> bool:
-    """True if any obstacle point is above the ground surface, below the sight line, and within band_m of it.
+    """True if any obstacle point lies within band_m of the sight line in 3D and above the ground surface.
 
-    # DECISION: "below the line" is taken as written in spec section 6. A low object (a kerb) under the line
-    # blocks too; a tall one blocks through its lower part. Points above the line (canopy) never block.
+    The line is the 3D segment from the eye to the object point. A point counts only where its projection
+    falls on the segment, so it reaches the line's height. Canopy above the line and kerbs below it stay
+    outside band_m and do not block.
+    # DECISION: operator, 2026-11-08: 3D distance to the line within isd.band_m (replaces the earlier
+    # "above ground, below the line" test). The ground guard keeps ground noise from blocking.
     """
     if len(obstacles) == 0:
         return False
-    xy = obstacles[:, :2]
-    rel = xy - a
-    t = rel @ u
-    d = np.abs(rel[:, 0] * u[1] - rel[:, 1] * u[0])
-    near = (t >= 0) & (t <= length) & (d <= band_m)
+    d = obj3 - eye3
+    dd = float(d @ d)
+    s = ((obstacles - eye3) @ d) / dd
+    on_seg = (s >= 0) & (s <= 1)
+    if not on_seg.any():
+        return False
+    pts = obstacles[on_seg]
+    closest = eye3 + s[on_seg, None] * d
+    near = np.linalg.norm(pts - closest, axis=1) <= band_m
     if not near.any():
         return False
-    gz = surface.z_at(xy[near])
-    line_z = eye_z + (obj_z - eye_z) * t[near] / length
-    pz = obstacles[near, 2]
-    hit = np.isfinite(gz) & (pz > gz) & (pz < line_z)
-    return bool(hit.any())
+    pts = pts[near]
+    gz = surface.z_at(pts[:, :2])
+    return bool((np.isfinite(gz) & (pts[:, 2] > gz)).any())
 
 
 def sight_line(
@@ -164,6 +166,8 @@ def sight_line(
         obstacles = nonground
     else:
         obstacles = np.vstack([nonground, np.asarray(parked_xyz, dtype=float).reshape(-1, 3)])
-    if _blocked(surface, obstacles, a, u, length, eye_z, obj_z, params.band_m):
-        return SightResult(BLOCKED, "object point above ground and below the sight line")
+    eye3 = np.array([a[0], a[1], eye_z])
+    obj3 = np.array([b[0], b[1], obj_z])
+    if _blocked(surface, obstacles, eye3, obj3, params.band_m):
+        return SightResult(BLOCKED, "object point above ground within band_m of the sight line in 3D")
     return SightResult(CLEAR, "no object point between ground and the sight line")
