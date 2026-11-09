@@ -186,3 +186,60 @@ def test_marking_height_is_measured_per_vertex():
     assert len(pieces) == 1
     verts = pieces[0][0]
     assert np.allclose(verts[:, 2], 0.04 * verts[:, 0], atol=0.01)
+
+
+def _road_with_curb(rng, step):
+    """Flat road (x < 0) and a sidewalk `step` m higher (x >= 0), 20 m along y. 5 mm noise, 0.05 m spacing."""
+    x, y = np.meshgrid(
+        np.arange(-10.0, 10.0, 0.05), np.arange(0.0, 20.0, 0.05), indexing="ij"
+    )
+    x, y = x.ravel(), y.ravel()
+    z = np.where(x >= 0, step, 0.0) + rng.normal(0, 0.005, x.size)
+    return np.column_stack([x, y, z, rng.uniform(0, 30, x.size)])
+
+
+def _curb_run(tmp_path, ground, **curbs):
+    ctx = _ctx(tmp_path, ground)
+    result = registry.lookup("features", "intensity")(ctx, FeaturesParams(curbs=curbs))
+    assert result.status == "ok"
+    return result, ctx.stage_dir("features")
+
+
+def test_curb_step_is_found(tmp_path):
+    result, out = _curb_run(tmp_path, _road_with_curb(np.random.default_rng(0), 0.15))
+
+    assert "curbs.geojson" in result.files
+    curbs = json.loads((out / "curbs.geojson").read_text())["features"]
+    assert len(curbs) == 1
+    p = curbs[0]["properties"]
+    assert p["kind"] == "curb"
+    assert p["evidence"] == ["lidar"]
+    assert p["reliability"] == "observed"
+    assert p["n_points"] > 0
+    assert p["points_per_m"] == round(p["n_points"] / p["length_m"], 3)
+    coords = np.array(curbs[0]["geometry"]["coordinates"])
+    assert (coords[:, 0] > -0.25).all() and (
+        coords[:, 0] < 0.5
+    ).all()  # on the step at x = 0
+    assert np.ptp(coords[:, 1]) > 15  # along the 20 m edge
+    assert np.allclose(
+        coords[:, 2], 0.15, atol=0.02
+    )  # measured height, not a flat guess
+    assert json.loads((out / "qa.json").read_text())["n_curbs"] == 1
+
+
+def test_small_step_is_ignored(tmp_path):
+    _, out = _curb_run(tmp_path, _road_with_curb(np.random.default_rng(0), 0.03))
+
+    assert json.loads((out / "curbs.geojson").read_text())["features"] == []
+
+
+def test_curbs_off_writes_no_file(tmp_path):
+    result, out = _curb_run(
+        tmp_path, _road_with_curb(np.random.default_rng(0), 0.15), enabled=False
+    )
+
+    assert result.status == "ok"
+    assert "curbs.geojson" not in result.files
+    assert not (out / "curbs.geojson").exists()
+    assert (out / "qa.json").is_file()
