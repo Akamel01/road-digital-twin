@@ -278,6 +278,9 @@ def _run(ctx: Any, params: IsdParams) -> StageResult:
     doc = {"case": params.case, "facilities": facs, "not_scanned_enough": not_scanned}
     (out / "isd.json").write_text(json.dumps(doc, indent=2))
     metrics = {
+        # The viewer reads the per-leg results from the manifest (web/lib/runmetrics.ts), so they ride along.
+        "case": params.case,
+        "facilities": facs,
         "height_valid": height_valid,
         "required_m": round(required, 2),
         "facilities_checked": checked,

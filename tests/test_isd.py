@@ -212,3 +212,4 @@ def test_not_scanned_facility_is_skipped(tmp_path):
     assert doc["facilities"] == []
     assert doc["not_scanned_enough"] == ["I-test"]
     assert result.metrics["not_scanned_enough"] == ["I-test"]
+    assert result.metrics["case"] and isinstance(result.metrics["facilities"], list)
