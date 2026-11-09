@@ -104,7 +104,8 @@ def test_unobserved_features_are_not_scored(tmp_path):
         _line([[x, 3.0] for x in range(10, 31)], reliability="modelled"),
     ]
     doc = _run(tmp_path, ref, marking)
-    assert doc["elements"]["markings"]["n"] == 21
+    # The observed 20 m line is sampled every 0.25 m: 81 points. The modelled line is not counted.
+    assert doc["elements"]["markings"]["n"] == 81
     assert doc["elements"]["markings"]["p95_m"] == pytest.approx(0.1, abs=1e-3)
     assert doc["qa"]["n_excluded_not_observed"] == 1
 
@@ -187,13 +188,10 @@ def test_perfect_crosswalk_inside_its_crossing_scores_zero(tmp_path):
 
 def test_stripe_shifted_outside_gives_p95_of_its_offset(tmp_path):
     # Five stripes inside. The sixth sits across the east edge of the crossing (x = 12 m), so its outer
-    # edge is 0.3 m outside. Its outer edge is densified every 0.5 m so 13 of 52 vertices sit at 0.3 m.
+    # edge is 0.3 m outside. Outlines are densified to 0.25 m in the stage, so the corners alone are enough.
     stripes = [_stripe(1 + 2 * k, 1.5 + 2 * k)["coordinates"] for k in range(5)]
-    outer = [[12.3, i * 0.5] for i in range(13)]
-    inner = [[11.8, i * 0.5] for i in range(12, -1, -1)]
-    ring = outer + inner + [outer[0]]
-    shifted = {"type": "Polygon", "coordinates": [ring]}
-    geom = {"type": "MultiPolygon", "coordinates": [*stripes, shifted["coordinates"]]}
+    shifted = _stripe(11.8, 12.3)["coordinates"]
+    geom = {"type": "MultiPolygon", "coordinates": [*stripes, shifted]}
     doc = _run(tmp_path, [_crossing()], [], crosswalks=[_crosswalk(geom)], buffer_m=1.0)
     cw = doc["elements"]["crosswalks"]
     assert cw["p50_m"] == 0.0

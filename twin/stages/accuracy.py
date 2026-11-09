@@ -44,6 +44,9 @@ LABELS = {"curbs": "map-conditioned"}
 # inside), and coverage is the share of ped_crossing area within buffer_m of the extracted crosswalks. Measuring
 # to the outline would score correct inner stripes ~half a crossing width off.
 AREA_TYPES = frozenset({"crosswalks"})
+# Operator decision (2026-11-08): outlines are densified every DENSIFY_M metres before measuring, so P50 and P95
+# are length-weighted and do not depend on how many vertices a shape has.
+DENSIFY_M = 0.25
 
 
 def _read_fc(path: Path) -> list[dict]:
@@ -88,10 +91,15 @@ def _observed(features: list[dict]) -> tuple[list[BaseGeometry], int]:
 
 
 def _vertex_distances(elements: list[BaseGeometry], ref: BaseGeometry) -> np.ndarray:
-    """One-way distance (m) from every vertex of every element outline to the reference."""
+    """One-way distance (m) from points every DENSIFY_M along every element outline to the reference."""
     if not elements:
         return np.empty(0)
-    verts = np.vstack([shapely.get_coordinates(_outline(g)) for g in elements])
+    verts = np.vstack(
+        [
+            shapely.get_coordinates(shapely.segmentize(_outline(g), DENSIFY_M))
+            for g in elements
+        ]
+    )
     return np.asarray(shapely.distance(shapely.points(verts), ref), dtype=float)
 
 
