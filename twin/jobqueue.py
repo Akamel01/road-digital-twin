@@ -66,7 +66,7 @@ def add(store: Path | str, job: dict) -> str:
     """Queue a job. Job fields: type run (scene, pipeline, params) | rerun (run_id, from_stage,
     pipeline, params) | eval (run_id, baseline, rerun); run and rerun accept eval: true."""
     validate(job)
-    job_id = f"{datetime.now(UTC):%Y%m%d-%H%M%S}-{secrets.token_hex(3)}"
+    job_id = f"{datetime.now(UTC):%Y%m%d-%H%M%S-%f}-{secrets.token_hex(3)}"
     job = {**job, "id": job_id, "added": _now()}
     _write(_dir(Path(store), "pending") / f"{job_id}.json", job)
     return job_id
