@@ -1,8 +1,27 @@
 # road-digital-twin
 
-**Status: planning.** No code yet. Decisions are recorded in [`docs/decisions/`](docs/decisions/).
+**Status: v1 in progress (demo due 2026-11-12).** The v1 pipeline, API and viewer are built and tested on synthetic data. The first run on real nuScenes drives is next. Spec: [`docs/design/twin-v1-spec.md`](docs/design/twin-v1-spec.md). Decisions: [`docs/decisions/`](docs/decisions/).
 
 Turn camera, lidar and drone data into a measurable 3D digital twin of a road's infrastructure, so that a road safety audit can cover every facility in a network instead of a screened sample. A collision-risk engine is planned on top of the twin.
+
+## What v1 builds
+
+From nuScenes mini (Boston), one run per drive, shown together as one area:
+
+| Stage | What it does |
+|---|---|
+| load | Sweeps, poses, boxes, HD-map layers, and facilities (intersections, segments, access points) with stable IDs |
+| mask | Removes moving road users; keeps parked vehicles apart for sight lines |
+| align | KISS-ICP 6-DoF poses anchored to the dataset; falls back and flags height when ICP drifts |
+| ground | Ground surface on a 0.5 m grid; sweep-disagreement QA sets `height_valid` |
+| features | Lane markings, crosswalks and curbs from lidar. Geometry follows the points, and gaps are never bridged. Each feature carries its evidence and the pose quality behind it. |
+| colour | Camera colour with a depth-buffer occlusion test; orthoimage; camera confirmation of markings |
+| profile | Vertical profile along each road centreline, per direction, through intersections |
+| isd | 3D intersection sight lines, without and with parked vehicles |
+| accuracy | P50/P95 and coverage against the nuScenes HD map, per element and facility |
+| outputs | LAZ, 3D GeoJSON, DXF and PDF plan and profile sheets |
+
+Also: a run store with re-runs and cancel, a FastAPI control API behind Cloudflare Access, and a Next.js viewer for desktop, tablet and phone.
 
 ## Where this sits
 
