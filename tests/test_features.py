@@ -2,6 +2,7 @@
 
 import json
 import logging
+import math
 
 import laspy
 import numpy as np
@@ -482,3 +483,13 @@ def test_type_markings_sets_property_and_counts():
         "crosswalk_stripe": 0,
         "other_paint": 1,
     }
+
+
+def test_short_fragment_off_angle_keeps_divider_type():
+    c, sn = math.cos(math.radians(40)), math.sin(math.radians(40))
+    # 2 m long, 40 degrees off the divider, 0.3 m from it: too short for an angle test
+    frag = LineString([(5, 0.3), (5 + 2 * c, 0.3 + 2 * sn)])
+    assert marking_type(frag, REF) == "divider"
+    # the same angle on a 5 m marking is still not a divider
+    long = LineString([(5, 0.3), (5 + 5 * c, 0.3 + 5 * sn)])
+    assert marking_type(long, REF) == "other_paint"

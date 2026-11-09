@@ -43,6 +43,8 @@ EVIDENCE_NO_LABELS = "lidarseg: insufficient labels"
 TYPE_NEAR_M = 1.0
 DIVIDER_MAX_ANGLE_DEG = 20.0
 STOP_MAX_ANGLE_DEG = 30.0
+# The divider angle test only runs on markings at least this long (m); operator decision 2026-11-09.
+DIVIDER_ANGLE_MIN_LEN_M = 3.0
 MARKING_TYPES = ("divider", "stop_line", "crosswalk_stripe", "other_paint")
 # Operator decision (2026-11-08): markings follow the points, binned 1.0 m along the stripe axis.
 BIN_M = 1.0
@@ -494,9 +496,13 @@ def marking_type(line: Any, ref: dict[str, list]) -> str:
             p0 = div.interpolate(max(s - 1.0, 0.0))
             p1 = div.interpolate(min(s + 1.0, div.length))
             d = np.array([p1.x - p0.x, p1.y - p0.y])
-            if (
-                np.linalg.norm(d) > 0
-                and _angle_deg(_chord(line), d / np.linalg.norm(d))
+            # ponytail: the better fix is to chain dash fragments along a line before measuring their direction.
+            # Until then a fragment shorter than DIVIDER_ANGLE_MIN_LEN_M is too short for a reliable chord direction,
+            # so only its distance to the divider is tested.
+            short = line.length < DIVIDER_ANGLE_MIN_LEN_M
+            if np.linalg.norm(d) > 0 and (
+                short
+                or _angle_deg(_chord(line), d / np.linalg.norm(d))
                 <= DIVIDER_MAX_ANGLE_DEG
             ):
                 return "divider"
