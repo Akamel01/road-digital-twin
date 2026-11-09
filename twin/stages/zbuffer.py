@@ -157,7 +157,8 @@ def project(
 
 def visible(
     targets: np.ndarray,
-    blockers: np.ndarray,
+    nonground: np.ndarray,
+    boxes: list[dict],
     cam_to_world: np.ndarray,
     K: np.ndarray,
     image_size: tuple[int, int],
@@ -167,11 +168,14 @@ def visible(
 
     A target passes if it lands inside the image (with IMAGE_MARGIN_PX), is at least min_depth_m away,
     lies within max_range_m horizontally of the camera, and is no deeper than the depth buffer plus
-    zbuf_tol_m. The buffer holds the nearest blocker per cell at zbuf_scale resolution; blockers are
-    treated like targets for depth and image bounds, so points nearer than min_depth_m never occlude.
+    zbuf_tol_m. The buffer holds the nearest occluder per cell at zbuf_scale resolution. Occluders are
+    the non-ground points (nonground) plus the box faces at the image time (boxes). Ground never
+    occludes ground: on a near-flat street that only causes false self-occlusion at shallow angles
+    (decision 2026-11-08). Occluders nearer than min_depth_m are ignored, as are targets.
     """
     width, height = image_size
     s = params.zbuf_scale
+    blockers = np.vstack([nonground, box_blockers(boxes, cam_to_world, K, params)])
 
     def in_image(uv: np.ndarray, depth: np.ndarray) -> np.ndarray:
         with np.errstate(invalid="ignore"):
