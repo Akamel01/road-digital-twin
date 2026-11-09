@@ -160,6 +160,7 @@ class GroundParams(_Strict):
     csf_cloth_m: float = Field(0.5, ge=0.1, le=2)
     qa_cell_m: float = Field(0.5, ge=0.1, le=2)
     qa_max_p95_m: float = Field(0.10, ge=0.01, le=1)
+    z_drift_knot_s: float = Field(20.0, ge=2, le=60)
 
 
 class CurbsParams(_Strict):

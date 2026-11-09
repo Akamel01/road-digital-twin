@@ -45,9 +45,13 @@ MIN_PLANE_NORMAL_Z = 0.9
 # package default range midpoint for road-scale clouds.
 CSF_ITERATIONS = 500
 CSF_RIGIDNESS = 3
-# DECISION: the sweep-disagreement QA only uses points within this height of the cell's ground surface, so
-# points from one sweep that sit off the road are compared and points above (vehicles, canopy) are not.
-QA_BAND_M = 0.5
+# DECISION: the sweep-disagreement QA uses ground-class points only. A +-0.5 m band around the cell surface
+# also took in non-ground points (curb faces, wheels, low vegetation) that one sweep sees and another does not,
+# so it measured scene content, not alignment (issue #130: 0.59 m with the band vs 0.112 m ground-only on scene-0757).
+# DECISION: the slow ICP z drift is corrected here, not in align: only this stage knows which points are ground.
+# The correction is a piecewise-linear dz(t) per sweep, applied to point z (poses.json stays as align wrote it).
+# Smoothness weight on dz's second difference; small next to the thousands of cell residuals.
+Z_SMOOTH_WEIGHT = 1.0
 
 
 # ------------------------------------------------------------------ aggregation
@@ -162,27 +166,16 @@ def sweep_disagreement_p95(
     origin: np.ndarray,
     cell_m: float,
     shape_yx: tuple[int, int],
-    zmean: np.ndarray,
 ) -> float | None:
     """P95 over cells of (max - min) across sweeps of each sweep's mean z in the cell.
 
-    Only points within QA_BAND_M of the cell's ground surface count, and only cells seen by two or more sweeps.
+    Pass ground points only. Only cells seen by two or more sweeps count.
     Returns None when no cell has two sweeps.
     """
-    _ny, nx = shape_yx
-    ij = grid_index(xy, origin, cell_m)
-    flat = ij[:, 1] * nx + ij[:, 0]
-    surf = zmean.ravel()[flat]
-    band = np.isfinite(surf) & (np.abs(z - surf) <= QA_BAND_M)
-    if not band.any():
-        return None
-    flat, z, sweep = flat[band], z[band], sweep[band].astype(np.int64)
-    n_sweeps = int(sweep.max()) + 1
-    cs = flat * n_sweeps + sweep
-    uniq, inv = np.unique(cs, return_inverse=True)
-    mean_cs = np.bincount(inv, weights=z) / np.bincount(inv)
-    cell_of = uniq // n_sweeps
-    cells, cinv = np.unique(cell_of, return_inverse=True)
+    cs_cell, _cs_sweep, mean_cs = _cell_sweep_means(
+        xy, z, sweep, origin, cell_m, shape_yx
+    )
+    cells, cinv = np.unique(cs_cell, return_inverse=True)
     cmax = np.full(len(cells), -np.inf)
     cmin = np.full(len(cells), np.inf)
     np.maximum.at(cmax, cinv, mean_cs)
@@ -192,6 +185,78 @@ def sweep_disagreement_p95(
     if spread.size == 0:
         return None
     return float(np.percentile(spread, 95))
+
+
+def _cell_sweep_means(
+    xy: np.ndarray,
+    z: np.ndarray,
+    sweep: np.ndarray,
+    origin: np.ndarray,
+    cell_m: float,
+    shape_yx: tuple[int, int],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Mean z per (cell, sweep). Returns (cell, sweep, mean z) of the pairs."""
+    ij = grid_index(xy, origin, cell_m)
+    flat = ij[:, 1] * shape_yx[1] + ij[:, 0]
+    sweep = sweep.astype(np.int64)
+    n_sweeps = int(sweep.max()) + 1
+    uniq, inv = np.unique(flat * n_sweeps + sweep, return_inverse=True)
+    mean_cs = np.bincount(inv, weights=z) / np.bincount(inv)
+    return uniq // n_sweeps, uniq % n_sweeps, mean_cs
+
+
+def estimate_z_drift(
+    xy: np.ndarray,
+    z: np.ndarray,
+    sweep: np.ndarray,
+    t_sweep: np.ndarray,
+    origin: np.ndarray,
+    cell_m: float,
+    shape_yx: tuple[int, int],
+    knot_s: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Smooth per-sweep z offset dz(t) that ground cells seen by sweeps far apart in time disagree by.
+
+    Pass ground points only. Observed cell-sweep mean = truth + dz(t_sweep); the cell's reference is the mean
+    of its sweeps' means. dz is piecewise-linear on knots every knot_s seconds, least squares with a second
+    difference smoothness penalty and mean(dz) = 0. Deterministic (no randomness).
+    Returns (dz per sweep, knot times, knot values). Subtract dz from a sweep's z to correct it.
+    """
+    n = len(t_sweep)
+    nk = max(2, int(np.ceil((t_sweep.max() - t_sweep.min()) / knot_s)) + 1)
+    knots = np.linspace(t_sweep.min(), t_sweep.max(), nk)
+    if t_sweep.max() == t_sweep.min():
+        return np.zeros(n), knots, np.zeros(nk)
+    # hat basis per sweep: row k of basis is the weights of sweep k on the knots
+    basis = np.zeros((n, nk))
+    for j in range(nk):
+        e = np.zeros(nk)
+        e[j] = 1.0
+        basis[:, j] = np.interp(t_sweep, knots, e)
+    cell, sw, mean_cs = _cell_sweep_means(xy, z, sweep, origin, cell_m, shape_yx)
+    cinv = np.unique(cell, return_inverse=True)[1]
+    n_per = np.bincount(cinv)
+    multi = n_per[cinv] >= 2
+    cell, sw, mean_cs, cinv = cell[multi], sw[multi], mean_cs[multi], cinv[multi]
+    if len(cell) == 0:
+        return np.zeros(n), knots, np.zeros(nk)
+    cinv = np.unique(cinv, return_inverse=True)[1]
+    n_per = np.bincount(cinv)
+    ref = np.bincount(cinv, weights=mean_cs) / n_per
+    rows = basis[sw]  # (M, nk)
+    mean_rows = np.zeros((n_per.size, nk))
+    np.add.at(mean_rows, cinv, rows)
+    mean_rows /= n_per[:, None]
+    design = rows - mean_rows[cinv]
+    resid = mean_cs - ref[cinv]
+    blocks = [design, np.ones((1, nk)) * (design.shape[0] ** 0.5)]
+    rhs = [resid, np.zeros(1)]
+    if nk >= 3:
+        d2 = np.diff(np.eye(nk), n=2, axis=0) * Z_SMOOTH_WEIGHT
+        blocks.append(d2)
+        rhs.append(np.zeros(len(d2)))
+    knot_dz = np.linalg.lstsq(np.vstack(blocks), np.concatenate(rhs), rcond=None)[0]
+    return basis @ knot_dz, knots, knot_dz
 
 
 def observed_core(
@@ -289,15 +354,38 @@ def _run(
     origin = xyz[:, :2].min(axis=0)
     span = np.floor((xyz[:, :2].max(axis=0) - origin) / cell).astype(int)
     shape_yx = (int(span[1]) + 1, int(span[0]) + 1)
-    gxy, gz = xyz[ground, :2], xyz[ground, 2]
+    gxy, gsweep = xyz[ground, :2], sweep[ground]
+    p95_before = sweep_disagreement_p95(
+        gxy, xyz[ground, 2], gsweep, origin, cell, shape_yx
+    )
+    stamps = np.array(
+        [
+            int(p["timestamp_us"])
+            for p in json.loads((ctx.input_dir("load") / "poses.json").read_text())[
+                "poses"
+            ]
+        ],
+        dtype=float,
+    )
+    t_sweep = (stamps - stamps[0]) / 1e6
+    dz, knots, knot_dz = estimate_z_drift(
+        gxy,
+        xyz[ground, 2],
+        gsweep,
+        t_sweep,
+        origin,
+        cell,
+        shape_yx,
+        params.z_drift_knot_s,
+    )
+    xyz[:, 2] -= dz[sweep]
+    gz = xyz[ground, 2]
     zmean, count = surface_grid(gxy, gz, origin, cell, shape_yx)
 
     gij = grid_index(gxy, origin, cell)
     gflat = gij[:, 1] * shape_yx[1] + gij[:, 0]
     rmse = float(np.sqrt(np.mean((gz - zmean.ravel()[gflat]) ** 2)))
-    p95 = sweep_disagreement_p95(
-        xyz[:, :2], xyz[:, 2], sweep, origin, cell, shape_yx, zmean
-    )
+    p95 = sweep_disagreement_p95(gxy, gz, gsweep, origin, cell, shape_yx)
     observed = observed_core(features, origin, cell, count)
     not_scanned = sorted(k for k, v in observed.items() if v < min_observed)
 
@@ -329,6 +417,10 @@ def _run(
         "method": method,
         "rmse_m": rmse,
         "z_disagreement_p95_m": p95,
+        "z_disagreement_p95_before_correction_m": p95_before,
+        "z_drift_correction_p95_m": float(np.percentile(np.abs(dz), 95)),
+        "z_drift_knots_s": [round(float(k), 3) for k in knots],
+        "z_drift_knots_dz_m": [round(float(k), 5) for k in knot_dz],
         "height_valid": height_valid,
         "height_invalid_reason": "; ".join(reasons) or None,
         "qa_cell_m": cell,
