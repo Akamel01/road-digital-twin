@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 
 import numpy as np
@@ -283,6 +284,7 @@ def area_merge_command(name: str, store: Path | None) -> int:
 
     base = Path(store) if store else default_store()
     area = json.loads((base / "areas" / f"{name}.json").read_text())
+    os.environ["NUSCENES_VERSION"] = area["dataset_version"]  # read by load at import
     out = base / "areas" / f"{name}-merged"
     out.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(level=logging.INFO)

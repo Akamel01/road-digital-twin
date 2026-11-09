@@ -69,7 +69,9 @@ class StageContext:
     scene_token: str
     seed: int
     log: logging.Logger
-    min_observed: float = 0.5  # facilities.min_observed: ground marks facilities below it
+    min_observed: float = (
+        0.5  # facilities.min_observed: ground marks facilities below it
+    )
 
     def stage_dir(self, name: str) -> Path:
         return self.run_dir / f"{STAGES[name].number}_{name}"
@@ -405,8 +407,14 @@ def _run_stages(job: _Job) -> None:
             ctx.stage_dir(name).mkdir()
             # Mark running first, so a restart mid-stage can fail it (recover_interrupted).
             manifest.stages.append(
-                ManifestStage(name=name, method=stage.method, status="running",
-                              started=started, seconds=0, files=[])
+                ManifestStage(
+                    name=name,
+                    method=stage.method,
+                    status="running",
+                    started=started,
+                    seconds=0,
+                    files=[],
+                )
             )
             _write_manifest(run_dir, manifest)
             manifest.stages.pop()

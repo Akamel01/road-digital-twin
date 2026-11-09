@@ -172,7 +172,9 @@ EDGE_MAX_WIDTH_M = 1.0
 EDGE_MIN_SAMPLES = 4
 
 
-def _cross_section_offset(lum: np.ndarray, ok: np.ndarray, s: np.ndarray) -> float | None:
+def _cross_section_offset(
+    lum: np.ndarray, ok: np.ndarray, s: np.ndarray
+) -> float | None:
     """Signed centre (m) of the painted stripe nearest the lidar line, from one cross-section.
 
     lum, ok and s run along the normal: lum the luminance of each sample, ok whether it is an observed pixel,
@@ -219,7 +221,9 @@ def marking_offsets(
     lum = rgba[..., :3].astype(float).mean(axis=2)
     observed = rgba[..., 3] > 0
     n_side = int(np.ceil(EDGE_SEARCH_M / cell_m))
-    s_grid = (np.arange(-n_side, n_side) + 0.5) * cell_m  # pixel-centre offsets, so each sample is one pixel
+    s_grid = (
+        np.arange(-n_side, n_side) + 0.5
+    ) * cell_m  # pixel-centre offsets, so each sample is one pixel
     out: dict[str, np.ndarray] = {}
     for feat in markings:
         props = feat["properties"]
@@ -239,7 +243,10 @@ def marking_offsets(
                 xy = a + t * u + s_grid[:, None] * normal
                 j = np.floor((xy[:, 1] - origin[1]) / cell_m).astype(np.int64)
                 i = np.floor((xy[:, 0] - origin[0]) / cell_m).astype(np.int64)
-                row, col = ny - 1 - j, i  # ortho_raster flips rows so that row 0 is north
+                row, col = (
+                    ny - 1 - j,
+                    i,
+                )  # ortho_raster flips rows so that row 0 is north
                 inside = (row >= 0) & (row < ny) & (col >= 0) & (col < nx)
                 row, col = np.clip(row, 0, ny - 1), np.clip(col, 0, nx - 1)
                 ok = inside & observed[row, col]

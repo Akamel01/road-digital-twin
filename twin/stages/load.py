@@ -32,7 +32,8 @@ from twin.registry import register
 
 CRS_EPSG = 32619
 # DECISION: dataset version is fixed to v1.0-mini, matching the manifest default (contracts ManifestData).
-VERSION = "v1.0-mini"
+# The area merge sets NUSCENES_VERSION=v1.0-trainval (area files record the dataset version).
+VERSION = os.environ.get("NUSCENES_VERSION", "v1.0-mini")
 LOCATION = "boston-seaport"
 # DECISION: nuScenes reads data from NUSCENES_ROOT, default /data/nuscenes (as tests/itest does).
 DATAROOT_DEFAULT = "/data/nuscenes"

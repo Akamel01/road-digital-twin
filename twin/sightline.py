@@ -165,9 +165,13 @@ def sight_line(
     if parked_xyz is None:
         obstacles = nonground
     else:
-        obstacles = np.vstack([nonground, np.asarray(parked_xyz, dtype=float).reshape(-1, 3)])
+        obstacles = np.vstack(
+            [nonground, np.asarray(parked_xyz, dtype=float).reshape(-1, 3)]
+        )
     eye3 = np.array([a[0], a[1], eye_z])
     obj3 = np.array([b[0], b[1], obj_z])
     if _blocked(surface, obstacles, eye3, obj3, params.band_m):
-        return SightResult(BLOCKED, "object point above ground within band_m of the sight line in 3D")
+        return SightResult(
+            BLOCKED, "object point above ground within band_m of the sight line in 3D"
+        )
     return SightResult(CLEAR, "no object point between ground and the sight line")
