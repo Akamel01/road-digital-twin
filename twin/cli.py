@@ -110,6 +110,11 @@ def build_parser() -> argparse.ArgumentParser:
     define.add_argument(
         "--store", type=Path, help="run store (default: $TWIN_RUNS or /data/twin-runs)"
     )
+    merge = area.add_parser(
+        "merge", help="register the drives of an area into one cloud"
+    )
+    merge.add_argument("name")
+    merge.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
     publish = sub.add_parser("publish", help="copy runs into a showcase folder")
     publish.add_argument("run_ids", nargs="+", metavar="run-id")
     publish.add_argument("--out", type=Path, required=True, help="showcase folder")
@@ -158,6 +163,10 @@ def main(argv: list[str] | None = None) -> int:
             args.store,
             args.include_rain,
         )
+    if args.command == "area" and args.area_cmd == "merge":
+        from twin.merge import area_merge_command
+
+        return area_merge_command(args.name, args.store)
     if args.command == "publish":
         from twin.publish import publish_command
 
