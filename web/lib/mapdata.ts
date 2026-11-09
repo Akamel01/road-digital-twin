@@ -1,3 +1,5 @@
+import type { LegMetric } from "@/lib/runmetrics";
+
 // Loads one drive's plan overlays, facility geometry, sight-line numbers and element accuracy from the
 // static bundle. Coordinates stay in EPSG:32619 metres until the map converts them to its frame.
 
@@ -30,13 +32,7 @@ export interface FacilityGeo {
   legs: Leg[];
 }
 
-export type LegStatus = "ok" | "short" | "indeterminate";
 
-export interface LegNumbers {
-  status: LegStatus;
-  available_m: number | null;
-  required_m: number;
-}
 
 export interface DriveData {
   lines: Overlay[];
@@ -44,7 +40,7 @@ export interface DriveData {
   // Element P95 distance to the HD map, from the run's manifest. Missing elements are left out.
   p95: Partial<Record<ElementKey, number>>;
   // Sight-distance numbers from the manifest: legs[facility id][approach].
-  legs: Record<string, Record<string, LegNumbers>>;
+  legs: Record<string, Record<string, LegMetric>>;
 }
 
 export interface RasterMeta {
@@ -77,7 +73,7 @@ interface GeoJson {
 interface Manifest {
   metrics: {
     accuracy?: { elements?: Record<string, { p95_m: number }> };
-    isd?: { facilities?: { facility: string; legs: (LegNumbers & { leg: string })[] }[] };
+    isd?: { facilities?: { facility: string; legs: LegMetric[] }[] };
   };
 }
 
@@ -122,9 +118,7 @@ export async function loadDrive(run: string): Promise<DriveData> {
   }
   const legs: DriveData["legs"] = {};
   for (const f of man.metrics.isd?.facilities ?? []) {
-    legs[f.facility] = Object.fromEntries(
-      f.legs.map((l) => [l.leg, { status: l.status, available_m: l.available_m, required_m: l.required_m }]),
-    );
+    legs[f.facility] = Object.fromEntries(f.legs.map((l) => [l.leg, l]));
   }
   return { lines, facilities, p95, legs };
 }

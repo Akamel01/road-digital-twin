@@ -202,7 +202,9 @@ def _sheet_inputs(run_dir: Path, *, height_valid: bool = True) -> None:
     """Profile, ISD and ground QA for the sheet tests. Facility 'int-1' has an eye point."""
     prof = run_dir / "7_profile"
     prof.mkdir()
-    rows = ["facility,line,s_m,z_m,n"] + [f"int-1,int-1/main,{s},{10 + 0.02 * s},20" for s in range(6)]
+    rows = ["facility,line,s_m,z_m,n"] + [
+        f"int-1,int-1/main,{s},{10 + 0.02 * s},20" for s in range(6)
+    ]
     (prof / "profile.csv").write_text("\n".join(rows) + "\n")
     isd = run_dir / "8_isd"
     isd.mkdir()
@@ -216,20 +218,36 @@ def _sheet_inputs(run_dir: Path, *, height_valid: bool = True) -> None:
                             {
                                 "leg": "north",
                                 "required_m": 96.4,
-                                "available_m": 118.0,
-                                "status": "ok",
+                                "left": {
+                                    "leg": "east",
+                                    "available_m": 61.2,
+                                    "available_with_parked_m": 61.2,
+                                    "status": "short",
+                                },
+                                "right": None,
+                                "status": "short",
+                                "reason": "",
                             },
                             {
                                 "leg": "east",
                                 "required_m": 96.4,
-                                "available_m": 61.2,
-                                "status": "short",
+                                "left": {
+                                    "leg": "north",
+                                    "available_m": 118.0,
+                                    "available_with_parked_m": 118.0,
+                                    "status": "ok",
+                                },
+                                "right": None,
+                                "status": "ok",
+                                "reason": "",
                             },
                             {
                                 "leg": "west",
                                 "required_m": 96.4,
-                                "available_m": 0.0,
+                                "left": None,
+                                "right": None,
                                 "status": "indeterminate",
+                                "reason": "no crossing approach",
                             },
                         ],
                     }
@@ -259,7 +277,11 @@ def _sheet_inputs(run_dir: Path, *, height_valid: bool = True) -> None:
     eyes = [
         {"approach": "north", "source": "setback", "geometry": eye(331005, 4690014.4)},
         {"approach": "east", "source": "setback", "geometry": eye(331014.4, 4690005)},
-        {"approach": "west", "source": "setback", "geometry": eye(331000 - 4.4, 4690005)},
+        {
+            "approach": "west",
+            "source": "setback",
+            "geometry": eye(331000 - 4.4, 4690005),
+        },
     ]
     fac.write_text(
         json.dumps(
@@ -271,8 +293,13 @@ def _sheet_inputs(run_dir: Path, *, height_valid: bool = True) -> None:
                         "geometry": {
                             "type": "Polygon",
                             "coordinates": [
-                                [[331000, 4690000], [331010, 4690000], [331010, 4690010],
-                                 [331000, 4690010], [331000, 4690000]]
+                                [
+                                    [331000, 4690000],
+                                    [331010, 4690000],
+                                    [331010, 4690010],
+                                    [331000, 4690010],
+                                    [331000, 4690000],
+                                ]
                             ],
                         },
                         "properties": {
@@ -331,7 +358,7 @@ def test_plan_has_required_entities(run_dir):
     )
     assert LICENCE_SHEET in texts
     assert "int-1" in texts  # facility ID
-    assert "north: 118.0 m (need 96.4 m)" in " ".join(texts)
+    assert "east left: 118.0 m (need 96.4 m)" in " ".join(texts)
     assert "west: indeterminate" in texts
 
 
@@ -340,24 +367,28 @@ def test_sightline_red_where_short(run_dir):
     _run(run_dir)
     doc, _ = ezdxf.recover.readfile(run_dir / "10_outputs" / "plan.dxf")
     lines = {e.dxf.color: e for e in doc.modelspace() if e.dxftype() == "LINE"}
-    assert sorted(lines) == [1, 3]  # east short (red), north ok (green)
-    # Eye at (331005, 4690014.4); north sight line runs 118 m along the 150 m leg.
-    north = lines[3]
-    assert north.dxf.start.isclose((331005, 4690014.4, 0), abs_tol=1e-6)
-    assert north.dxf.end.isclose((331005, 4690014.4 + 118.0, 0), abs_tol=1e-6)
-    # East: eye at 331014.4 and available 61.2 m, so the end is at 331075.6.
-    assert lines[1].dxf.end.isclose((331014.4 + 61.2, 4690005, 0), abs_tol=1e-6)
+    assert sorted(lines) == [1, 3]  # north-left short (red), east-left ok (green)
+    # Green: from the east eye (331014.4, 4690005) to 118 m along the north approach from its core edge.
+    assert lines[3].dxf.start.isclose((331014.4, 4690005, 0), abs_tol=1e-6)
+    assert lines[3].dxf.end.isclose((331005, 4690010 + 118.0, 0), abs_tol=1e-6)
+    # Red: from the north eye (331005, 4690014.4) to 61.2 m along the east approach from its core edge.
+    assert lines[1].dxf.start.isclose((331005, 4690014.4, 0), abs_tol=1e-6)
+    assert lines[1].dxf.end.isclose((331010 + 61.2, 4690005, 0), abs_tol=1e-6)
 
 
 def test_sightline_clipped_to_leg(run_dir):
     _sheet_inputs(run_dir)
     isd = json.loads((run_dir / "8_isd" / "isd.json").read_text())
-    isd["facilities"][0]["legs"][0]["available_m"] = 500.0  # longer than the 150 m leg
+    isd["facilities"][0]["legs"][1]["left"]["available_m"] = (
+        500.0  # longer than the 150 m north approach
+    )
     (run_dir / "8_isd" / "isd.json").write_text(json.dumps(isd))
     _run(run_dir)
     doc, _ = ezdxf.recover.readfile(run_dir / "10_outputs" / "plan.dxf")
-    north = next(e for e in doc.modelspace() if e.dxftype() == "LINE" and e.dxf.color == 3)
-    assert north.dxf.end.isclose((331005, 4690010 + 150, 0), abs_tol=1e-6)
+    green = next(
+        e for e in doc.modelspace() if e.dxftype() == "LINE" and e.dxf.color == 3
+    )
+    assert green.dxf.end.isclose((331005, 4690010 + 150, 0), abs_tol=1e-6)
 
 
 def test_profile_sheet_and_exaggeration(run_dir):

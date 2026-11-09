@@ -372,7 +372,7 @@ export default function MapView({ area, facility, element, line, onFacility, onE
       const entry = geoIndex.get(f.id);
       if (!entry) continue;
       for (const s of sightsOf(entry.geo, entry.drive.data.legs[f.id])) {
-        sights.push({ key: `${f.id}-${s.approach}`, facId: f.id, s });
+        sights.push({ key: `${f.id}-${s.approach}-${s.side}`, facId: f.id, s });
       }
     }
   }

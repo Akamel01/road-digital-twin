@@ -18,13 +18,45 @@ export interface EntryMetric {
   reason: string;
 }
 
-export interface LegMetric {
+// One side of an approach: the view to the left or right, along the crossing approach named in leg.
+export interface SideMetric {
   leg: string;
-  required_m: number;
   available_m: number | null;
   available_with_parked_m: number | null;
   status: LegStatus;
+}
+
+// One approach (viewer leg). Its status is the worse of its two sides; a null side has no crossing approach.
+export interface LegMetric {
+  leg: string;
+  required_m: number;
+  left: SideMetric | null;
+  right: SideMetric | null;
+  status: LegStatus;
   reason: string;
+}
+
+const RANK: Record<LegStatus, number> = { ok: 0, short: 1, indeterminate: 2 };
+
+/** The side that sets the leg's status: the worse status, then the shorter available distance. Null if no side. */
+export function worseSide(leg: LegMetric): { side: "left" | "right"; m: SideMetric } | null {
+  const sides = (["left", "right"] as const).flatMap((side) => (leg[side] ? [{ side, m: leg[side] }] : []));
+  if (sides.length === 0) return null;
+  return sides.reduce((w, s) => {
+    const by = RANK[s.m.status] - RANK[w.m.status];
+    if (by !== 0) return by > 0 ? s : w;
+    return (s.m.available_m ?? -1) < (w.m.available_m ?? -1) ? s : w;
+  });
+}
+
+/** Both sides on one line, for a title tooltip: "L E: 104 m (104 m with parked) · R W: no crossing approach". */
+export function sideDetail(leg: LegMetric): string {
+  const part = (label: string, m: SideMetric | null) => {
+    if (!m) return `${label}: no crossing approach`;
+    const val = m.available_m === null ? "indeterminate" : `${m.available_m} m (${m.available_with_parked_m ?? "—"} m with parked)`;
+    return `${label} ${m.leg}: ${val}`;
+  };
+  return `${part("L", leg.left)} · ${part("R", leg.right)}`;
 }
 
 export interface RunMetrics {

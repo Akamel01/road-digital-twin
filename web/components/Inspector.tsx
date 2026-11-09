@@ -1,6 +1,6 @@
 "use client";
 
-import { ELEMENT_LABEL, ELEMENT_NAMES, FEATURE_COUNT, methodOf, type EntryMetric, type LegMetric, type RunMetrics } from "@/lib/runmetrics";
+import { ELEMENT_LABEL, ELEMENT_NAMES, FEATURE_COUNT, methodOf, sideDetail, worseSide, type EntryMetric, type LegMetric, type RunMetrics } from "@/lib/runmetrics";
 import { typeLabel, type AreaFacility, type AreaIndex } from "@/lib/showcase";
 import { fmt, type Step } from "@/lib/summary";
 
@@ -202,20 +202,23 @@ export function FacilityPanel({
                   </tr>
                 </thead>
                 <tbody>
-                  {legs.map((l) => (
-                    <tr key={l.leg}>
+                  {legs.map((l) => {
+                    const w = worseSide(l)?.m;
+                    return (
+                    <tr key={l.leg} title={sideDetail(l)}>
                       <td>
                         <button type="button" className="rowbtn" onClick={() => onOpenElement(`isd-${l.leg}`)}>
                           {cap(l.leg)}
                         </button>
                       </td>
-                      <td>{l.available_m ?? "—"}</td>
-                      <td>{l.available_with_parked_m ?? "—"}</td>
+                      <td>{w?.available_m ?? "—"}</td>
+                      <td>{w?.available_with_parked_m ?? "—"}</td>
                       <td>
                         <LegTag leg={l} heightOff={heightOff} />
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </>
@@ -310,14 +313,15 @@ export function ElementPanel({
         </div>
         <div className="lead">
           <div className="big num">
-            {leg.available_m ?? "—"}
-            <small>{leg.available_m === null ? "" : " m"}</small>
+            {worseSide(leg)?.m.available_m ?? "—"}
+            <small>{worseSide(leg)?.m.available_m == null ? "" : " m"}</small>
           </div>
           <div className="sub">
             {leg.status === "indeterminate"
               ? `Indeterminate: ${leg.reason}`
-              : `available · ${leg.available_with_parked_m ?? "—"} m with parked cars · ${leg.required_m} m required`}
+              : `available · ${worseSide(leg)?.m.available_with_parked_m ?? "—"} m with parked cars · ${leg.required_m} m required`}
           </div>
+          <div className="sub">{sideDetail(leg)}</div>
         </div>
         <div className="chips">
           <span className="chip">AASHTO {isd.case}</span>
