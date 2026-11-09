@@ -77,7 +77,10 @@ def test_fake_accuracy_matches_real_stage(out, tmp_path):
     copy = tmp_path / run.name
     shutil.copytree(run, copy)
     ctx = StageContext(
-        run_dir=copy, scene_token="fake-scene-0001", seed=0, log=logging.getLogger("test")
+        run_dir=copy,
+        scene_token="fake-scene-0001",
+        seed=0,
+        log=logging.getLogger("test"),
     )
     result = registry.lookup("accuracy", "one-way")(ctx, AccuracyParams())
     real = result.metrics
@@ -251,5 +254,21 @@ def test_real_outputs_stage_end_to_end_with_colour(tmp_path):
 
 def test_showcase_has_profile_and_downloads(out):
     for run in _runs(out):
-        for f in ("manifest.json", "twin.geojson", "profile.csv", "twin.laz", "plan.pdf"):
+        for f in (
+            "manifest.json",
+            "twin.geojson",
+            "profile.csv",
+            "twin.laz",
+            "plan.pdf",
+        ):
             assert (out / "showcase" / run.name / f).is_file(), f
+
+
+def test_same_inputs_give_identical_metrics(tmp_path):
+    """The fake pipeline run twice gives the same metrics for every stage (issue 139)."""
+    metrics = []
+    for k in range(2):
+        write_fake_runs(tmp_path / f"r{k}", drives=1)
+        run = _runs(tmp_path / f"r{k}")[0]
+        metrics.append(json.loads((run / "manifest.json").read_text())["metrics"])
+    assert metrics[0] == metrics[1]

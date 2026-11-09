@@ -150,3 +150,20 @@ def test_observed_core_marks_not_scanned(tmp_path):
     assert qa["observed_core"]["I-scanned"] > 0.95
     assert qa["observed_core"]["S-empty"] == 0.0
     assert qa["not_scanned_enough"] == ["S-empty"]
+
+
+def test_ransac_ground_repeats_exactly_and_follows_the_seed():
+    """Same points and seed give the same ground mask every time (issue 139); a different seed may differ."""
+    from twin.contracts import GroundParams
+    from twin.stages.ground import ransac_ground
+
+    rng = np.random.default_rng(0)
+    n = 4000
+    xyz = np.column_stack(
+        [rng.uniform(0, 10, n), rng.uniform(0, 10, n), rng.normal(0, 0.01, n)]
+    )
+    xyz[:600, 2] += rng.uniform(0.3, 2.0, 600)  # clutter above the road
+    first = ransac_ground(xyz, GroundParams(), seed=7)
+    for _ in range(3):
+        assert (ransac_ground(xyz, GroundParams(), seed=7) == first).all()
+    assert first[600:].mean() > 0.9 and first[:600].mean() < 0.2
