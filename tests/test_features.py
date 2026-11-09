@@ -453,7 +453,7 @@ def test_marking_types():
     assert marking_type(LineString([(50.2, -1.5), (50.2, 1.5)]), REF) == "stop_line"
     assert marking_type(LineString([(21, -2), (21, 2)]), REF) == "crosswalk_stripe"
     # near the divider but crossing it: not a divider
-    assert marking_type(LineString([(60, -1), (60, 1)]), REF) == "other_paint"
+    assert marking_type(LineString([(60, -2), (60, 2)]), REF) == "other_paint"
     # parallel but 5 m from any divider
     assert marking_type(LineString([(5, 5), (15, 5)]), REF) == "other_paint"
     # near the stop line but along the lane
