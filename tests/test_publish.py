@@ -33,7 +33,13 @@ def _site(runs, tmp_path, **limits):
 def test_layout_and_area_validate(runs, tmp_path):
     site, run_ids = _site(runs, tmp_path)
     for rid in run_ids:
-        for name in ("twin.geojson", "manifest.json", "twin.laz", "plan.pdf", "profile.csv"):
+        for name in (
+            "twin.geojson",
+            "manifest.json",
+            "twin.laz",
+            "plan.pdf",
+            "profile.csv",
+        ):
             assert (site / rid / name).is_file(), name
         for raster in ("lidar", "ortho", "coverage"):
             assert (site / "tiles" / rid / raster / "0" / "0" / "0.webp").is_file()

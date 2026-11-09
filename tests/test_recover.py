@@ -47,7 +47,9 @@ def test_live_lock_holder_is_left_alone(tmp_path):
     held.acquire()
     try:
         assert recover_interrupted(tmp_path / "store") == []
-        manifest = Manifest.model_validate_json((run_dirs[0] / "manifest.json").read_text())
+        manifest = Manifest.model_validate_json(
+            (run_dirs[0] / "manifest.json").read_text()
+        )
         assert [s.status for s in manifest.stages if s.name == "ground"] == ["running"]
         assert (tmp_path / "store" / CURRENT_FILE).exists()
     finally:
@@ -56,7 +58,6 @@ def test_live_lock_holder_is_left_alone(tmp_path):
 
 def test_missing_store_is_noop(tmp_path):
     assert recover_interrupted(tmp_path / "nope") == []
-
 
 
 def test_stage_is_marked_running_while_it_runs(tmp_path, monkeypatch):
@@ -71,7 +72,9 @@ def test_stage_is_marked_running_while_it_runs(tmp_path, monkeypatch):
     for name in STAGE_NAMES:
 
         def run(ctx, params, name=name):
-            manifest = Manifest.model_validate_json((ctx.run_dir / "manifest.json").read_text())
+            manifest = Manifest.model_validate_json(
+                (ctx.run_dir / "manifest.json").read_text()
+            )
             seen[name] = manifest.stages[-1].status
             return StageResult(status="ok")
 

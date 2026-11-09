@@ -146,7 +146,10 @@ def test_extra_origin_only_when_env_set(store, access, monkeypatch):
     local = "http://localhost:3000"
     monkeypatch.delenv("TWIN_EXTRA_ORIGIN", raising=False)
     client = TestClient(create_app(store, access.verifier))
-    assert "access-control-allow-origin" not in client.get("/api/r/runs", headers={"Origin": local}).headers
+    assert (
+        "access-control-allow-origin"
+        not in client.get("/api/r/runs", headers={"Origin": local}).headers
+    )
 
     monkeypatch.setenv("TWIN_EXTRA_ORIGIN", f"{local}, http://127.0.0.1:3000")
     client = TestClient(create_app(store, access.verifier))

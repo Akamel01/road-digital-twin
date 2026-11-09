@@ -121,7 +121,9 @@ def _rasters(
         rasters["ortho"] = ortho
         observed = ortho[..., 3] > 0
     coverage = np.zeros((side, side, 4), np.uint8)
-    coverage[lidar[..., 3] > 0] = UNOBSERVED  # ground the lidar saw but no camera coloured
+    coverage[lidar[..., 3] > 0] = (
+        UNOBSERVED  # ground the lidar saw but no camera coloured
+    )
     coverage[observed] = OBSERVED
     rasters["coverage"] = coverage
     bbox = (x0, y0, x0 + side * cell, y0 + side * cell)
@@ -188,7 +190,10 @@ def publish_runs(
         outputs = _stage(run_dir, "outputs")
         for name in PUBLIC_FILES:
             shutil.copy(outputs / name, dest / name)
-        for name in ("profile.csv", "centrelines.geojson"):  # the profile stage is optional
+        for name in (
+            "profile.csv",
+            "centrelines.geojson",
+        ):  # the profile stage is optional
             if (_stage(run_dir, "profile") / name).exists():
                 shutil.copy(_stage(run_dir, "profile") / name, dest / name)
         _thin_laz(outputs / "twin.laz", dest / "twin.laz", max_file_bytes)

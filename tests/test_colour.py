@@ -220,7 +220,9 @@ def test_marking_with_painted_stripe_is_confirmed():
 
 
 def test_stripe_absent_from_image_is_not_confirmed():
-    rgba, origin = _ortho_with_stripe(3.0, 3.1)  # paint far from the lidar line, outside the search window
+    rgba, origin = _ortho_with_stripe(
+        3.0, 3.1
+    )  # paint far from the lidar line, outside the search window
     offs = colour.marking_offsets(rgba, origin, 0.05, [_marking("gone", LIDAR_LINE)])
     assert len(offs["gone"]) == 0
     assert colour.camera_confirmed(offs) == []

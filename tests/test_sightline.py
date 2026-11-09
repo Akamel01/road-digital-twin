@@ -67,7 +67,9 @@ def test_fence_crossing_line_blocks():
 
 def test_wall_outside_band_does_not_block():
     # 0.3 m band: a wall 1 m to the side of the line is not on it.
-    wall = np.column_stack([np.full(40, 7.5), np.full(40, 1.0), np.linspace(0.1, 2.0, 40)])
+    wall = np.column_stack(
+        [np.full(40, 7.5), np.full(40, 1.0), np.linspace(0.1, 2.0, 40)]
+    )
     assert _run(_surface(), nonground=wall).status == CLEAR
 
 

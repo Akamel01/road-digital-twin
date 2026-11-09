@@ -114,9 +114,9 @@ def test_bad_token_refused(client, store, stubs, access, token_kwargs, status):
     if kwargs.get("key") == "forged":
         kwargs["key"] = access.forged
     token = access.token(**kwargs)
-    resp = client.post(NEW, json={"scene_token": "scene-1"}, headers={
-        "Cf-Access-Jwt-Assertion": token
-    })
+    resp = client.post(
+        NEW, json={"scene_token": "scene-1"}, headers={"Cf-Access-Jwt-Assertion": token}
+    )
     assert resp.status_code == status, resp.text
     assert not any(p.is_dir() for p in store.iterdir())
 
@@ -124,7 +124,12 @@ def test_bad_token_refused(client, store, stubs, access, token_kwargs, status):
 def test_cancel_and_rerun_need_token(client, store, stubs):
     run_id = "20000101-000000-abcdef"
     assert client.post(f"/api/w/runs/{run_id}/cancel").status_code == 401
-    assert client.post(f"/api/w/runs/{run_id}/rerun", json={"from_stage": "load"}).status_code == 401
+    assert (
+        client.post(
+            f"/api/w/runs/{run_id}/rerun", json={"from_stage": "load"}
+        ).status_code
+        == 401
+    )
 
 
 def test_cors_preflight_allows_panel_origin(client):
@@ -152,7 +157,9 @@ def test_invalid_pipeline_422(client, auth, store, stubs):
 
 
 def test_unknown_param_422(client, auth, store, stubs):
-    resp = client.post(NEW, json={"scene_token": "scene-1", "params": {"bogus": 1}}, headers=auth)
+    resp = client.post(
+        NEW, json={"scene_token": "scene-1", "params": {"bogus": 1}}, headers=auth
+    )
     assert resp.status_code == 422
 
 
@@ -181,7 +188,9 @@ def test_rerun_from_later_stage_202(client, auth, store, stubs):
 
 def test_rerun_unknown_run_404(client, auth, stubs):
     resp = client.post(
-        "/api/w/runs/20000101-000000-abcdef/rerun", json={"from_stage": "load"}, headers=auth
+        "/api/w/runs/20000101-000000-abcdef/rerun",
+        json={"from_stage": "load"},
+        headers=auth,
     )
     assert resp.status_code == 404
 
@@ -254,7 +263,9 @@ def test_whoami_returns_operator_email(client, auth):
 
 def test_signin_redirects_to_panel_page(client, auth):
     target = f"{ALLOWED_ORIGIN}/dev/?run=1"
-    resp = client.get("/api/w/signin", params={"next": target}, headers=auth, follow_redirects=False)
+    resp = client.get(
+        "/api/w/signin", params={"next": target}, headers=auth, follow_redirects=False
+    )
     assert resp.status_code == 302
     assert resp.headers["location"] == target
 
@@ -276,14 +287,18 @@ def test_signin_redirects_to_panel_page(client, auth):
     ],
 )
 def test_signin_refuses_other_targets(client, auth, target):
-    resp = client.get("/api/w/signin", params={"next": target}, headers=auth, follow_redirects=False)
+    resp = client.get(
+        "/api/w/signin", params={"next": target}, headers=auth, follow_redirects=False
+    )
     assert resp.status_code == 400
     assert "location" not in resp.headers
 
 
 def test_signin_needs_token(client):
     resp = client.get(
-        "/api/w/signin", params={"next": f"{ALLOWED_ORIGIN}/dev/"}, follow_redirects=False
+        "/api/w/signin",
+        params={"next": f"{ALLOWED_ORIGIN}/dev/"},
+        follow_redirects=False,
     )
     assert resp.status_code == 401
 
@@ -293,10 +308,14 @@ def test_signin_extra_origin_only_when_env_set(store, access, monkeypatch, auth)
     target = f"{local}/dev/"
     monkeypatch.delenv("TWIN_EXTRA_ORIGIN", raising=False)
     client = TestClient(create_app(store, access.verifier))
-    resp = client.get("/api/w/signin", params={"next": target}, headers=auth, follow_redirects=False)
+    resp = client.get(
+        "/api/w/signin", params={"next": target}, headers=auth, follow_redirects=False
+    )
     assert resp.status_code == 400
 
     monkeypatch.setenv("TWIN_EXTRA_ORIGIN", local)
     client = TestClient(create_app(store, access.verifier))
-    resp = client.get("/api/w/signin", params={"next": target}, headers=auth, follow_redirects=False)
+    resp = client.get(
+        "/api/w/signin", params={"next": target}, headers=auth, follow_redirects=False
+    )
     assert resp.status_code == 302 and resp.headers["location"] == target
