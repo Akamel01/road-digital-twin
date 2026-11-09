@@ -414,6 +414,73 @@ def test_profile_indeterminate_when_height_invalid(run_dir):
     ]
 
 
+def test_multipart_geometries_draw_on_plan(run_dir):
+    feat = run_dir / "5_features"
+    crosswalk = {
+        "type": "MultiPolygon",
+        "coordinates": [
+            [  # exterior ring with a hole
+                [
+                    [331000, 4690000],
+                    [331004, 4690000],
+                    [331004, 4690004],
+                    [331000, 4690004],
+                    [331000, 4690000],
+                ],
+                [
+                    [331001, 4690001],
+                    [331002, 4690001],
+                    [331002, 4690002],
+                    [331001, 4690002],
+                    [331001, 4690001],
+                ],
+            ],
+            [
+                [
+                    [331010, 4690000],
+                    [331014, 4690000],
+                    [331014, 4690004],
+                    [331010, 4690004],
+                    [331010, 4690000],
+                ]
+            ],
+        ],
+    }
+    marking = {
+        "type": "MultiLineString",
+        "coordinates": [
+            [[331020, 4690000, 10.0], [331025, 4690000, 10.0]],
+            [[331020, 4690002, 10.0], [331025, 4690002, 10.0]],
+        ],
+    }
+    (feat / "crosswalks.geojson").write_text(
+        _fc([{"type": "Feature", "geometry": crosswalk, "properties": {"id": "c1"}}])
+    )
+    (feat / "markings.geojson").write_text(
+        _fc(
+            [
+                {
+                    "type": "Feature",
+                    "geometry": marking,
+                    "properties": {"id": "m1", "kind": "marking"},
+                }
+            ]
+        )
+    )
+
+    _run(run_dir)
+
+    out = run_dir / "10_outputs"
+    doc, auditor = ezdxf.recover.readfile(out / "plan.dxf")
+    assert not auditor.has_errors
+    polys = [e for e in doc.modelspace() if e.dxftype() == "LWPOLYLINE"]
+    assert (
+        len([e for e in polys if e.dxf.layer == "CROSSWALKS"]) == 3
+    )  # two rings, one part
+    assert len([e for e in polys if e.dxf.layer == "MARKINGS"]) == 2
+    assert (out / "plan.pdf").read_bytes().startswith(b"%PDF")
+
+
 def test_profile_omitted_without_profile_csv(run_dir):
     result = _run(run_dir)
     assert "profile.dxf" not in result.files
