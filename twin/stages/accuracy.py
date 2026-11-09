@@ -125,7 +125,9 @@ def _entry(
     ref_len: float,
     label: str = "",
     reason: str = "",
+    n_elements: int = 0,
 ) -> dict[str, Any]:
+    """n = elements scored; n_samples = 0.25 m sample points behind P50/P95."""
     layer_name = ", ".join(layers) if isinstance(layers, tuple) else layers
     if not reason and len(dists) == 0:
         reason = "no observed elements"
@@ -137,7 +139,8 @@ def _entry(
             "p50_m": None,
             "p95_m": None,
             "coverage": None,
-            "n": len(dists),
+            "n": n_elements,
+            "n_samples": len(dists),
             "label": label,
             "reason": reason,
         }
@@ -146,7 +149,8 @@ def _entry(
         "p50_m": round(float(np.percentile(dists, 50)), 3),
         "p95_m": round(float(np.percentile(dists, 95)), 3),
         "coverage": round(min(matched / ref_len, 1.0), 3),
-        "n": len(dists),
+        "n": n_elements,
+        "n_samples": len(dists),
         "label": label,
         "reason": "",
     }
@@ -200,7 +204,12 @@ def run_one_way(ctx: Any, params: AccuracyParams) -> StageResult:
         dists = _vertex_distances(geoms, r)
         matched = _matched(geoms, r, buffer_m, area)
         per_element[kind] = _entry(
-            REFERENCE[kind], dists, matched, _size(r, area), LABELS.get(kind, "")
+            REFERENCE[kind],
+            dists,
+            matched,
+            _size(r, area),
+            LABELS.get(kind, ""),
+            n_elements=len(geoms),
         )
     for kind in elements:
         if kind not in active:
@@ -224,6 +233,7 @@ def run_one_way(ctx: Any, params: AccuracyParams) -> StageResult:
             )
             continue
         dist_parts: list[np.ndarray] = []
+        n_members = 0
         matched = ref_len = 0.0
         used_layers: list[str] = []
         used_labels: set[str] = set()
@@ -238,6 +248,7 @@ def run_one_way(ctx: Any, params: AccuracyParams) -> StageResult:
             area = kind in AREA_TYPES
             ref_len += _size(clipped, area)
             matched += _matched(members, clipped, buffer_m, area)
+            n_members += len(members)
             if members:
                 dist_parts.append(_vertex_distances(members, r))
                 used_layers.extend(REFERENCE[kind])
@@ -250,6 +261,7 @@ def run_one_way(ctx: Any, params: AccuracyParams) -> StageResult:
             matched,
             ref_len,
             ", ".join(sorted(used_labels)),
+            n_elements=n_members,
         )
 
     doc = {
