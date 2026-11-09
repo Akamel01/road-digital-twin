@@ -197,3 +197,37 @@ def test_stripe_shifted_outside_gives_p95_of_its_offset(tmp_path):
     cw = doc["elements"]["crosswalks"]
     assert cw["p50_m"] == 0.0
     assert cw["p95_m"] == pytest.approx(0.3, abs=0.01)
+
+
+def test_curbs_off_leave_no_curb_label_on_facility(tmp_path):
+    # Curbs disabled: no curb file, so the facility entry is not labelled map-conditioned.
+    ref = [_ref([[0, 0], [100, 0]], "lane_divider")]
+    doc = _run(tmp_path, ref, [_line([[x, 0.1] for x in range(10, 31)])], curbs=None)
+    assert "curbs" not in doc["elements"]
+    assert doc["facilities"]["I-0001"]["label"] == ""
+
+
+def test_not_scanned_facility_has_reason_and_no_numbers(tmp_path):
+    ref = [_ref([[0, 0], [100, 0]], "lane_divider")]
+    doc = _run(
+        tmp_path,
+        ref,
+        [_line([[x, 0.1] for x in range(10, 31)])],
+        qa={"not_scanned_enough": ["I-0001"]},
+    )
+    fac = doc["facilities"]["I-0001"]
+    assert fac["reason"] == "not scanned enough"
+    assert fac["p50_m"] is None and fac["p95_m"] is None and fac["coverage"] is None
+
+
+def test_result_metrics_are_the_accuracy_document(tmp_path):
+    # The runner stores StageResult.metrics as manifest metrics["accuracy"], so they must equal the file.
+    run = tmp_path / "run"
+    run.mkdir()
+    _write(run, "load", "reference.geojson", _fc([_ref([[0, 0], [100, 0]], "lane_divider")]))
+    _write(run, "load", "facilities.geojson", _fc([_core()]))
+    _write(run, "features", "markings.geojson", _fc([_line([[x, 0.1] for x in range(10, 31)])]))
+    _write(run, "features", "crosswalks.geojson", _fc([]))
+    _write(run, "features", "qa.json", {"not_scanned_enough": []})
+    result = registry.lookup("accuracy", "one-way")(_ctx(run), AccuracyParams())
+    assert result.metrics == json.loads((run / "9_accuracy" / "accuracy.json").read_text())

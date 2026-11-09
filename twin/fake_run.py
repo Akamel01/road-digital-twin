@@ -20,7 +20,7 @@ import laspy
 import numpy as np
 import yaml
 from PIL import Image
-from shapely.geometry import LineString, Point, mapping
+from shapely.geometry import LineString, Point, Polygon, mapping
 
 from twin import fixtures as fx
 from twin import registry
@@ -41,6 +41,7 @@ from twin.contracts import (
 )
 from twin.publish import PUBLIC_FILES
 from twin.runner import StageContext
+from twin.stages.profile import facility_lines, sample_line
 from twin.tiles import write_tiles
 
 RUN_DATE = "20261108"
@@ -296,18 +297,29 @@ def _las(
     las.write(path)
 
 
-_DIRS = {"north": (0.0, 1.0), "east": (1.0, 0.0), "exit": (0.0, 1.0)}
+_DIRS = {
+    "north": (0.0, 1.0),
+    "south": (0.0, -1.0),
+    "east": (1.0, 0.0),
+    "west": (-1.0, 0.0),
+    "exit": (0.0, 1.0),
+}
+# Legs per facility type. An intersection has four arms, so its profile has two through lines.
+LEGS = {"intersection": ["north", "south", "east", "west"], "access_point": ["exit"]}
 
 
-def _leg(core: tuple, name: str) -> LineString:
-    """Leg line from the core edge facing the approach, out to ISD_REQUIRED_M."""
+def _leg_local(core: tuple, name: str) -> LineString:
+    """Leg line in local metres, from the core edge facing the approach, out to ISD_REQUIRED_M."""
     x0, x1, y0, y1 = core
     dx, dy = _DIRS[name]
     sx = (x0 + x1) / 2 + dx * (x1 - x0) / 2
     sy = (y0 + y1) / 2 + dy * (y1 - y0) / 2
-    return LineString(
-        [_p3(sx, sy, 0)[:2], _p3(sx + dx * ISD_REQUIRED_M, sy + dy * ISD_REQUIRED_M, 0)[:2]]
-    )
+    return LineString([(sx, sy), (sx + dx * ISD_REQUIRED_M, sy + dy * ISD_REQUIRED_M)])
+
+
+def _leg(core: tuple, name: str) -> LineString:
+    """The same leg in UTM, as the GeoJSON files store it."""
+    return LineString([_p3(x, y, 0)[:2] for x, y in _leg_local(core, name).coords])
 
 
 def _load(d: Path, c: _Ctx) -> dict:
@@ -348,9 +360,7 @@ def _load(d: Path, c: _Ctx) -> dict:
             for x, y in [(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)]
         ]
         legs, eyes = [], []
-        for name in {"intersection": ["north", "east"], "access_point": ["exit"]}.get(
-            f.type, []
-        ):
+        for name in LEGS.get(f.type, []):
             leg = _leg(f.core, name)
             eye = Point(*leg.interpolate(Params().isd.eye_setback_m).coords[0])
             legs.append({"approach": name, "geometry": mapping(leg)})
@@ -387,7 +397,13 @@ def _load(d: Path, c: _Ctx) -> dict:
         ]
     }
     _dump(d / "cameras.json", cams)
-    return {"load": {"points": len(pts), "sweeps": N_SWEEPS, "facilities": len(facs)}}
+    # The load stage's real metrics (twin/stages/load.py), the same keys the runner copies into the manifest.
+    return {
+        "n_sweeps": N_SWEEPS,
+        "n_points": len(pts),
+        "n_facilities": len(facs),
+        "osm_names": {"overpass_query_date": "2026-11-08", "licence": "ODbL"},
+    }
 
 
 def _mask(d: Path, c: _Ctx) -> dict:
@@ -397,20 +413,33 @@ def _mask(d: Path, c: _Ctx) -> dict:
     keep = ~(parked | moving)
     np.savez_compressed(d / "points.npz", **_cols(pts[keep], sweep[keep]))
     np.savez_compressed(d / "parked.npz", **_cols(pts[parked], sweep[parked]))
+    n_parked = int(parked.sum())
+    n_dropped = int((moving & ~parked).sum())
+    # Same keys as twin/stages/mask.py.
     return {
-        "mask": {
-            "kept": int(keep.sum()),
-            "removed": int((~keep).sum()),
-            "parked": int(parked.sum()),
-        }
+        "n_in": n_parked + n_dropped,
+        "n_kept": int(keep.sum()),
+        "n_parked": n_parked,
+        "n_dropped_moving": n_dropped,
     }
 
 
 def _align(d: Path, c: _Ctx) -> dict:
     dx, dy = 0.012 + 0.005 * c.index, -0.004
     _dump(d / "poses.json", _pose_doc(dx, dy))
-    _dump(d / "qa.json", {"x_drift_m": dx, "y_drift_m": dy, "fallback_used": False})
-    return {"align": {"x_drift_m": dx, "y_drift_m": dy}}
+    # Same keys as twin/stages/align.py (qa.json and the manifest metrics).
+    drift = round(float(np.hypot(dx, dy)), 4)
+    qa = {
+        "method": "kiss-icp",
+        "fallback_used": False,
+        "fallback_reason": None,
+        "xy_drift_p50_m": drift,
+        "xy_drift_p95_m": drift,
+        "yaw_drift_p95_deg": 0.0,
+        "n_sweeps": N_SWEEPS,
+    }
+    _dump(d / "qa.json", qa)
+    return qa
 
 
 def _plane_residuals(road: np.ndarray):
@@ -442,13 +471,26 @@ def _ground(d: Path, c: _Ctx) -> dict:
     _las(d / "nonground.laz", np.vstack([c.canopy, c.wall]), classification=1)
     z, count = _surface(c.plane)
     np.savez_compressed(d / "surface.npz", z=z, count=count)
-    ground = {
+    # Same keys as twin/stages/ground.py; observed_core and not_scanned_enough live in this qa.
+    min_observed = Params().facilities.min_observed
+    qa = {
+        "method": "ransac-tiles",
         "rmse_m": round(rmse, 4),
         "z_disagreement_p95_m": round(p95, 4),
         "height_valid": True,
+        "height_invalid_reason": None,
+        "qa_cell_m": Params().ground.qa_cell_m,
+        "qa_max_p95_m": Params().ground.qa_max_p95_m,
+        "n_ground": len(c.plane),
+        "n_nonground": int(len(c.canopy) + len(c.wall)),
+        "observed_core": {k: round(v, 4) for k, v in c.observed.items()},
+        "min_observed": min_observed,
+        "not_scanned_enough": sorted(
+            k for k, v in c.observed.items() if v < min_observed
+        ),
     }
-    _dump(d / "qa.json", {**ground, "observed_core": c.observed})
-    return {"ground": ground, "observed_core": c.observed}
+    _dump(d / "qa.json", qa)
+    return qa
 
 
 def _features(d: Path, c: _Ctx) -> dict:
@@ -496,7 +538,20 @@ def _features(d: Path, c: _Ctx) -> dict:
         n_points=curb_pts,
     )
     _dump(d / "curbs.geojson", _fc([curb]))
-    return {"features": {"markings": len(markings), "crosswalks": 2, "curbs": 1}}
+    # Same keys as twin/stages/features.py (qa.json and the manifest metrics).
+    qa = {
+        "method": "intensity",
+        "n_ground": len(c.plane),
+        "height_valid": True,
+        "not_scanned_enough": sorted(
+            k for k, v in c.observed.items() if v < Params().facilities.min_observed
+        ),
+        "n_markings": len(markings),
+        "n_crosswalks": len(crosswalks),
+        "n_curbs": 1,
+    }
+    _dump(d / "qa.json", qa)
+    return qa
 
 
 def _colour(d: Path, c: _Ctx) -> dict:
@@ -508,13 +563,22 @@ def _colour(d: Path, c: _Ctx) -> dict:
     pts, _ = _all(c)  # same order as ground.laz then nonground.laz
     observed = pts[:, 0] <= OBSERVED_MAX_X
     np.savez_compressed(d / "rgb.npz", rgb=_class_colour(pts), observed=observed)
+    # Same keys as twin/stages/colour.py. edge_offset_p95_m stays None: the real stage does not measure it yet.
     colour = {
-        "edge_offset_p95_m": round(0.04 + 0.01 * c.index, 3),
-        "views_median": 3,
+        "method": "zbuffer-topk",
+        "ortho_label": "",
         "height_valid": True,
+        "views_median": 3,
+        "observed_share": round(float(observed.mean()), 4),
+        "n_points": len(pts),
+        "n_cameras": N_SWEEPS,
+        "n_cameras_skipped_outside_sweeps": 0,
+        "top_k": Params().colour.top_k,
+        "gsd_m": Params().colour.gsd_m,
+        "edge_offset_p95_m": None,
     }
     _dump(d / "qa.json", colour)
-    return {"colour": colour}
+    return colour
 
 
 def _profile(d: Path, c: _Ctx) -> dict:
@@ -522,26 +586,39 @@ def _profile(d: Path, c: _Ctx) -> dict:
     feats = []
     for f in c.facilities:
         x0, x1, y0, y1 = f.core
-        yc = (y0 + y1) / 2
-        coords = []
-        line = f"{f.id}/main"
-        for s in np.arange(0.0, x1 - x0 + 1e-9, 1.0):
-            x = x0 + float(s)
-            z = float(fx.ground_z(x, yc))
-            rows.append(f"{f.id},{line},{s:.1f},{z:.3f},20")
-            coords.append(_p3(x, yc, z))
-        feats.append(_feat("LineString", coords, facility=f.id, line=line, label="main"))
+        feature = {
+            "geometry": mapping(Polygon([(x0, y0), (x1, y0), (x1, y1), (x0, y1)])),
+            "properties": {
+                "type": f.type,
+                "legs": [{"geometry": mapping(_leg_local(f.core, n))} for n in LEGS.get(f.type, [])],
+            },
+        }
+        for label, line in facility_lines(feature):  # the profile stage's own line rule
+            line_id = f"{f.id}/{label}"
+            coords = []
+            for s, x, y in sample_line(line, 1.0):
+                z = float(fx.ground_z(x, y))
+                rows.append(f"{f.id},{line_id},{s:.1f},{z:.3f},20")
+                coords.append(_p3(x, y, z))
+            feats.append(
+                _feat("LineString", coords, facility=f.id, line=line_id, label=label)
+            )
     (d / "profile.csv").write_text("\n".join(rows) + "\n")
     _dump(d / "centrelines.geojson", _fc(feats))
-    return {}
+    # Same keys as twin/stages/profile.py.
+    return {
+        "height_valid": True,
+        "facilities_profiled": len(feats),
+        "lines": len(feats),
+        "not_scanned_enough": [],
+        "samples": len(rows) - 1,
+    }
 
 
 def _isd(d: Path, c: _Ctx) -> dict:
     facs = []
     for f in c.facilities:
-        names = {"intersection": ["north", "east"], "access_point": ["exit"]}.get(
-            f.type, []
-        )
+        names = LEGS.get(f.type, [])
         not_scanned = c.observed[f.id] < Params().facilities.min_observed
         legs = []
         for k, name in enumerate(names):
@@ -567,50 +644,81 @@ def _isd(d: Path, c: _Ctx) -> dict:
         facs.append({"facility": f.id, "legs": legs})
     doc = {"case": "B1", "facilities": facs}
     _dump(d / "isd.json", doc)
-    return {"isd": doc}
+    # No real isd stage is merged yet; this keeps the shape the web reads (manifest metrics isd.facilities).
+    return doc
 
 
 def _entry(
-    layer: str, p50: float, p95: float, cov: float, n: int, label: str = ""
+    layer: str,
+    p50: float | None,
+    p95: float | None,
+    cov: float | None,
+    n: int,
+    label: str = "",
+    reason: str = "",
 ) -> dict:
+    """One accuracy entry, the same keys as twin/stages/accuracy.py _entry."""
     return {
         "reference_layer": layer,
-        "p50_m": round(p50, 3),
-        "p95_m": round(p95, 3),
-        "coverage": round(cov, 3),
+        "p50_m": None if p50 is None else round(p50, 3),
+        "p95_m": None if p95 is None else round(p95, 3),
+        "coverage": None if cov is None else round(cov, 3),
         "n": n,
+        "n_samples": 0 if reason else 4 * n,
         "label": label,
+        "reason": reason,
     }
 
 
 def _accuracy(d: Path, c: _Ctx) -> dict:
+    """Same document as the real one-way stage: method, buffer_m, elements, facilities, qa."""
     base = 0.01 * c.index
     elements = {
-        "markings": _entry("lane_divider", 0.05 + base, 0.13 + base, 0.71, 42),
+        "markings": _entry("lane_divider, road_divider", 0.05 + base, 0.13 + base, 0.71, 42),
         "crosswalks": _entry("ped_crossing", 0.07 + base, 0.18 + base, 0.5, 2),
         "curbs": _entry(
             "drivable_area", 0.08 + base, 0.21 + base, 0.64, 18, "map-conditioned"
         ),
     }
-    facilities = {
-        f.id: _entry("drivable_area", 0.09 + base, 0.2 + base, c.observed[f.id], 10)
-        for f in c.facilities
+    min_observed = Params().facilities.min_observed
+    facilities = {}
+    for f in c.facilities:
+        if c.observed[f.id] < min_observed:
+            facilities[f.id] = _entry("", None, None, None, 0, "", "not scanned enough")
+        else:
+            facilities[f.id] = _entry(
+                "lane_divider, road_divider, ped_crossing, drivable_area",
+                0.09 + base,
+                0.2 + base,
+                c.observed[f.id],
+                10,
+                "map-conditioned",
+            )
+    doc = {
+        "method": "one-way",
+        "buffer_m": Params().accuracy.buffer_m,
+        "elements": elements,
+        "facilities": facilities,
+        "qa": {
+            "n_observed_only": True,
+            "n_excluded_not_observed": 0,
+            "absent_element_files": [],
+            "markings_extractable": True,
+        },
     }
-    doc = {"elements": elements, "facilities": facilities}
     _dump(d / "accuracy.json", doc)
-    return {"accuracy": doc}
+    return doc
 
 
 def _outputs(d: Path, c: _Ctx) -> dict:
-    """The real outputs stage, run over the synthetic stage folders."""
+    """The real outputs stage, run over the synthetic stage folders. Returns its own metrics."""
     ctx = StageContext(
         run_dir=d.parent,
         scene_token=c.spec.scene_token,
         seed=0,
         log=logging.getLogger("fake-run"),
     )
-    registry.lookup("outputs", "dxf-pdf")(ctx, None)
-    return {}
+    return registry.lookup("outputs", "dxf-pdf")(ctx, None).metrics
 
 
 WRITERS = {
@@ -680,7 +788,9 @@ def _write_run(out: Path, index: int, showcase: Path) -> str:
         folder = run_dir / f"{STAGES[name].number}_{name}"
         folder.mkdir()
         stage_metrics = WRITERS[name](folder, ctx)
-        metrics.update(stage_metrics)
+        # The runner's rule: each stage's metrics sit under the stage name (twin/runner.py).
+        if stage_metrics:
+            metrics[name] = stage_metrics
         result = StageResult(
             status="ok",
             files=list(STAGES[name].outputs),
@@ -722,7 +832,8 @@ def _write_run(out: Path, index: int, showcase: Path) -> str:
     for name in (*PUBLIC_FILES, "twin.laz"):  # what publish copies; LAZ is not thinned here
         shutil.copy(run_dir / "10_outputs" / name, showcase / run_id / name)
     shutil.copy(run_dir / "manifest.json", showcase / run_id / "manifest.json")
-    shutil.copy(run_dir / "7_profile" / "profile.csv", showcase / run_id / "profile.csv")
+    for name in ("profile.csv", "centrelines.geojson"):
+        shutil.copy(run_dir / "7_profile" / name, showcase / run_id / name)
     return run_id
 
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { loadProfile, loadRunMetrics, type ProfilePoint } from "@/lib/runmetrics";
+import { loadProfile, loadRunMetrics, type ProfileLine, type ProfilePoint } from "@/lib/runmetrics";
 import type { AreaFacility } from "@/lib/showcase";
 
 const W = 1000; // viewBox width; the SVG stretches to the strip
@@ -9,13 +9,16 @@ const H = 60;
 
 interface Loaded {
   key: string; // run and facility the result belongs to
-  rows?: ProfilePoint[];
+  lines?: ProfileLine[];
   heightOff?: boolean;
   error?: string;
 }
 
-/** Ground z along the open facility's core, from its best drive. Descriptive only (spec R1). */
-export default function Profile({ facility }: { facility: AreaFacility | null }) {
+/**
+ * Ground z along one road line of the open facility, from its best drive. `line` is the selected line's id;
+ * when it is unset or not in this facility, the first line shows. Descriptive only (spec R1).
+ */
+export default function Profile({ facility, line }: { facility: AreaFacility | null; line: string | null }) {
   const run = facility?.best_run ?? null;
   const fid = facility?.id ?? null;
   const [state, setState] = useState<Loaded | null>(null);
@@ -25,8 +28,8 @@ export default function Profile({ facility }: { facility: AreaFacility | null })
     const key = `${run}|${fid}`;
     let live = true;
     Promise.all([loadRunMetrics(run), loadProfile(run, fid)]).then(
-      ([m, rows]) => {
-        if (live) setState({ key, rows, heightOff: m.ground?.height_valid === false });
+      ([m, lines]) => {
+        if (live) setState({ key, lines, heightOff: m.ground?.height_valid === false });
       },
       (e: unknown) => {
         if (live) setState({ key, error: e instanceof Error ? e.message : String(e) });
@@ -64,7 +67,7 @@ export default function Profile({ facility }: { facility: AreaFacility | null })
       </section>
     );
   }
-  if (current.error || !current.rows) {
+  if (current.error || !current.lines) {
     return (
       <section className="prof glass">
         <div className="over">{title}</div>
@@ -80,7 +83,16 @@ export default function Profile({ facility }: { facility: AreaFacility | null })
       </section>
     );
   }
-  return <Chart title={title} rows={current.rows} />;
+  const sel = current.lines.find((l) => l.id === line) ?? current.lines[0];
+  if (!sel) {
+    return (
+      <section className="prof glass">
+        <div className="over">{title}</div>
+        <div className="empty">No profile points for this facility</div>
+      </section>
+    );
+  }
+  return <Chart title={`Vertical profile · ${facility.name} · ${sel.label} · descriptive`} rows={sel.points} />;
 }
 
 function Chart({ title, rows }: { title: string; rows: ProfilePoint[] }) {

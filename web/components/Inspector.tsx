@@ -1,6 +1,6 @@
 "use client";
 
-import { ELEMENT_LABEL, ELEMENT_NAMES, methodOf, type EntryMetric, type LegMetric, type RunMetrics } from "@/lib/runmetrics";
+import { ELEMENT_LABEL, ELEMENT_NAMES, FEATURE_COUNT, methodOf, type EntryMetric, type LegMetric, type RunMetrics } from "@/lib/runmetrics";
 import { typeLabel, type AreaFacility, type AreaIndex } from "@/lib/showcase";
 import { fmt, type Step } from "@/lib/summary";
 
@@ -15,7 +15,7 @@ const FILES: [string, string][] = [
 ];
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-const pct = (v: number) => Math.round(v * 100);
+const pct = (v: number | null | undefined) => (v == null ? "—" : Math.round(v * 100));
 
 export function LegTag({ leg, heightOff }: { leg: LegMetric; heightOff: boolean }) {
   if (leg.status === "ok") return <span className="tag ok">meets</span>;
@@ -267,7 +267,7 @@ export function ElementPanel({
   const heightOff = run.ground?.height_valid === false;
   // The stages every number passes through, shared by element and sight-line traces.
   const upstream = (): Row[] => [
-    ["load", methodOf(run, "load"), `${run.load?.sweeps ?? "—"} sweeps in this drive`],
+    ["load", methodOf(run, "load"), `${run.load?.n_sweeps ?? "—"} sweeps in this drive`],
     [
       "ground",
       methodOf(run, "ground"),
@@ -276,7 +276,7 @@ export function ElementPanel({
     [
       "align",
       methodOf(run, "align"),
-      `drift ${fmt(run.align?.x_drift_m, 3)} m in x, ${fmt(run.align?.y_drift_m, 3)} m in y, vs dataset poses`,
+      `xy drift P95 ${fmt(run.align?.xy_drift_p95_m, 3)} m vs dataset poses`,
     ],
   ];
   const trace = (rows: Row[]) => (
@@ -327,7 +327,7 @@ export function ElementPanel({
         </div>
         {trace([
           ["isd", methodOf(run, "isd"), `${leg.required_m} m required for ${isd.case}`],
-          ["mask", methodOf(run, "mask"), `${run.mask?.parked ?? "—"} parked-vehicle points kept apart`],
+          ["mask", methodOf(run, "mask"), `${run.mask?.n_parked ?? "—"} parked-vehicle points kept apart`],
           ...upstream(),
         ])}
         <Jump area={area} current={facility.id} onOpenFacility={onOpenFacility} />
@@ -364,7 +364,7 @@ export function ElementPanel({
       </div>
       {trace([
         ["accuracy", methodOf(run, "accuracy"), `one-way distance from each extracted vertex to ${m.reference_layer}`],
-        ["features", methodOf(run, "features"), `${run.features?.[name] ?? "—"} features in this drive`],
+        ["features", methodOf(run, "features"), `${run.features?.[FEATURE_COUNT[name]] ?? "—"} features in this drive`],
         ...upstream(),
       ])}
       <Jump area={area} current={facility.id} onOpenFacility={onOpenFacility} />
