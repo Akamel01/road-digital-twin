@@ -82,6 +82,34 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path(os.environ.get("NUSCENES_ROOT", "/data/nuscenes")),
     )
+    area = sub.add_parser("area", help="study areas").add_subparsers(dest="area_cmd")
+    define = area.add_parser(
+        "define", help="polygon from intersections, and the drives through it"
+    )
+    define.add_argument("name")
+    define.add_argument(
+        "--intersection",
+        action="append",
+        required=True,
+        metavar="TOKEN",
+        help="HD-map intersection token or 8+ char prefix; repeat",
+    )
+    define.add_argument(
+        "--buffer", type=float, default=0.0, help="metres around the intersections"
+    )
+    define.add_argument("--location", default="boston-seaport")
+    define.add_argument("--version", default="v1.0-trainval")
+    define.add_argument(
+        "--include-rain", action="store_true", help="rain drives become build inputs"
+    )
+    define.add_argument(
+        "--dataroot",
+        type=Path,
+        default=Path(os.environ.get("NUSCENES_ROOT", "/data/nuscenes")),
+    )
+    define.add_argument(
+        "--store", type=Path, help="run store (default: $TWIN_RUNS or /data/twin-runs)"
+    )
     publish = sub.add_parser("publish", help="copy runs into a showcase folder")
     publish.add_argument("run_ids", nargs="+", metavar="run-id")
     publish.add_argument("--out", type=Path, required=True, help="showcase folder")
@@ -117,6 +145,19 @@ def main(argv: list[str] | None = None) -> int:
         from twin.select import run_select
 
         return run_select(args.dataroot, args.min_density, args.min_contrast)
+    if args.command == "area" and args.area_cmd == "define":
+        from twin.area import area_define_command
+
+        return area_define_command(
+            args.name,
+            args.intersection,
+            args.buffer,
+            args.location,
+            args.dataroot,
+            args.version,
+            args.store,
+            args.include_rain,
+        )
     if args.command == "publish":
         from twin.publish import publish_command
 
