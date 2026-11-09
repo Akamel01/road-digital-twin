@@ -1,6 +1,6 @@
 // Pipeline summary: the five steps, each with one headline figure. Area scope sums the drives; facility scope
 // reads the facility's best drive. Missing numbers show "—" rather than a made-up value.
-import { ELEMENT_NAMES, type RunMetrics } from "@/lib/runmetrics";
+import { ELEMENT_NAMES, FEATURE_COUNT, type RunMetrics } from "@/lib/runmetrics";
 import type { AreaFacility, AreaIndex } from "@/lib/showcase";
 
 export interface Fig {
@@ -36,15 +36,15 @@ function mean(values: number[]): number | null {
 
 export function areaSteps(area: AreaIndex, runs: Record<string, RunMetrics>): Step[] {
   const loaded = area.drives.flatMap((d) => (runs[d.run_id] ? [runs[d.run_id]] : []));
-  const sweeps = sum(loaded.map((r) => r.load?.sweeps));
-  const drifts = loaded.flatMap((r) => (r.align ? [Math.hypot(r.align.x_drift_m, r.align.y_drift_m)] : []));
+  const sweeps = sum(loaded.map((r) => r.load?.n_sweeps));
+  const drifts = loaded.flatMap((r) => (typeof r.align?.xy_drift_p95_m === "number" ? [r.align.xy_drift_p95_m] : []));
   const observed = mean(area.facilities.map((f) => f.observed_core));
   const validHeight = loaded.filter((r) => r.ground?.height_valid === true).length;
-  const features = (name: (typeof ELEMENT_NAMES)[number]) => sum(loaded.map((r) => r.features?.[name]));
+  const features = (name: (typeof ELEMENT_NAMES)[number]) => sum(loaded.map((r) => r.features?.[FEATURE_COUNT[name]]));
   const worstP95 = loaded.flatMap((r) =>
     ELEMENT_NAMES.flatMap((e) => {
       const p = r.accuracy?.elements?.[e]?.p95_m;
-      return p === undefined ? [] : [p];
+      return p == null ? [] : [p];
     }),
   );
   const legsOf = (f: AreaFacility) => {
@@ -117,7 +117,7 @@ export function facilitySteps(f: AreaFacility, run: RunMetrics | undefined): Ste
       text: "Every drive that passed this facility contributes sweeps.",
       figs: [
         { value: String(f.runs.length), label: f.runs.length === 1 ? "drive over this facility" : "drives over this facility" },
-        { value: fmtInt(run?.load?.sweeps), label: "sweeps in best drive" },
+        { value: fmtInt(run?.load?.n_sweeps), label: "sweeps in best drive" },
       ],
     },
     {

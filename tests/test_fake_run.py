@@ -59,7 +59,41 @@ def test_manifest_valid_all_stages_ok(out):
         assert all(s.status == "ok" for s in m.stages)
         assert m.metrics["ground"]["height_valid"] is True
         assert m.metrics["ground"]["rmse_m"] < 0.05
-        assert 0 < m.metrics["colour"]["edge_offset_p95_m"] < 0.5
+        # The real colour stage does not measure edge offset yet, so the fake writes None too.
+        assert "edge_offset_p95_m" in m.metrics["colour"]
+        assert m.metrics["colour"]["edge_offset_p95_m"] is None
+
+
+def test_fake_accuracy_matches_real_stage(out, tmp_path):
+    """The real one-way stage, run on a copy of a fake run, gives the same keys the fake writes."""
+    import logging
+    import shutil
+
+    from twin import registry
+    from twin.contracts import AccuracyParams
+    from twin.runner import StageContext
+
+    run = _runs(out)[0]
+    copy = tmp_path / run.name
+    shutil.copytree(run, copy)
+    ctx = StageContext(
+        run_dir=copy, scene_token="fake-scene-0001", seed=0, log=logging.getLogger("test")
+    )
+    result = registry.lookup("accuracy", "one-way")(ctx, AccuracyParams())
+    real = result.metrics
+    fake = json.loads((run / "manifest.json").read_text())["metrics"]["accuracy"]
+
+    assert set(fake) == set(real)
+    assert fake["method"] == real["method"] and fake["buffer_m"] == real["buffer_m"]
+    assert set(fake["qa"]) == set(real["qa"])
+    for scope in ("elements", "facilities"):
+        assert set(fake[scope]) == set(real[scope]), scope
+        for key, entry in real[scope].items():
+            assert set(fake[scope][key]) == set(entry), (scope, key)
+    assert fake["facilities"] and all(
+        set(e) == set(next(iter(real["facilities"].values())))
+        for e in fake["facilities"].values()
+    )
 
 
 def test_pipeline_and_params_yaml_round_trip(out):
