@@ -60,17 +60,9 @@ def access():
         alg="RS256",
     ):
         now = int(time.time())
-        claims = {
-            "iss": iss,
-            "aud": aud,
-            "email": email,
-            "iat": now,
-            "exp": now + exp_in,
-        }
+        claims = {"iss": iss, "aud": aud, "email": email, "iat": now, "exp": now + exp_in}
         if alg == "HS256":
-            return jwt.encode(
-                claims, "not-the-team-key-0123456789abcdef-x", algorithm="HS256"
-            )
+            return jwt.encode(claims, "not-the-team-key-0123456789abcdef-x", algorithm="HS256")
         return jwt.encode(claims, key, algorithm="RS256", headers={"kid": "test"})
 
     verifier = AccessVerifier(

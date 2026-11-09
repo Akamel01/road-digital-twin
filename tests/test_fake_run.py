@@ -77,10 +77,7 @@ def test_fake_accuracy_matches_real_stage(out, tmp_path):
     copy = tmp_path / run.name
     shutil.copytree(run, copy)
     ctx = StageContext(
-        run_dir=copy,
-        scene_token="fake-scene-0001",
-        seed=0,
-        log=logging.getLogger("test"),
+        run_dir=copy, scene_token="fake-scene-0001", seed=0, log=logging.getLogger("test")
     )
     result = registry.lookup("accuracy", "one-way")(ctx, AccuracyParams())
     real = result.metrics
@@ -254,11 +251,5 @@ def test_real_outputs_stage_end_to_end_with_colour(tmp_path):
 
 def test_showcase_has_profile_and_downloads(out):
     for run in _runs(out):
-        for f in (
-            "manifest.json",
-            "twin.geojson",
-            "profile.csv",
-            "twin.laz",
-            "plan.pdf",
-        ):
+        for f in ("manifest.json", "twin.geojson", "profile.csv", "twin.laz", "plan.pdf"):
             assert (out / "showcase" / run.name / f).is_file(), f

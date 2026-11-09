@@ -14,9 +14,7 @@ from fastapi import HTTPException, Request
 from jwt import PyJWKClient
 
 HEADER = "Cf-Access-Jwt-Assertion"
-ALGORITHMS = [
-    "RS256"
-]  # never HS256: the team key is public, so it must not be an HMAC secret
+ALGORITHMS = ["RS256"]  # never HS256: the team key is public, so it must not be an HMAC secret
 
 
 class Verifier(Protocol):
@@ -54,9 +52,7 @@ class AccessVerifier:
                 issuer=self.issuer,
                 options={"require": ["exp", "iss", "aud"]},
             )
-        except (
-            jwt.PyJWTError
-        ) as exc:  # bad signature, alg, aud, iss, expiry, unknown key
+        except jwt.PyJWTError as exc:  # bad signature, alg, aud, iss, expiry, unknown key
             raise HTTPException(401, "invalid access token") from exc
         email = str(claims.get("email", "")).lower()
         if email != self.operator_email:

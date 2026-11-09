@@ -105,9 +105,7 @@ def test_unobserved_features_are_not_scored(tmp_path):
     ]
     doc = _run(tmp_path, ref, marking)
     # The observed 20 m line is sampled every 0.25 m: 81 points. The modelled line is not counted.
-    assert (
-        doc["elements"]["markings"]["n_samples"] == 81
-    )  # 20 m line, one sample per 0.25 m
+    assert doc["elements"]["markings"]["n_samples"] == 81  # 20 m line, one sample per 0.25 m
     assert doc["elements"]["markings"]["n"] == 1
     assert doc["elements"]["markings"]["p95_m"] == pytest.approx(0.1, abs=1e-3)
     assert doc["qa"]["n_excluded_not_observed"] == 1
@@ -226,22 +224,10 @@ def test_result_metrics_are_the_accuracy_document(tmp_path):
     # The runner stores StageResult.metrics as manifest metrics["accuracy"], so they must equal the file.
     run = tmp_path / "run"
     run.mkdir()
-    _write(
-        run,
-        "load",
-        "reference.geojson",
-        _fc([_ref([[0, 0], [100, 0]], "lane_divider")]),
-    )
+    _write(run, "load", "reference.geojson", _fc([_ref([[0, 0], [100, 0]], "lane_divider")]))
     _write(run, "load", "facilities.geojson", _fc([_core()]))
-    _write(
-        run,
-        "features",
-        "markings.geojson",
-        _fc([_line([[x, 0.1] for x in range(10, 31)])]),
-    )
+    _write(run, "features", "markings.geojson", _fc([_line([[x, 0.1] for x in range(10, 31)])]))
     _write(run, "features", "crosswalks.geojson", _fc([]))
     _write(run, "features", "qa.json", {"not_scanned_enough": []})
     result = registry.lookup("accuracy", "one-way")(_ctx(run), AccuracyParams())
-    assert result.metrics == json.loads(
-        (run / "9_accuracy" / "accuracy.json").read_text()
-    )
+    assert result.metrics == json.loads((run / "9_accuracy" / "accuracy.json").read_text())
