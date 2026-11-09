@@ -1,6 +1,6 @@
 # 0004 — Reconstruction engine: poses, multi-drive fusion, confidence
 
-Date: 2026-11-08. Issue #110. Status: recommendation, for the operator to review.
+Date: 2026-11-08. Issue #110. Status: agreed by the operator, 2026-11-08.
 
 The engine is the chain load → mask → align → ground → features → colour. Every measured number in the twin comes out of it. This note reviews it against three questions the operator raised: is the vehicle pose used fully, how should drives by other cars be combined, and how should confidence grow with more passes.
 
@@ -37,7 +37,7 @@ v1 keeps each drive as its own run. The area view places drives in one frame and
 
 Confidence is reported as counts, not as a single invented score:
 - **Observed:** a cell or element seen by at least one drive, with lidar evidence. Camera evidence is added by the colour stage when an image confirms the paint.
-- **Confirmed:** seen by two or more drives that agree within tolerance, or by lidar and camera.
+- **Confirmed:** seen by two or more drives that agree within tolerance, or by lidar and camera in one drive. Either counts.
 - **Modelled:** inferred and not seen, for example a gap bridged between two observed pieces. It is a separate feature, drawn differently, and never counted in accuracy.
 
 Each additional drive can only add evidence. It fills gaps (`covered_by` grows) and moves elements from observed to confirmed.
@@ -57,6 +57,6 @@ Each additional drive can only add evidence. It fills gaps (`covered_by` grows) 
 - Hazards (#111).
 - 3D view.
 
-## Open question for the operator
+## Operator decision
 
-How strict should "confirmed" be: two drives, or lidar plus camera from one drive? The recommendation is to accept either. This needs no decision for v1.
+Either counts as confirmed: two or more agreeing drives, or lidar plus camera from one drive (operator, 2026-11-08).
