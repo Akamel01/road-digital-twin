@@ -6,6 +6,8 @@ its method is not reused); docs/research/multi-sensor-sota.md section 3 (no lida
 Clustering uses Open3D cluster_dbscan, which is already a dependency.
 Input: ground's ground.laz and qa.json. Output: markings.geojson, crosswalks.geojson, qa.json.
 Curbs (features.curbs, height-step method) are not part of this stage yet.
+Geometry follows the points: gaps are not bridged and no modelled geometry is produced here. Any later
+inferred feature must be a separate feature with reliability "modelled" and evidence [].
 """
 
 from __future__ import annotations
@@ -16,12 +18,15 @@ from typing import Any
 import laspy
 import numpy as np
 import open3d as o3d
-from shapely.geometry import MultiPoint
+from shapely.geometry import MultiPoint, mapping
+from shapely.ops import unary_union
 
 from twin.contracts import FeaturesParams, StageResult
 from twin.registry import register
 
 OUTPUT_FILES = ("markings.geojson", "crosswalks.geojson", "qa.json")
+# Operator decision (2026-11-08): markings follow the points, binned 1.0 m along the stripe axis.
+BIN_M = 1.0
 # DECISION: the intensity percentile is taken per square tile of this side (the spec gives no size;
 # matches the ground stage's default ground.tile_m, which this stage does not receive).
 TILE_M = 5.0
@@ -88,10 +93,52 @@ def _components(adj: list[list[int]]) -> list[list[int]]:
     return out
 
 
-def _feature(kind: str, fid: str, coords: list, n: int, geom: str) -> dict[str, Any]:
+def binned_pieces(
+    xy: np.ndarray, c: np.ndarray, u: np.ndarray, bin_m: float = BIN_M
+) -> list[tuple[np.ndarray, int]]:
+    """Pieces of one stripe: median (x, y) per bin along the axis. An empty bin ends a piece.
+
+    A piece of one bin uses that bin's two real extreme points as vertices. Returns (vertices, n_points)
+    per piece; no point is invented.
+    """
+    t = (xy - c) @ u
+    # Equal bins that span the stripe, about bin_m long each. This avoids a sliver bin at the end.
+    nb = max(1, round((t.max() - t.min()) / bin_m))
+    width = (t.max() - t.min()) / nb
+    b = np.minimum(np.floor((t - t.min()) / width), nb - 1).astype(np.int64)
+    bins = np.unique(b)
+    pieces = []
+    for group in np.split(bins, np.flatnonzero(np.diff(bins) > 1) + 1):
+        in_piece = np.isin(b, group)
+        if len(group) >= 2:
+            verts = np.array([np.median(xy[b == g], axis=0) for g in group])
+        else:
+            sel, tt = xy[in_piece], t[in_piece]
+            verts = np.array([sel[np.argmin(tt)], sel[np.argmax(tt)]])
+        pieces.append((verts, int(in_piece.sum())))
+    return pieces
+
+
+def _lift(coords: Any, z: float) -> Any:
+    """Add a z value to nested shapely coordinate lists."""
+    if isinstance(coords[0], (list, tuple)):
+        return [_lift(c, z) for c in coords]
+    return [float(coords[0]), float(coords[1]), float(z)]
+
+
+def _feature(
+    kind: str, fid: str, geom: str, coords: Any, props: dict[str, Any]
+) -> dict[str, Any]:
+    # Every feature carries its evidence: the sensors that saw it (the colour stage adds "camera" later).
     return {
         "type": "Feature",
-        "properties": {"id": fid, "kind": kind, "n_points": int(n)},
+        "properties": {
+            "id": fid,
+            "kind": kind,
+            "evidence": ["lidar"],
+            "reliability": "observed",
+            **props,
+        },
         "geometry": {"type": geom, "coordinates": coords},
     }
 
@@ -151,19 +198,27 @@ def extract(
         # Collinear dashes of one line are not.
         if across <= along:
             continue
-        allxy = np.vstack([clusters[i]["xy"] for i in comp])
-        hull = MultiPoint([tuple(q) for q in allxy]).convex_hull
-        if hull.geom_type != "Polygon":
+        # Footprint = union of each stripe's observed hull. Gaps between stripes are not filled.
+        footprints = [
+            MultiPoint([tuple(q) for q in clusters[i]["xy"]]).convex_hull for i in comp
+        ]
+        group = unary_union([f for f in footprints if f.area > 0])
+        if group.is_empty or group.area == 0:
             continue
         z = float(np.mean([clusters[i]["z"] for i in comp]))
-        ring = [[x, y, z] for x, y in hull.exterior.coords]
+        n = int(sum(clusters[i]["n"] for i in comp))
         crosswalks.append(
             _feature(
                 "crosswalk",
                 f"crosswalk-{len(crosswalks) + 1:04d}",
-                [ring],
-                sum(clusters[i]["n"] for i in comp),
-                "Polygon",
+                group.geom_type,
+                _lift(mapping(group)["coordinates"], z),
+                {
+                    "n_points": n,
+                    "stripes": len(comp),
+                    "area_m2": round(float(group.area), 3),
+                    "points_per_m2": round(n / group.area, 3),
+                },
             )
         )
         used.update(comp)
@@ -172,19 +227,23 @@ def extract(
     for i, cl in enumerate(clusters):
         if i in used or cl["len"] < LINE_MIN_LEN_M:
             continue
-        t = (cl["xy"] - cl["c"]) @ cl["u"]
-        a = cl["c"] + t.min() * cl["u"]
-        b = cl["c"] + t.max() * cl["u"]
-        line = [[a[0], a[1], cl["z"]], [b[0], b[1], cl["z"]]]
-        markings.append(
-            _feature(
-                "marking",
-                f"marking-{len(markings) + 1:04d}",
-                line,
-                cl["n"],
-                "LineString",
+        for verts, n in binned_pieces(cl["xy"], cl["c"], cl["u"]):
+            length = float(np.hypot(*np.diff(verts, axis=0).T).sum())
+            if length <= 0:
+                continue
+            markings.append(
+                _feature(
+                    "marking",
+                    f"marking-{len(markings) + 1:04d}",
+                    "LineString",
+                    _lift(verts.tolist(), cl["z"]),
+                    {
+                        "n_points": n,
+                        "length_m": round(length, 3),
+                        "points_per_m": round(n / length, 3),
+                    },
+                )
             )
-        )
 
     counts = {
         "n_high_intensity": int(keep.sum()),

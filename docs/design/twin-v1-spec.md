@@ -327,6 +327,7 @@ If a scene fails the markings threshold, its runs report markings as "not extrac
 - They are clustered with DBSCAN, and polylines are fitted to the clusters.
 - Crosswalks are reported as polygons around clustered stripes.
 - This follows the classic mobile-mapping approach ([guan-2014-road-markings-mls]). Whether it works at 32-beam density is unproven; select tests it.
+- Geometry follows the points (1 m bins along the stripe); gaps are not bridged. Every feature carries `evidence` (sensors that saw it), `reliability` (`observed`; anything inferred is a separate feature marked `modelled`) and point density, because extracted markings are audited (decision 2026-11-08).
 
 **Curbs (optional).**
 - Found as height steps between `step_min_m` and `step_max_m` at the edge of the ground surface, then chained into polylines.
