@@ -20,7 +20,7 @@ import laspy
 import numpy as np
 import yaml
 from PIL import Image
-from shapely.geometry import LineString, Point, mapping
+from shapely.geometry import LineString, Point, Polygon, mapping
 
 from twin import fixtures as fx
 from twin import registry
@@ -41,6 +41,7 @@ from twin.contracts import (
 )
 from twin.publish import PUBLIC_FILES
 from twin.runner import StageContext
+from twin.stages.profile import facility_lines, sample_line
 from twin.tiles import write_tiles
 
 RUN_DATE = "20261108"
@@ -296,18 +297,29 @@ def _las(
     las.write(path)
 
 
-_DIRS = {"north": (0.0, 1.0), "east": (1.0, 0.0), "exit": (0.0, 1.0)}
+_DIRS = {
+    "north": (0.0, 1.0),
+    "south": (0.0, -1.0),
+    "east": (1.0, 0.0),
+    "west": (-1.0, 0.0),
+    "exit": (0.0, 1.0),
+}
+# Legs per facility type. An intersection has four arms, so its profile has two through lines.
+LEGS = {"intersection": ["north", "south", "east", "west"], "access_point": ["exit"]}
 
 
-def _leg(core: tuple, name: str) -> LineString:
-    """Leg line from the core edge facing the approach, out to ISD_REQUIRED_M."""
+def _leg_local(core: tuple, name: str) -> LineString:
+    """Leg line in local metres, from the core edge facing the approach, out to ISD_REQUIRED_M."""
     x0, x1, y0, y1 = core
     dx, dy = _DIRS[name]
     sx = (x0 + x1) / 2 + dx * (x1 - x0) / 2
     sy = (y0 + y1) / 2 + dy * (y1 - y0) / 2
-    return LineString(
-        [_p3(sx, sy, 0)[:2], _p3(sx + dx * ISD_REQUIRED_M, sy + dy * ISD_REQUIRED_M, 0)[:2]]
-    )
+    return LineString([(sx, sy), (sx + dx * ISD_REQUIRED_M, sy + dy * ISD_REQUIRED_M)])
+
+
+def _leg(core: tuple, name: str) -> LineString:
+    """The same leg in UTM, as the GeoJSON files store it."""
+    return LineString([_p3(x, y, 0)[:2] for x, y in _leg_local(core, name).coords])
 
 
 def _load(d: Path, c: _Ctx) -> dict:
@@ -348,9 +360,7 @@ def _load(d: Path, c: _Ctx) -> dict:
             for x, y in [(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)]
         ]
         legs, eyes = [], []
-        for name in {"intersection": ["north", "east"], "access_point": ["exit"]}.get(
-            f.type, []
-        ):
+        for name in LEGS.get(f.type, []):
             leg = _leg(f.core, name)
             eye = Point(*leg.interpolate(Params().isd.eye_setback_m).coords[0])
             legs.append({"approach": name, "geometry": mapping(leg)})
@@ -576,15 +586,23 @@ def _profile(d: Path, c: _Ctx) -> dict:
     feats = []
     for f in c.facilities:
         x0, x1, y0, y1 = f.core
-        yc = (y0 + y1) / 2
-        coords = []
-        line = f"{f.id}/main"
-        for s in np.arange(0.0, x1 - x0 + 1e-9, 1.0):
-            x = x0 + float(s)
-            z = float(fx.ground_z(x, yc))
-            rows.append(f"{f.id},{line},{s:.1f},{z:.3f},20")
-            coords.append(_p3(x, yc, z))
-        feats.append(_feat("LineString", coords, facility=f.id, line=line, label="main"))
+        feature = {
+            "geometry": mapping(Polygon([(x0, y0), (x1, y0), (x1, y1), (x0, y1)])),
+            "properties": {
+                "type": f.type,
+                "legs": [{"geometry": mapping(_leg_local(f.core, n))} for n in LEGS.get(f.type, [])],
+            },
+        }
+        for label, line in facility_lines(feature):  # the profile stage's own line rule
+            line_id = f"{f.id}/{label}"
+            coords = []
+            for s, x, y in sample_line(line, 1.0):
+                z = float(fx.ground_z(x, y))
+                rows.append(f"{f.id},{line_id},{s:.1f},{z:.3f},20")
+                coords.append(_p3(x, y, z))
+            feats.append(
+                _feat("LineString", coords, facility=f.id, line=line_id, label=label)
+            )
     (d / "profile.csv").write_text("\n".join(rows) + "\n")
     _dump(d / "centrelines.geojson", _fc(feats))
     # Same keys as twin/stages/profile.py.
@@ -600,9 +618,7 @@ def _profile(d: Path, c: _Ctx) -> dict:
 def _isd(d: Path, c: _Ctx) -> dict:
     facs = []
     for f in c.facilities:
-        names = {"intersection": ["north", "east"], "access_point": ["exit"]}.get(
-            f.type, []
-        )
+        names = LEGS.get(f.type, [])
         not_scanned = c.observed[f.id] < Params().facilities.min_observed
         legs = []
         for k, name in enumerate(names):
@@ -816,7 +832,8 @@ def _write_run(out: Path, index: int, showcase: Path) -> str:
     for name in (*PUBLIC_FILES, "twin.laz"):  # what publish copies; LAZ is not thinned here
         shutil.copy(run_dir / "10_outputs" / name, showcase / run_id / name)
     shutil.copy(run_dir / "manifest.json", showcase / run_id / "manifest.json")
-    shutil.copy(run_dir / "7_profile" / "profile.csv", showcase / run_id / "profile.csv")
+    for name in ("profile.csv", "centrelines.geojson"):
+        shutil.copy(run_dir / "7_profile" / name, showcase / run_id / name)
     return run_id
 
 

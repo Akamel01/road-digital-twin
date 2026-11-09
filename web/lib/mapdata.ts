@@ -129,6 +129,24 @@ export async function loadDrive(run: string): Promise<DriveData> {
   return { lines, facilities, p95, legs };
 }
 
+export interface Centreline {
+  id: string; // "facility/label", the same id as profile.csv's line column
+  label: string; // direction label, e.g. "N-S"
+  points: Point[];
+}
+
+/** One facility's road centrelines in one drive, from centrelines.geojson. Empty when the bundle has none. */
+export async function loadCentrelines(run: string, facility: string): Promise<Centreline[]> {
+  const geo = await getJson<GeoJson>(`showcase/${run}/centrelines.geojson`);
+  return geo.features
+    .filter((f) => f.properties.facility === facility)
+    .map((f) => ({
+      id: String(f.properties.line),
+      label: String(f.properties.label),
+      points: (f.geometry.coordinates as unknown[]).map(pt),
+    }));
+}
+
 export function loadRasterMeta(run: string, raster: Raster): Promise<RasterMeta> {
   return getJson<RasterMeta>(`showcase/tiles/${run}/${raster}/meta.json`);
 }
