@@ -4,7 +4,7 @@ import shapely
 
 from twin.cli import main
 from twin.contracts import SelectParams
-from twin.select import go, paint_contrast, road_density, run_select
+from twin.select import drive_measures, go, paint_contrast, road_density, run_select
 
 
 def grid_points(x0, x1, y0, y1, step, z=0.0):
@@ -59,6 +59,42 @@ def test_go_min_density_override():
     p = SelectParams(min_density_pts_m2=100)
     assert go(60.0, 2.0, p) is False
     assert go(100.0, 2.0, p) is True
+
+
+def test_drive_measures_same_voxels_from_repeated_sweeps_count_once():
+    # Features voxel-downsamples the union of sweeps, so repeats of the same ground add nothing.
+    square = shapely.box(0, 0, 10, 10)
+    one = grid_points(0, 10, 0, 10, 0.5)
+    intensity = np.full(len(one), 10.0)
+    single = drive_measures(one, intensity, [square])
+    triple = drive_measures(np.vstack([one, one, one]), np.tile(intensity, 3), [square])
+    assert single[0] > 0
+    assert triple[0] == pytest.approx(single[0])
+    assert triple[1] == pytest.approx(1.0)
+
+
+def test_drive_measures_ignores_points_off_the_road():
+    square = shapely.box(0, 0, 10, 10)
+    road = grid_points(0, 10, 0, 10, 0.5)
+    off = grid_points(20, 30, 0, 10, 0.5)
+    alone, _ = drive_measures(road, np.full(len(road), 10.0), [square])
+    both, _ = drive_measures(
+        np.vstack([road, off]), np.full(len(road) + len(off), 10.0), [square]
+    )
+    assert both == pytest.approx(alone)
+
+
+def test_drive_measures_no_road_is_zero():
+    xyz = grid_points(0, 10, 0, 10, 0.5)
+    assert drive_measures(xyz, np.ones(len(xyz)), []) == (0.0, 0.0)
+
+
+def test_cli_select_version_flag_is_parsed():
+    from twin.cli import build_parser
+
+    args = build_parser().parse_args(["select", "--version", "v1.0-trainval"])
+    assert args.version == "v1.0-trainval"
+    assert build_parser().parse_args(["select"]).version == "v1.0-mini"
 
 
 def test_cli_select_missing_data_exits_2(tmp_path, capsys):
