@@ -40,7 +40,10 @@ ELEMENT_FILES = {
 # Curbs are scored against the drivable-area edge, which is the map's drawing choice, so they are labelled.
 LABELS = {"curbs": "map-conditioned"}
 # DECISION: a feature belongs to a facility when its centroid lies inside the facility's core polygon.
-# DECISION: polygon elements (crosswalks) and polygon references are measured on their outline (boundary).
+# DECISION: crosswalks are area elements. Each extracted vertex is measured to the ped_crossing POLYGON (0 when
+# inside), and coverage is the share of ped_crossing area within buffer_m of the extracted crosswalks. Measuring
+# to the outline would score correct inner stripes ~half a crossing width off.
+AREA_TYPES = frozenset({"crosswalks"})
 
 
 def _read_fc(path: Path) -> list[dict]:
@@ -57,10 +60,17 @@ def _outline(geom: BaseGeometry) -> BaseGeometry:
     return geom
 
 
-def _reference(features: list[dict], layers: tuple[str, ...]) -> BaseGeometry | None:
-    """Union of the outlines of the reference features in these layers, or None when there are none."""
+def _reference(
+    features: list[dict], layers: tuple[str, ...], area: bool
+) -> BaseGeometry | None:
+    """Union of the reference features in these layers, or None when there are none.
+
+    Line references use the outline (boundary) of polygons; area references keep the polygon itself.
+    """
     parts = [
-        _outline(_geom(f)) for f in features if f["properties"].get("layer") in layers
+        _geom(f) if area else _outline(_geom(f))
+        for f in features
+        if f["properties"].get("layer") in layers
     ]
     parts = [p for p in parts if not p.is_empty]
     return shapely.union_all(parts) if parts else None
@@ -85,14 +95,19 @@ def _vertex_distances(elements: list[BaseGeometry], ref: BaseGeometry) -> np.nda
     return np.asarray(shapely.distance(shapely.points(verts), ref), dtype=float)
 
 
-def _matched_length(
-    elements: list[BaseGeometry], ref: BaseGeometry, buffer_m: float
+def _size(geom: BaseGeometry, area: bool) -> float:
+    """Area for area references, length for line references."""
+    return float(geom.area if area else geom.length)
+
+
+def _matched(
+    elements: list[BaseGeometry], ref: BaseGeometry, buffer_m: float, area: bool
 ) -> float:
-    """Length of the reference within buffer_m of any element."""
+    """Length (or area) of the reference within buffer_m of any element."""
     if not elements or ref.is_empty:
         return 0.0
     near = shapely.union_all(elements).buffer(buffer_m)
-    return float(ref.intersection(near).length)
+    return _size(ref.intersection(near), area)
 
 
 def _entry(
@@ -144,7 +159,10 @@ def run_one_way(ctx: Any, params: AccuracyParams) -> StageResult:
     markings_extractable = bool(feat_qa.get("markings_extractable", True))
 
     reference = _read_fc(load_dir / "reference.geojson")
-    ref = {t: _reference(reference, layers) for t, layers in REFERENCE.items()}
+    ref = {
+        t: _reference(reference, layers, t in AREA_TYPES)
+        for t, layers in REFERENCE.items()
+    }
 
     elements: dict[str, list[BaseGeometry]] = {}
     excluded = 0
@@ -170,10 +188,11 @@ def run_one_way(ctx: Any, params: AccuracyParams) -> StageResult:
                 REFERENCE[kind], np.empty(0), 0.0, 0.0, LABELS.get(kind, ""), ""
             )
             continue
+        area = kind in AREA_TYPES
         dists = _vertex_distances(geoms, r)
-        matched = _matched_length(geoms, r, buffer_m)
+        matched = _matched(geoms, r, buffer_m, area)
         per_element[kind] = _entry(
-            REFERENCE[kind], dists, matched, float(r.length), LABELS.get(kind, "")
+            REFERENCE[kind], dists, matched, _size(r, area), LABELS.get(kind, "")
         )
     for kind in elements:
         if kind not in active:
@@ -208,8 +227,9 @@ def run_one_way(ctx: Any, params: AccuracyParams) -> StageResult:
             clipped = r.intersection(core)
             if clipped.is_empty:
                 continue
-            ref_len += float(clipped.length)
-            matched += _matched_length(members, clipped, buffer_m)
+            area = kind in AREA_TYPES
+            ref_len += _size(clipped, area)
+            matched += _matched(members, clipped, buffer_m, area)
             if members:
                 dist_parts.append(_vertex_distances(members, r))
                 used_layers.extend(REFERENCE[kind])

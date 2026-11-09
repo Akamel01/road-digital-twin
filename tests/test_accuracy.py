@@ -52,13 +52,15 @@ def _ctx(run):
     )
 
 
-def _run(tmp_path, reference, markings, curbs=None, qa=None, buffer_m=1.0):
+def _run(
+    tmp_path, reference, markings, curbs=None, qa=None, buffer_m=1.0, crosswalks=()
+):
     run = tmp_path / "run"
     run.mkdir()
     _write(run, "load", "reference.geojson", _fc(reference))
     _write(run, "load", "facilities.geojson", _fc([_core()]))
     _write(run, "features", "markings.geojson", _fc(markings))
-    _write(run, "features", "crosswalks.geojson", _fc([]))
+    _write(run, "features", "crosswalks.geojson", _fc(list(crosswalks)))
     _write(run, "features", "qa.json", {"not_scanned_enough": [], **(qa or {})})
     if curbs is not None:
         _write(run, "features", "curbs.geojson", _fc(curbs))
@@ -146,3 +148,53 @@ def test_facility_entry_reports_observed_facility(tmp_path):
     fac = doc["facilities"]["I-0001"]
     assert fac["p50_m"] == pytest.approx(0.1, abs=1e-3)
     assert fac["reason"] == ""
+
+
+def _crossing():
+    """ped_crossing polygon, 12 m by 6 m."""
+    ring = [[0, 0], [12, 0], [12, 6], [0, 6], [0, 0]]
+    return {
+        "type": "Feature",
+        "properties": {"layer": "ped_crossing", "token": "pc-1"},
+        "geometry": {"type": "Polygon", "coordinates": [ring]},
+    }
+
+
+def _stripe(x0, x1):
+    """A stripe across the crossing: four corners, 6 m long."""
+    ring = [[x0, 0], [x1, 0], [x1, 6], [x0, 6], [x0, 0]]
+    return {"type": "Polygon", "coordinates": [ring]}
+
+
+def _crosswalk(geometry):
+    return {
+        "type": "Feature",
+        "properties": {"id": "cw", "kind": "crosswalk", "reliability": "observed"},
+        "geometry": geometry,
+    }
+
+
+def test_perfect_crosswalk_inside_its_crossing_scores_zero(tmp_path):
+    stripes = [_stripe(1 + 2 * k, 1.5 + 2 * k) for k in range(6)]
+    geom = {"type": "MultiPolygon", "coordinates": [s["coordinates"] for s in stripes]}
+    doc = _run(tmp_path, [_crossing()], [], crosswalks=[_crosswalk(geom)], buffer_m=1.0)
+    cw = doc["elements"]["crosswalks"]
+    assert cw["p50_m"] == 0.0
+    assert cw["p95_m"] == 0.0
+    assert cw["coverage"] == pytest.approx(1.0, abs=0.01)
+    assert cw["reference_layer"] == "ped_crossing"
+
+
+def test_stripe_shifted_outside_gives_p95_of_its_offset(tmp_path):
+    # Five stripes inside. The sixth sits across the east edge of the crossing (x = 12 m), so its outer
+    # edge is 0.3 m outside. Its outer edge is densified every 0.5 m so 13 of 52 vertices sit at 0.3 m.
+    stripes = [_stripe(1 + 2 * k, 1.5 + 2 * k)["coordinates"] for k in range(5)]
+    outer = [[12.3, i * 0.5] for i in range(13)]
+    inner = [[11.8, i * 0.5] for i in range(12, -1, -1)]
+    ring = outer + inner + [outer[0]]
+    shifted = {"type": "Polygon", "coordinates": [ring]}
+    geom = {"type": "MultiPolygon", "coordinates": [*stripes, shifted["coordinates"]]}
+    doc = _run(tmp_path, [_crossing()], [], crosswalks=[_crosswalk(geom)], buffer_m=1.0)
+    cw = doc["elements"]["crosswalks"]
+    assert cw["p50_m"] == 0.0
+    assert cw["p95_m"] == pytest.approx(0.3, abs=0.01)
