@@ -144,6 +144,20 @@
           "title": "Intensity Pct",
           "type": "number"
         },
+        "lidarseg_flat_share": {
+          "default": 0.8,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Lidarseg Flat Share",
+          "type": "number"
+        },
+        "lidarseg_min_points": {
+          "default": 10,
+          "maximum": 1000,
+          "minimum": 1,
+          "title": "Lidarseg Min Points",
+          "type": "integer"
+        },
         "min_points": {
           "default": 20,
           "maximum": 1000,

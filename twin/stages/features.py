@@ -14,13 +14,15 @@ inferred feature must be a separate feature with reliability "modelled" and evid
 from __future__ import annotations
 
 import json
+import math
+from pathlib import Path
 from typing import Any
 
 import laspy
 import numpy as np
 import open3d as o3d
 import shapely
-from shapely.geometry import MultiPoint, mapping
+from shapely.geometry import MultiPoint, mapping, shape
 from shapely.ops import unary_union
 
 from twin.contracts import CurbsParams, FeaturesParams, SelectParams, StageResult
@@ -28,6 +30,20 @@ from twin.registry import register
 from twin.select import go, paint_contrast, road_density
 
 OUTPUT_FILES = ("markings.geojson", "crosswalks.geojson", "qa.json")
+# Lidarseg gate. DECISION: ground.laz does not carry the lidarseg label (align and ground are separate stages), so
+# each marking collects the labelled load points within this distance (m) in plan. Load points use the dataset
+# poses, ground points the refined ones; the radius absorbs that small offset.
+LIDARSEG_RADIUS_M = 0.5
+LIDARSEG_STEP_M = 0.25
+EVIDENCE_LIDARSEG = "lidarseg"
+EVIDENCE_NO_LABELS = "lidarseg: insufficient labels"
+# Marking types (operator, 2026-11-09). DECISION: distances 1 m as in the ticket; a divider must run within
+# DIVIDER_MAX_ANGLE_DEG of the map divider next to it, a stop line within STOP_MAX_ANGLE_DEG of the map stop line's
+# long axis (a stop line runs across the lane, so does its map polygon).
+TYPE_NEAR_M = 1.0
+DIVIDER_MAX_ANGLE_DEG = 20.0
+STOP_MAX_ANGLE_DEG = 30.0
+MARKING_TYPES = ("divider", "stop_line", "crosswalk_stripe", "other_paint")
 # Operator decision (2026-11-08): markings follow the points, binned 1.0 m along the stripe axis.
 BIN_M = 1.0
 # DECISION: the intensity percentile is taken per square tile of this side (the spec gives no size;
@@ -374,6 +390,136 @@ def extract(
     return markings, crosswalks, counts
 
 
+def lidarseg_gate(
+    markings: list[dict], load_dir: Path | None, params: FeaturesParams
+) -> tuple[list[dict], dict[str, int]]:
+    """Keep a marking only if its lidarseg-labelled points are mostly flat.driveable_surface.
+
+    Labels come from load's points.npz (255 = no label, i.e. a non-keyframe sweep). A marking with fewer than
+    lidarseg_min_points labelled points nearby is kept as it is, with evidence noting it. A marking whose flat share
+    is below lidarseg_flat_share is dropped. Nothing is invented or relabelled.
+    """
+    xy = seg = None
+    drv = None
+    if load_dir is not None and (load_dir / "lidarseg.json").is_file():
+        meta = json.loads((load_dir / "lidarseg.json").read_text())
+        drv = meta.get("driveable_index")
+        with np.load(load_dir / "points.npz") as f:
+            if "lidarseg" in f.files:
+                lab = f["lidarseg"] != meta.get("sentinel", 255)
+                xy = np.column_stack([f["x"][lab], f["y"][lab]])
+                seg = f["lidarseg"][lab]
+    tree = None
+    if xy is not None and len(xy) and drv is not None:
+        pcd = o3d.geometry.PointCloud(
+            o3d.utility.Vector3dVector(np.column_stack([xy, np.zeros(len(xy))]))
+        )
+        tree = o3d.geometry.KDTreeFlann(pcd)
+    kept: list[dict] = []
+    counts = {"n_dropped_lidarseg": 0, "n_lidarseg_insufficient_labels": 0}
+    for m in markings:
+        n = flat = 0
+        if tree is not None:
+            line = shapely.segmentize(
+                shapely.force_2d(shape(m["geometry"])), LIDARSEG_STEP_M
+            )
+            hit: set[int] = set()
+            for x, y in shapely.get_coordinates(line):
+                hit.update(
+                    tree.search_radius_vector_3d([x, y, 0.0], LIDARSEG_RADIUS_M)[1]
+                )
+            idx = np.fromiter(hit, int, len(hit))
+            n = len(idx)
+            flat = int((seg[idx] == drv).sum()) if n else 0
+        props = m["properties"]
+        props["lidarseg_n_labelled"] = n
+        if n < params.lidarseg_min_points:
+            props["lidarseg_flat_share"] = None
+            props["evidence"] = [*props["evidence"], EVIDENCE_NO_LABELS]
+            counts["n_lidarseg_insufficient_labels"] += 1
+        elif flat / n < params.lidarseg_flat_share:
+            counts["n_dropped_lidarseg"] += 1
+            continue
+        else:
+            props["lidarseg_flat_share"] = round(flat / n, 3)
+            props["evidence"] = [*props["evidence"], EVIDENCE_LIDARSEG]
+        kept.append(m)
+    return kept, counts
+
+
+def _chord(line: shapely.LineString) -> np.ndarray:
+    c = np.asarray(line.coords)
+    d = c[-1, :2] - c[0, :2]
+    return d / (np.linalg.norm(d) or 1.0)
+
+
+def _angle_deg(u: np.ndarray, v: np.ndarray) -> float:
+    """Angle between two directions, ignoring sign: 0 to 90 degrees."""
+    return math.degrees(math.acos(min(1.0, abs(float(u @ v)))))
+
+
+def _long_axis(poly: shapely.Polygon) -> np.ndarray:
+    pts = np.asarray(poly.minimum_rotated_rectangle.exterior.coords)[:3]
+    a, b = pts[1] - pts[0], pts[2] - pts[1]
+    d = a if np.linalg.norm(a) >= np.linalg.norm(b) else b
+    return d / (np.linalg.norm(d) or 1.0)
+
+
+def _nearest(geoms: list, g: Any) -> Any:
+    return min(geoms, key=lambda x: x.distance(g)) if geoms else None
+
+
+def marking_type(line: Any, ref: dict[str, list]) -> str:
+    """divider, stop_line, crosswalk_stripe or other_paint, from the map layers in `ref` (2D geometries by layer).
+
+    Order: inside a ped_crossing, then across and within 1 m of a stop_line, then running along and within 1 m of a
+    lane or road divider. Anything else is other_paint.
+    """
+    line = shapely.force_2d(line)
+    centre = line.centroid
+    if any(p.contains(centre) for p in ref.get("ped_crossing", [])):
+        return "crosswalk_stripe"
+    stop = _nearest(ref.get("stop_line", []), line)
+    if (
+        stop is not None
+        and stop.distance(line) <= TYPE_NEAR_M
+        and _angle_deg(_chord(line), _long_axis(stop)) <= STOP_MAX_ANGLE_DEG
+    ):
+        return "stop_line"
+    div = _nearest(ref.get("divider", []), line)
+    if div is not None:
+        verts = shapely.points(shapely.get_coordinates(shapely.segmentize(line, 0.25)))
+        if float(np.median(shapely.distance(verts, div))) <= TYPE_NEAR_M:
+            s = div.project(centre)
+            p0 = div.interpolate(max(s - 1.0, 0.0))
+            p1 = div.interpolate(min(s + 1.0, div.length))
+            d = np.array([p1.x - p0.x, p1.y - p0.y])
+            if (
+                np.linalg.norm(d) > 0
+                and _angle_deg(_chord(line), d / np.linalg.norm(d))
+                <= DIVIDER_MAX_ANGLE_DEG
+            ):
+                return "divider"
+    return "other_paint"
+
+
+def type_markings(markings: list[dict], reference: list[dict]) -> dict[str, int]:
+    """Set properties.marking_type on each marking, using load's reference features. Returns count per type."""
+    ref: dict[str, list] = {"ped_crossing": [], "stop_line": [], "divider": []}
+    for f in reference:
+        layer = f["properties"].get("layer")
+        key = "divider" if layer in ("lane_divider", "road_divider") else layer
+        if key in ref:
+            g = shapely.force_2d(shape(f["geometry"]))
+            ref[key].extend(g.geoms if hasattr(g, "geoms") else [g])
+    counts = dict.fromkeys(MARKING_TYPES, 0)
+    for m in markings:
+        t = marking_type(shape(m["geometry"]), ref)
+        m["properties"]["marking_type"] = t
+        counts[t] += 1
+    return counts
+
+
 def _measured_footprint(ground_dir) -> list:
     """Union of the 0.5 m surface cells that have ground points: the area road_density divides by."""
     with np.load(ground_dir / "surface.npz") as f:
@@ -401,6 +547,19 @@ def run_intensity(ctx: Any, params: FeaturesParams) -> StageResult:
         return StageResult(status="failed", message="no ground points to extract from")
 
     markings, crosswalks, counts = extract(xyz, params)
+    load_dir = ctx.stage_dir("load")
+    load_dir = load_dir if load_dir.is_dir() else None
+    counts["n_markings_extracted"] = len(markings)
+    markings, gate = lidarseg_gate(markings, load_dir, params)
+    counts.update(gate)
+    counts["n_markings"] = len(markings)
+    ref_path = load_dir / "reference.geojson" if load_dir else None
+    reference = (
+        json.loads(ref_path.read_text())["features"]
+        if ref_path and ref_path.is_file()
+        else []
+    )
+    counts["n_markings_by_type"] = type_markings(markings, reference)
     fc = lambda feats: json.dumps({"type": "FeatureCollection", "features": feats})
     curbs: list[dict] = []
     files = list(OUTPUT_FILES)
@@ -438,6 +597,8 @@ def run_intensity(ctx: Any, params: FeaturesParams) -> StageResult:
         "intensity_pct": params.intensity_pct,
         "cluster_eps_m": params.cluster_eps_m,
         "min_points": params.min_points,
+        "lidarseg_flat_share": params.lidarseg_flat_share,
+        "lidarseg_min_points": params.lidarseg_min_points,
         "n_ground": len(xyz),
         # Copied from ground so consumers read one place. Markings are not gated on them here.
         "height_valid": ground_qa.get("height_valid"),
