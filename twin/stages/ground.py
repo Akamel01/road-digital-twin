@@ -12,13 +12,13 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 from typing import Any
 
 import CSF
 import laspy
 import numpy as np
-import open3d as o3d
 import pyproj
 from shapely import contains_xy
 from shapely.geometry import shape
@@ -87,28 +87,61 @@ def voxel_first(xyz: np.ndarray, voxel_m: float) -> np.ndarray:
 # ------------------------------------------------------------------ ground split
 
 
-def ransac_ground(xyz: np.ndarray, params: GroundParams) -> np.ndarray:
-    """Per tile: fit one plane with RANSAC; its inliers are ground. Tiles with no near-horizontal plane are non-ground."""
+def _best_plane(
+    pts: np.ndarray, dist: float, rng: np.random.Generator
+) -> tuple[np.ndarray, float] | None:
+    """Best of RANSAC_ITERATIONS planes through 3 random points: (inlier mask, |normal z|), or None.
+
+    DECISION: own numpy RANSAC with a seeded generator. Open3D's segment_plane is multi-threaded, so the same seed
+    gave different inliers from run to run (issue 139). Ties go to the first plane drawn.
+    """
+    n = len(pts)
+    pick = rng.integers(0, n, size=(RANSAC_ITERATIONS, 3))
+    p0, p1, p2 = pts[pick[:, 0]], pts[pick[:, 1]], pts[pick[:, 2]]
+    normal = np.cross(p1 - p0, p2 - p0)
+    norm = np.linalg.norm(normal, axis=1)
+    ok = norm > 1e-9
+    if not ok.any():
+        return None
+    normal[ok] /= norm[ok, None]
+    counts = np.full(RANSAC_ITERATIONS, -1)
+    for lo in range(
+        0, RANSAC_ITERATIONS, 100
+    ):  # chunked: keeps the distance matrix small
+        sl = slice(lo, lo + 100)
+        d = np.abs(
+            np.einsum("kj,nj->kn", normal[sl], pts)
+            - (normal[sl] * p0[sl]).sum(1)[:, None]
+        )
+        counts[sl] = np.where(ok[sl], (d <= dist).sum(axis=1), -1)
+    best = int(np.argmax(counts))
+    d = np.abs((pts - p0[best]) @ normal[best])
+    return d <= dist, float(abs(normal[best, 2]))
+
+
+def ransac_ground(xyz: np.ndarray, params: GroundParams, seed: int = 0) -> np.ndarray:
+    """Per tile: fit one plane with RANSAC; its inliers are ground. Tiles with no near-horizontal plane are non-ground.
+
+    Each tile draws from its own generator, seeded by (seed, tile key), so a tile's result does not depend on
+    the others and the run repeats exactly.
+    """
     ground = np.zeros(len(xyz), bool)
     tile = np.floor(xyz[:, :2] / params.tile_m).astype(np.int64)
     tile -= tile.min(axis=0)
     dims = tuple(int(d) for d in tile.max(axis=0) + 1)
     keys = np.ravel_multi_index(tile.T, dims)
     order = np.argsort(keys, kind="stable")
-    _uniq, start, count = np.unique(keys[order], return_index=True, return_counts=True)
-    for s, c in zip(start, count, strict=True):
+    uniq, start, count = np.unique(keys[order], return_index=True, return_counts=True)
+    for key, s, c in zip(uniq, start, count, strict=True):
         if c < MIN_PLANE_POINTS:
             continue
         idx = order[s : s + c]
-        pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(xyz[idx]))
-        model, inliers = pcd.segment_plane(
-            distance_threshold=params.ransac_dist_m,
-            ransac_n=3,
-            num_iterations=RANSAC_ITERATIONS,
+        best = _best_plane(
+            xyz[idx], params.ransac_dist_m, np.random.default_rng([seed, int(key)])
         )
-        if abs(model[2]) < MIN_PLANE_NORMAL_Z:
+        if best is None or best[1] < MIN_PLANE_NORMAL_Z:
             continue
-        ground[idx[np.asarray(inliers, dtype=np.int64)]] = True
+        ground[idx[best[0]]] = True
     return ground
 
 
@@ -252,7 +285,6 @@ def _run(
 ) -> StageResult:
     out: Path = ctx.stage_dir("ground")
     out.mkdir(exist_ok=True)
-    o3d.utility.random.seed(ctx.seed)
     min_observed = ctx.min_observed
     align_dir = ctx.input_dir("align")
     align_qa = json.loads((align_dir / "qa.json").read_text())
@@ -345,7 +377,7 @@ def _run(
 
 @register("ground", "ransac-tiles")
 def run_ransac(ctx: Any, params: GroundParams) -> StageResult:
-    return _run(ctx, params, "ransac-tiles", ransac_ground)
+    return _run(ctx, params, "ransac-tiles", partial(ransac_ground, seed=ctx.seed))
 
 
 @register("ground", "csf")

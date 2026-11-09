@@ -203,6 +203,9 @@ def _execute(ctx: Any, params: AlignParams, use_icp: bool) -> StageResult:
                     f"sweep {k} has {len(sweeps[k])} masked points, below {MIN_SWEEP_POINTS}"
                 )
             icp = run_kiss_icp(sweeps, params.voxel_m)
+            # DECISION: KISS-ICP reduces over threads, so poses differ at 1e-14 between runs. Rounding to 1e-6
+            # (a micrometre, a micro-radian) makes the stage repeat exactly; it is far below any real error.
+            icp = np.round(icp, 6)
             if not np.isfinite(icp).all():
                 raise AlignFailure("ICP produced non-finite poses")
             anchored = anchor(icp, ref, window_ids(stamps, params.window_s))
