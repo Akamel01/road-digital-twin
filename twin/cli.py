@@ -78,6 +78,9 @@ def build_parser() -> argparse.ArgumentParser:
     select.add_argument("--min-density", type=float, default=None)
     select.add_argument("--min-contrast", type=float, default=None)
     select.add_argument(
+        "--version", choices=("v1.0-mini", "v1.0-trainval"), default="v1.0-mini"
+    )
+    select.add_argument(
         "--dataroot",
         type=Path,
         default=Path(os.environ.get("NUSCENES_ROOT", "/data/nuscenes")),
@@ -116,7 +119,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "select":
         from twin.select import run_select
 
-        return run_select(args.dataroot, args.min_density, args.min_contrast)
+        return run_select(
+            args.dataroot, args.min_density, args.min_contrast, args.version
+        )
     if args.command == "publish":
         from twin.publish import publish_command
 
