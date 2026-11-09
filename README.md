@@ -15,9 +15,9 @@ From nuScenes mini (Boston), one run per drive, shown together as one area:
 | align | KISS-ICP 6-DoF poses anchored to the dataset; falls back and flags height when ICP drifts |
 | ground | Ground surface on a 0.5 m grid; sweep-disagreement QA sets `height_valid` |
 | features | Lane markings, crosswalks and curbs from lidar. Geometry follows the points, and gaps are never bridged. Each feature carries its evidence and the pose quality behind it. |
-| colour | Camera colour with a depth-buffer occlusion test; orthoimage. Camera confirmation of markings is in review. |
+| colour | Camera colour with a depth-buffer occlusion test; orthoimage; camera confirmation of markings |
 | profile | Vertical profile along each road centreline, per direction, through intersections |
-| isd | 3D line-of-sight test built. The per-leg intersection sight distance stage is in review. |
+| isd | Intersection sight distance: left and right 3D sight lines from each approach, without and with parked vehicles |
 | accuracy | P50/P95 and coverage against the nuScenes HD map, per element and facility |
 | outputs | LAZ, 3D GeoJSON, DXF and PDF plan and profile sheets |
 
