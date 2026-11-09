@@ -1,0 +1,9 @@
+// Public twin site: `npm run build` writes ./out (static export) and Workers static assets serves it
+// at twin.papyrus-ai.net. No Worker script: the site reads only static showcase files (spec section 3).
+// The showcase bundle (public/showcase) comes from `twin publish` and is never committed.
+{
+  "name": "road-digital-twin",
+  "compatibility_date": "2026-10-01",
+  "assets": { "directory": "./out", "not_found_handling": "404-page" },
+  "routes": [{ "pattern": "twin.papyrus-ai.net", "custom_domain": true }]
+}
