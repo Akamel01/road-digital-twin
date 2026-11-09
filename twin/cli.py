@@ -95,7 +95,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="HD-map intersection token or 8+ char prefix; repeat",
     )
     define.add_argument(
-        "--buffer", type=float, default=30.0, help="metres around the intersections"
+        "--buffer", type=float, default=0.0, help="metres around the intersections"
     )
     define.add_argument("--location", default="boston-seaport")
     define.add_argument("--version", default="v1.0-trainval")
