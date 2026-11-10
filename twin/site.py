@@ -103,7 +103,10 @@ def build(run_id: str, store: Path, report: dict, web: Path = WEB) -> None:
         )
     showcase = web / "public" / "showcase"
     shutil.rmtree(showcase, ignore_errors=True)
-    publish_runs([run_id], showcase, store)
+    try:
+        publish_runs([run_id], showcase, store)
+    except (OSError, ValueError) as exc:
+        raise SiteStop(f"cannot build the showcase from {run_id}: {exc}") from exc
     status = {
         "run_id": run_id,
         "published_at": datetime.now(UTC).isoformat(timespec="seconds"),
