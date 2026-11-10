@@ -83,6 +83,9 @@ Runtime dependencies are pinned in `pyproject.toml` and locked in `uv.lock`. Lic
 | fastapi | 0.162.2 | MIT |
 | uvicorn | 0.54.0 | BSD-3-Clause |
 | PyJWT | 2.15.1 | MIT |
+| torch (optional extra `semantics`) | 2.10.0 | BSD-3-Clause |
+| transformers (optional extra `semantics`) | 5.22.2 | Apache-2.0 |
+| Mask2Former Swin-L, Mapillary Vistas semantic (`facebook/mask2former-swin-large-mapillary-vistas-semantic`, weights in `/data/models`, never in the repo) | Hugging Face main, 2026-11 | **Research-only.** Code: MIT (facebookresearch/Mask2Former; its Swin and Deformable-DETR parts are MIT and Apache-2.0). Weights: the model card says `license: other` and states no terms; they are trained on Mapillary Vistas (CC BY-NC-SA 4.0), so we treat them as non-commercial (ADR 0006 Q4). Runs of the `semantics` stage say `research_only` in the manifest metrics. |
 
 Dev tools (not shipped): pytest, ruff.
 

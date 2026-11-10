@@ -12,9 +12,9 @@ import time
 import urllib.request
 from contextlib import contextmanager
 
-from twin.contracts import STAGE_NAMES
+from twin.contracts import STAGE_NAMES, Pipeline
 
-GPU_STAGES = ("colour",)  # add segmentation and splats when those stages exist
+GPU_STAGES = ("colour", "semantics")  # add splats when that stage exists
 RECHECK_SECONDS = 15
 HTTP_TIMEOUT = 5
 
@@ -26,9 +26,10 @@ def needs_gpu(job: dict, load=lambda v: v) -> bool:
     first = STAGE_NAMES.index(job["from_stage"]) if job.get("type") == "rerun" else 0
     pipeline = load(job.get("pipeline")) or {}
     for stage in GPU_STAGES:
-        if STAGE_NAMES.index(stage) >= first and (pipeline.get(stage) or {}).get(
-            "enabled", True
-        ):
+        # A stage the pipeline does not mention has its default: semantics is off by default, colour on.
+        spec = pipeline.get(stage)
+        on = spec.get("enabled", True) if spec else getattr(Pipeline(), stage).enabled
+        if STAGE_NAMES.index(stage) >= first and on:
             return True
     return False
 
