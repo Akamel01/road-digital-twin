@@ -1,0 +1,404 @@
+/* Latest build view. Tokens come from globals.css (the plan-view mockup :root). */
+.page {
+  position: fixed;
+  inset: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--gut);
+  background: var(--canopy-900);
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  max-width: 1200px;
+  margin: 0 auto 8px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 600 13px/1 var(--text);
+  color: var(--on-glass-2);
+  white-space: nowrap;
+}
+
+.brand svg {
+  width: 20px;
+  height: 20px;
+}
+
+.title {
+  font: 700 15px/1 var(--display);
+}
+
+.back {
+  margin-left: auto;
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: var(--on-glass-2);
+  text-decoration: none;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.back:hover {
+  background: var(--glass-clear);
+}
+
+.main {
+  display: grid;
+  gap: var(--gut);
+  max-width: 1200px;
+  margin: 0 auto;
+  padding-bottom: 32px;
+}
+
+.wait {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 48px 16px;
+  color: var(--on-glass-2);
+  font-size: 14px;
+}
+
+.banner {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid;
+}
+
+.bannerWarn {
+  border-color: rgb(224 169 79 / 0.5);
+  background: rgb(224 169 79 / 0.1);
+}
+
+.bannerOk {
+  border-color: rgb(156 199 164 / 0.5);
+  background: rgb(156 199 164 / 0.1);
+}
+
+.flag {
+  font: 700 15px/1.2 var(--display);
+  letter-spacing: 0.02em;
+}
+
+.bannerWarn .flag {
+  color: var(--warn);
+}
+
+.bannerOk .flag {
+  color: var(--ok);
+}
+
+.banner p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.banner small,
+.note {
+  color: var(--on-glass-3);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.note {
+  display: block;
+  margin: 10px 0 0;
+}
+
+.panel {
+  padding: 14px 16px 16px;
+  min-width: 0;
+}
+
+.panel h2 {
+  margin: 0 0 10px;
+}
+
+/* ---- viewer ---- */
+.stage {
+  min-height: 120px;
+}
+
+.viewer {
+  display: grid;
+  grid-template-columns: 1fr 200px;
+  gap: 12px;
+}
+
+.canvasWrap {
+  position: relative;
+  height: min(60vh, 520px);
+  border-radius: 12px;
+  overflow: hidden;
+  background: #070a0b;
+  touch-action: none;
+  cursor: grab;
+}
+
+.canvasWrap canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.ctl {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.ctl button {
+  width: 44px;
+  height: 44px;
+  border: 0;
+  background: transparent;
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.ctl button:hover {
+  background: var(--glass-clear);
+}
+
+.legend {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  max-height: min(60vh, 520px);
+  overflow-y: auto;
+}
+
+.legend ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.legend li button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.legend li button:hover {
+  background: var(--glass-clear);
+}
+
+.legend li i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.seg {
+  display: flex;
+  background: var(--glass-clear);
+  border-radius: 10px;
+  padding: 2px;
+}
+
+.seg button {
+  flex: 1;
+  min-height: 36px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.seg button[aria-pressed="true"] {
+  background: var(--pill-active);
+  color: var(--ink);
+}
+
+/* ---- tables ---- */
+.tableWrap {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+th,
+td {
+  padding: 7px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--glass-edge);
+  vertical-align: top;
+}
+
+thead th {
+  font: 600 10.5px/1.2 var(--text);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--on-glass-3);
+}
+
+tbody th {
+  font-weight: 500;
+  color: var(--on-glass-2);
+}
+
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+code {
+  font-size: 11.5px;
+  color: var(--on-glass-2);
+  word-break: break-all;
+}
+
+.chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ok {
+  color: var(--ok);
+}
+
+.bad {
+  color: var(--danger);
+}
+
+.muted {
+  color: var(--on-glass-3);
+}
+
+.chip.ok {
+  background: rgb(156 199 164 / 0.16);
+}
+
+.chip.bad {
+  background: rgb(224 112 79 / 0.16);
+}
+
+.chip.muted {
+  background: var(--glass-clear);
+}
+
+/* ---- trends ---- */
+.trends {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 12px;
+}
+
+.trend {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--glass-clear);
+  min-width: 0;
+}
+
+.trend figcaption {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--on-glass-2);
+}
+
+.trend figcaption span {
+  overflow-wrap: anywhere;
+}
+
+.trend svg {
+  display: block;
+  width: 100%;
+  height: 64px;
+  margin: 6px 0 2px;
+}
+
+.trend small {
+  font-size: 11px;
+  color: var(--on-glass-3);
+}
+
+.thr {
+  stroke: var(--warn);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.line {
+  fill: none;
+  stroke: var(--feat-cross);
+  stroke-width: 1.6;
+  vector-effect: non-scaling-stroke;
+}
+
+.dot {
+  fill: var(--feat-cross);
+}
+
+.dotBad {
+  fill: var(--danger);
+}
+
+.legal {
+  color: var(--on-glass-3);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+@media (max-width: 700px) {
+  .viewer {
+    grid-template-columns: 1fr;
+  }
+
+  .canvasWrap {
+    height: 52vh;
+  }
+
+  .legend {
+    max-height: none;
+  }
+
+  .legend ul {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  }
+
+  .page {
+    padding: 10px;
+  }
+}
