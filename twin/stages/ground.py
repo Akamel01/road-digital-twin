@@ -23,6 +23,7 @@ import pyproj
 from shapely import contains_xy
 from shapely.geometry import shape
 
+from twin import heights
 from twin.contracts import GroundParams, StageResult
 from twin.registry import register
 from twin.stages import align
@@ -47,6 +48,8 @@ CSF_ITERATIONS = 500
 CSF_RIGIDNESS = 3
 # DECISION: the sweep-disagreement QA only uses points within this height of the cell's ground surface, so
 # points from one sweep that sit off the road are compared and points above (vehicles, canopy) are not.
+# 2026-11-10 amendment (ADR 0005): the QA also uses ground-class points only (see qa_ground), so walls, kerbs
+# and vegetation inside the band no longer count as disagreement.
 QA_BAND_M = 0.5
 
 
@@ -227,6 +230,23 @@ def sweep_disagreement_p95(
     return float(np.percentile(spread, 95))
 
 
+def qa_ground(
+    split_ground: np.ndarray, labels: np.ndarray | None, driveable_index: int | None
+) -> np.ndarray:
+    """Which points the disagreement QA uses: the split's ground, where a labelled point must also be labelled ground.
+
+    DECISION (2026-11-10 amendment to ADR 0005): the labels are driveable_surface, sidewalk and terrain. A point
+    of an unlabelled sweep keeps the ground split's verdict (RANSAC or CSF). A labelled point counts only if the
+    label says ground AND the split agrees. Labels alone were tried first and measured label noise, not height:
+    on scene-0757 the labelled driveable points alone gave 0.38 m disagreement against 0.09 m for the RANSAC
+    ground, because a semantic label does not say the point lies on the road plane.
+    """
+    if labels is None:
+        return split_ground
+    labelled, is_ground = heights.label_ground(labels, driveable_index)
+    return split_ground & (~labelled | is_ground)
+
+
 def observed_core(
     features: list[dict], origin: np.ndarray, cell_m: float, count: np.ndarray
 ) -> dict[str, float]:
@@ -308,11 +328,23 @@ def _run(
         "features"
     ]
     with np.load(ctx.input_dir("mask") / "points.npz") as f:
-        fields = {k: f[k] for k in POINT_FIELDS}
+        fields = {k: f[k] for k in (*POINT_FIELDS, "lidarseg") if k in f.files}
 
     xyz, intensity, sweep = aligned_points(fields, ref, refined)
     keep = voxel_first(xyz, params.voxel_m)
     xyz, intensity, sweep = xyz[keep], intensity[keep], sweep[keep]
+    labels = None
+    if (
+        "lidarseg" in fields
+    ):  # same point order as aligned_points: sorted by sweep, stable
+        order = np.argsort(fields["sweep"].astype(np.int64), kind="stable")
+        labels = fields["lidarseg"][order][keep]
+    seg_file = ctx.input_dir("load") / "lidarseg.json"
+    drv = (
+        json.loads(seg_file.read_text()).get("driveable_index")
+        if seg_file.is_file()
+        else None
+    )
     ground = classify(xyz, params)
     if not ground.any():
         return StageResult(status="failed", message="no ground points after the split")
@@ -327,8 +359,9 @@ def _run(
     gij = grid_index(gxy, origin, cell)
     gflat = gij[:, 1] * shape_yx[1] + gij[:, 0]
     rmse = float(np.sqrt(np.mean((gz - zmean.ravel()[gflat]) ** 2)))
+    use = qa_ground(ground, labels, drv)
     p95 = sweep_disagreement_p95(
-        xyz[:, :2], xyz[:, 2], sweep, origin, cell, shape_yx, zmean
+        xyz[use, :2], xyz[use, 2], sweep[use], origin, cell, shape_yx, zmean
     )
     observed = observed_core(features, origin, cell, count)
     not_scanned = sorted(k for k, v in observed.items() if v < min_observed)

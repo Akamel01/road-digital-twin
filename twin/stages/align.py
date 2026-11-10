@@ -17,11 +17,13 @@ import numpy as np
 from kiss_icp.config import load_config
 from kiss_icp.kiss_icp import KissICP
 
+from twin import heights
 from twin.contracts import AlignParams, StageResult
 from twin.registry import register
 
-OUTPUT_FILES = ("poses.json", "qa.json")
+OUTPUT_FILES = ("poses.json", "qa.json", "heights.json", "ground_ego.npz")
 POINT_FIELDS = ("x", "y", "z", "sweep")
+OPTIONAL_FIELDS = ("lidarseg",)  # written by mask when load had labels
 
 # DECISION: KISS-ICP range and voxel settings from docs/research/kiss-icp-fit.md (starting point, tune on real data).
 ICP_MAX_RANGE_M = 70.0
@@ -153,13 +155,37 @@ def ego_sweeps(fields: dict[str, np.ndarray], ref: np.ndarray) -> list[np.ndarra
     return out
 
 
+# ------------------------------------------------------------------ heights
+
+
+def ground_by_sweep(
+    fields: dict[str, np.ndarray],
+    ref: np.ndarray,
+    driveable_index: int | None,
+    seed: int,
+) -> list[np.ndarray]:
+    """Ground points per sweep in the ego frame (lidarseg labels where a sweep has them, else RANSAC)."""
+    n = len(ref)
+    sweep = fields["sweep"].astype(np.int64)
+    order = np.argsort(sweep, kind="stable")  # same order as ego_sweeps
+    bounds = np.concatenate([[0], np.cumsum(np.bincount(sweep, minlength=n))])
+    lab = fields.get("lidarseg")
+    lab = (
+        np.full(len(sweep), heights.LIDARSEG_NONE, np.uint8)
+        if lab is None
+        else lab[order]
+    )
+    labels = [lab[bounds[k] : bounds[k + 1]] for k in range(n)]
+    return heights.ego_ground(ego_sweeps(fields, ref), labels, driveable_index, seed)
+
+
 # ------------------------------------------------------------------ stage
 
 
 def _inputs(ctx: Any) -> tuple[dict, dict[str, np.ndarray]]:
     load = json.loads((ctx.input_dir("load") / "poses.json").read_text())
     with np.load(ctx.input_dir("mask") / "points.npz") as f:
-        fields = {k: f[k] for k in POINT_FIELDS}
+        fields = {k: f[k] for k in (*POINT_FIELDS, *OPTIONAL_FIELDS) if k in f.files}
     return load, fields
 
 
@@ -181,6 +207,28 @@ def _execute(ctx: Any, params: AlignParams, use_icp: bool) -> StageResult:
     entries = load["poses"]
     ref = np.array([e["matrix"] for e in entries], dtype=float).reshape(-1, 4, 4)
     stamps = [int(e["timestamp_us"]) for e in entries]
+
+    # DECISION: the ground points depend on the dataset ego frame only, so they are found once, before ICP, and
+    # saved for the area merge (it fits heights across drives without re-reading the sweeps).
+    seg_file = ctx.input_dir("load") / "lidarseg.json"
+    drv = (
+        json.loads(seg_file.read_text()).get("driveable_index")
+        if seg_file.is_file()
+        else None
+    )
+    ground = ground_by_sweep(fields, ref, drv, ctx.seed)
+    gpts = np.vstack(ground) if ground else np.zeros((0, 3))
+    np.savez_compressed(
+        out / "ground_ego.npz",
+        x=gpts[:, 0],
+        y=gpts[:, 1],
+        z=gpts[:, 2],
+        sweep=np.repeat(np.arange(len(ground)), [len(g) for g in ground]).astype(
+            np.uint16
+        ),
+    )
+    hq: dict | None = None
+    rows: list[dict] = []
 
     if not use_icp:
         reason = "method dataset-poses: ICP not run"
@@ -214,7 +262,20 @@ def _execute(ctx: Any, params: AlignParams, use_icp: bool) -> StageResult:
                 raise AlignFailure(
                     f"x/y drift P95 {drift['xy_drift_p95_m']:.2f} m above {DRIFT_P95_MAX_M} m"
                 )
+            # DECISION: heights (z, roll, pitch) are fitted to the drive's own consensus ground after the x/y/yaw
+            # anchor, only when ICP succeeded; a fallback keeps the plain dataset poses.
             refined = anchored
+            if params.heights:
+                refined, rep = heights.correct_heights(anchored, ground)
+                hq = heights.summary(rep)
+                hq["imu_check"] = heights.imu_check(
+                    ctx.scene_token,
+                    stamps,
+                    rep["roll_rad"],
+                    rep["pitch_rad"],
+                    rep["fitted"],
+                )
+                rows = heights.sweep_rows(rep, stamps)
         except Exception as exc:  # noqa: BLE001 # DECISION: any ICP failure falls back to the dataset poses
             reason = f"{type(exc).__name__}: {exc}"
             refined = ref  # the poses written are the dataset poses; drift above is the failed ICP's
@@ -228,7 +289,9 @@ def _execute(ctx: Any, params: AlignParams, use_icp: bool) -> StageResult:
         "fallback_reason": reason,
         **drift,
         "n_sweeps": len(entries),
+        "heights": hq,
     }
+    (out / "heights.json").write_text(json.dumps(rows))
     _write(out, load["crs"], entries, refined, qa)
     return StageResult(
         status="ok",

@@ -24,6 +24,11 @@
     "AlignParams": {
       "additionalProperties": false,
       "properties": {
+        "heights": {
+          "default": true,
+          "title": "Heights",
+          "type": "boolean"
+        },
         "voxel_m": {
           "default": 0.5,
           "maximum": 2,
@@ -349,6 +354,18 @@
       "title": "MaskParams",
       "type": "object"
     },
+    "MergeParams": {
+      "additionalProperties": false,
+      "properties": {
+        "heights": {
+          "default": false,
+          "title": "Heights",
+          "type": "boolean"
+        }
+      },
+      "title": "MergeParams",
+      "type": "object"
+    },
     "ProfileParams": {
       "additionalProperties": false,
       "properties": {
@@ -459,6 +476,9 @@
     },
     "mask": {
       "$ref": "#/$defs/MaskParams"
+    },
+    "merge": {
+      "$ref": "#/$defs/MergeParams"
     },
     "profile": {
       "$ref": "#/$defs/ProfileParams"
