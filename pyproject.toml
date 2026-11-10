@@ -30,6 +30,10 @@ dependencies = [
     "cryptography==50.0.2",
 ]
 
+[project.optional-dependencies]
+# Colour stage on the GPU (ADR 0005). Without it the stage runs on the CPU. [ctk] brings the CUDA runtime libraries.
+gpu = ["cupy-cuda12x[ctk]==14.2.0; sys_platform == 'linux'"]
+
 [project.scripts]
 twin = "twin.cli:main"
 

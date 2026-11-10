@@ -144,6 +144,14 @@ def build_parser() -> argparse.ArgumentParser:
     sweep.add_argument("--space", type=Path, help="search space yaml")
     sweep.add_argument("--report", metavar="SWEEP_ID", help="write the leaderboard")
     sweep.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
+    pg = sub.add_parser("prgate", help="gate method PRs: poll the open ones, or run one")
+    pg.add_argument("action", choices=("poll", "run"))
+    pg.add_argument("pr", nargs="?", type=int, help="PR number (for run)")
+    pg.add_argument("sha", nargs="?", help="PR head commit (for run)")
+    pg.add_argument("--repo", default="Akamel01/road-digital-twin")
+    pg.add_argument("--root", type=Path, default=Path.home() / "rdt-prgate")
+    pg.add_argument("--dry-run", action="store_true", help="post nothing, print it")
+    pg.add_argument("--store", type=Path, help="main run store (baseline, queue)")
     serve = sub.add_parser("serve", help="run the control API")
     serve.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
     serve.add_argument("--host", default="127.0.0.1")
@@ -213,6 +221,10 @@ def main(argv: list[str] | None = None) -> int:
         from twin.sweep import sweep_command
 
         return sweep_command(args.target, args.space, args.report, args.store)
+    if args.command == "prgate":
+        from twin.prgate import prgate_command
+
+        return prgate_command(args)
     if args.command == "serve":
         from twin.api import serve_command
 
