@@ -81,14 +81,23 @@ def read_token() -> str:
     return token
 
 
+def node_env(extra: dict | None = None) -> dict:
+    """Environment for npm/npx: ~/.local/node/bin (or $TWIN_NODE_BIN) first on PATH when it exists."""
+    node_bin = Path(os.environ.get("TWIN_NODE_BIN", "~/.local/node/bin")).expanduser()
+    env = {**os.environ, **(extra or {})}
+    if node_bin.is_dir():
+        env["PATH"] = f"{node_bin}{os.pathsep}{env.get('PATH', '')}"
+    return env
+
+
 def _run(cmd: list[str], cwd: Path, env: dict | None = None) -> None:
-    if subprocess.run(cmd, cwd=cwd, env=env, check=False).returncode:
+    if subprocess.run(cmd, cwd=cwd, env=env or node_env(), check=False).returncode:
         raise SiteStop(f"command failed: {' '.join(cmd[:3])}")
 
 
 def build(run_id: str, store: Path, report: dict, web: Path = WEB) -> None:
     """Showcase bundle, status.json and the static export in web/out."""
-    if not shutil.which("npm"):
+    if not shutil.which("npm", path=node_env()["PATH"]):
         raise SiteStop(
             "npm not found: Node is needed to build web/ (not installed on this machine)"
         )
@@ -108,7 +117,7 @@ def build(run_id: str, store: Path, report: dict, web: Path = WEB) -> None:
 
 
 def deploy(token: str, web: Path = WEB) -> None:
-    env = {**os.environ, "CLOUDFLARE_API_TOKEN": token}
+    env = node_env({"CLOUDFLARE_API_TOKEN": token})
     env.setdefault("CLOUDFLARE_ACCOUNT_ID", ACCOUNT_ID)
     _run(["npx", "-y", WRANGLER, "deploy"], web, env)
 

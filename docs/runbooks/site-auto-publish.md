@@ -31,6 +31,6 @@ uv run twin site rollback --store /data/twin-dev      # republish the run before
 
 Rollback needs that earlier run to still be in the store. `--dry-run` builds only.
 
-## Box needs Node
+## Node on the box
 
-The box had no Node when this was written. Install Node 22+ (without sudo, for example a tarball under `~/.local`) before the first real publish.
+Node 22 lives in `~/.local/node` (not on the default PATH). `twin/site.py` puts `~/.local/node/bin` first on PATH for the build and deploy commands when that directory exists; set `TWIN_NODE_BIN` to use another directory.
