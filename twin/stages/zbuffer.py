@@ -10,6 +10,7 @@ Inputs: align's refined sweep poses (poses.json "poses"), load's sweep timestamp
 from __future__ import annotations
 
 import math
+from typing import Any
 
 import numpy as np
 
@@ -139,17 +140,19 @@ def box_samples(boxes: list[dict], step_m: float) -> np.ndarray:
 
 
 def project(
-    points: np.ndarray, cam_to_world: np.ndarray, K: np.ndarray
+    points: np.ndarray, cam_to_world: np.ndarray, K: np.ndarray, xp: Any = np
 ) -> tuple[np.ndarray, np.ndarray]:
     """Pixel coordinates (N, 2) and depth (N,) of world points, camera axes x right, y down, z forward.
 
-    Points at depth 0 or behind the camera get NaN pixels; the caller filters by depth.
+    Points at depth 0 or behind the camera get NaN pixels; the caller filters by depth. xp is numpy, or cupy when
+    points are on the GPU (the small pose and intrinsics arrays are moved to match).
     """
+    cam_to_world, K = xp.asarray(cam_to_world, dtype=float), xp.asarray(K, dtype=float)
     r, t = cam_to_world[:3, :3], cam_to_world[:3, 3]
     cam = (points - t) @ r  # R^T (p - t), row-wise
     depth = cam[:, 2]
     with np.errstate(divide="ignore", invalid="ignore"):
-        uvw = cam @ np.asarray(K, dtype=float).T
+        uvw = cam @ K.T
         uv = uvw[:, :2] / uvw[:, 2:3]
     uv[depth <= 0] = np.nan
     return uv, depth
@@ -163,8 +166,9 @@ def visible(
     K: np.ndarray,
     image_size: tuple[int, int],
     params: ColourParams,
+    xp: Any = np,
 ) -> np.ndarray:
-    """(N,) bool: targets that this camera may colour.
+    """(N,) bool: targets that this camera may colour. With xp=cupy, targets and nonground are GPU arrays and so is the result.
 
     A target passes if it lands inside the image (with IMAGE_MARGIN_PX), is at least min_depth_m away,
     lies within max_range_m horizontally of the camera, and is no deeper than the depth buffer plus
@@ -175,7 +179,7 @@ def visible(
     """
     width, height = image_size
     s = params.zbuf_scale
-    blockers = np.vstack([nonground, box_blockers(boxes, cam_to_world, K, params)])
+    blockers = xp.vstack([nonground, xp.asarray(box_blockers(boxes, cam_to_world, K, params))])
 
     def in_image(uv: np.ndarray, depth: np.ndarray) -> np.ndarray:
         with np.errstate(invalid="ignore"):
@@ -187,27 +191,27 @@ def visible(
                 & (depth >= params.min_depth_m)
             )
 
-    t_uv, t_depth = project(targets, cam_to_world, K)
+    t_uv, t_depth = project(targets, cam_to_world, K, xp)
     t_ok = in_image(t_uv, t_depth)
 
-    b_uv, b_depth = project(blockers, cam_to_world, K)
+    b_uv, b_depth = project(blockers, cam_to_world, K, xp)
     b_ok = in_image(b_uv, b_depth)
 
     buf_w, buf_h = math.ceil(width * s), math.ceil(height * s)
-    buf = np.full(buf_h * buf_w, np.inf)
-    b_cell = _cell(b_uv[b_ok], s, buf_w, buf_h)
-    np.minimum.at(buf, b_cell, b_depth[b_ok])
+    buf = xp.full(buf_h * buf_w, xp.inf)
+    b_cell = _cell(b_uv[b_ok], s, buf_w, buf_h, xp)
+    xp.minimum.at(buf, b_cell, b_depth[b_ok])
 
-    t_cell = _cell(t_uv[t_ok], s, buf_w, buf_h)
-    depth_ok = np.zeros(len(targets), bool)
+    t_cell = _cell(t_uv[t_ok], s, buf_w, buf_h, xp)
+    depth_ok = xp.zeros(len(targets), bool)
     depth_ok[t_ok] = t_depth[t_ok] <= buf[t_cell] + params.zbuf_tol_m
 
-    centre = cam_to_world[:2, 3]
-    in_range = np.hypot(*(targets[:, :2] - centre).T) <= params.max_range_m
+    centre = xp.asarray(cam_to_world[:2, 3])
+    in_range = xp.hypot(*(targets[:, :2] - centre).T) <= params.max_range_m
     return t_ok & depth_ok & in_range
 
 
-def _cell(uv: np.ndarray, scale: float, buf_w: int, buf_h: int) -> np.ndarray:
-    col = np.clip(np.floor(uv[:, 0] * scale).astype(np.int64), 0, buf_w - 1)
-    row = np.clip(np.floor(uv[:, 1] * scale).astype(np.int64), 0, buf_h - 1)
+def _cell(uv: np.ndarray, scale: float, buf_w: int, buf_h: int, xp: Any = np) -> np.ndarray:
+    col = xp.clip(xp.floor(uv[:, 0] * scale).astype(xp.int64), 0, buf_w - 1)
+    row = xp.clip(xp.floor(uv[:, 1] * scale).astype(xp.int64), 0, buf_h - 1)
     return row * buf_w + col
