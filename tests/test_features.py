@@ -2,6 +2,7 @@
 
 import json
 import logging
+import math
 
 import laspy
 import numpy as np
@@ -195,7 +196,8 @@ def test_every_feature_carries_evidence_and_density(tmp_path):
 
     for m in markings:
         p = m["properties"]
-        assert p["evidence"] == ["lidar"]
+        # no lidarseg in this synthetic run: kept, with the note
+        assert p["evidence"] == ["lidar", "lidarseg: insufficient labels"]
         assert p["reliability"] == "observed"
         assert p["n_points"] > 0
         assert p["points_per_m"] == round(p["n_points"] / p["length_m"], 3)
@@ -353,3 +355,141 @@ def test_extractable_on_paint_and_not_on_flat_intensity(tmp_path):
     qa = json.loads((out / "qa.json").read_text())
     assert qa["markings_extractable"] is False
     assert qa["paint_contrast"] < 1.5
+
+
+# ------------------------------------------------------------------ lidarseg gate and marking types
+
+from shapely.geometry import LineString, Polygon
+
+from twin.stages.features import (
+    lidarseg_gate,
+    marking_type,
+    type_markings,
+)
+
+DRV = 24
+
+
+def _marking(y=5.0):
+    return {
+        "type": "Feature",
+        "properties": {
+            "id": "m",
+            "kind": "marking",
+            "evidence": ["lidar"],
+            "reliability": "observed",
+        },
+        "geometry": {"type": "LineString", "coordinates": [[0, y, 0], [10, y, 0]]},
+    }
+
+
+def _load_dir(tmp_path, labels, y=5.0):
+    """load folder with 100 points along y, labels per point (255 = unlabelled)."""
+    d = tmp_path / "1_load"
+    d.mkdir(exist_ok=True)
+    n = len(labels)
+    np.savez(
+        d / "points.npz",
+        x=np.linspace(0, 10, n),
+        y=np.full(n, y),
+        lidarseg=np.asarray(labels, np.uint8),
+    )
+    (d / "lidarseg.json").write_text(
+        json.dumps({"driveable_index": DRV, "sentinel": 255, "n_labelled": 0})
+    )
+    return d
+
+
+def test_gate_keeps_a_marking_on_driveable_surface(tmp_path):
+    d = _load_dir(tmp_path, [DRV] * 90 + [17] * 10)  # 90 % flat
+    kept, c = lidarseg_gate([_marking()], d, FeaturesParams())
+    assert len(kept) == 1 and c["n_dropped_lidarseg"] == 0
+    p = kept[0]["properties"]
+    assert p["reliability"] == "observed" and p["lidarseg_flat_share"] == 0.9
+    assert "lidarseg" in p["evidence"]
+
+
+def test_gate_drops_a_marking_off_the_road(tmp_path):
+    d = _load_dir(tmp_path, [DRV] * 50 + [17] * 50)  # 50 % flat < 0.8
+    kept, c = lidarseg_gate([_marking()], d, FeaturesParams())
+    assert kept == [] and c["n_dropped_lidarseg"] == 1
+
+
+def test_gate_ignores_unlabelled_points_and_notes_too_few(tmp_path):
+    # all sentinel: nothing to judge by, keep with the note (never fabricate a verdict)
+    d = _load_dir(tmp_path, [255] * 100)
+    kept, c = lidarseg_gate([_marking()], d, FeaturesParams())
+    assert len(kept) == 1 and c["n_lidarseg_insufficient_labels"] == 1
+    assert kept[0]["properties"]["reliability"] == "observed"
+    assert "lidarseg: insufficient labels" in kept[0]["properties"]["evidence"]
+    # 5 labelled points only: below the minimum of 10
+    d = _load_dir(tmp_path, [DRV] * 5 + [255] * 95)
+    kept, c = lidarseg_gate([_marking()], d, FeaturesParams())
+    assert len(kept) == 1 and c["n_lidarseg_insufficient_labels"] == 1
+
+
+def test_gate_share_is_a_parameter(tmp_path):
+    d = _load_dir(tmp_path, [DRV] * 60 + [17] * 40)
+    assert lidarseg_gate([_marking()], d, FeaturesParams())[0] == []
+    kept, _ = lidarseg_gate([_marking()], d, FeaturesParams(lidarseg_flat_share=0.5))
+    assert len(kept) == 1
+
+
+def test_gate_without_load_folder_keeps_with_note():
+    kept, c = lidarseg_gate([_marking()], None, FeaturesParams())
+    assert len(kept) == 1 and c["n_lidarseg_insufficient_labels"] == 1
+
+
+REF = {
+    "divider": [LineString([(0, 0), (100, 0)])],
+    "stop_line": [Polygon([(50, -2), (50.4, -2), (50.4, 2), (50, 2)])],
+    "ped_crossing": [Polygon([(20, -3), (24, -3), (24, 3), (20, 3)])],
+}
+
+
+def test_marking_types():
+    along_divider = LineString([(5, 0.3), (15, 0.3)])
+    assert marking_type(along_divider, REF) == "divider"
+    assert marking_type(LineString([(50.2, -1.5), (50.2, 1.5)]), REF) == "stop_line"
+    assert marking_type(LineString([(21, -2), (21, 2)]), REF) == "crosswalk_stripe"
+    # near the divider but crossing it: not a divider
+    assert marking_type(LineString([(60, -2), (60, 2)]), REF) == "other_paint"
+    # parallel but 5 m from any divider
+    assert marking_type(LineString([(5, 5), (15, 5)]), REF) == "other_paint"
+    # near the stop line but along the lane
+    assert marking_type(LineString([(48, 1.5), (52, 1.5)]), REF) != "stop_line"
+
+
+def test_type_markings_sets_property_and_counts():
+    ref = [
+        {
+            "properties": {"layer": "lane_divider"},
+            "geometry": {"type": "LineString", "coordinates": [[0, 0], [100, 0]]},
+        },
+        {
+            "properties": {"layer": "drivable_area"},
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [[[0, -9], [9, -9], [9, 9], [0, -9]]],
+            },
+        },
+    ]
+    ms = [_marking(0.2), _marking(8.0)]
+    counts = type_markings(ms, ref)
+    assert [m["properties"]["marking_type"] for m in ms] == ["divider", "other_paint"]
+    assert counts == {
+        "divider": 1,
+        "stop_line": 0,
+        "crosswalk_stripe": 0,
+        "other_paint": 1,
+    }
+
+
+def test_short_fragment_off_angle_keeps_divider_type():
+    c, sn = math.cos(math.radians(40)), math.sin(math.radians(40))
+    # 2 m long, 40 degrees off the divider, 0.3 m from it: too short for an angle test
+    frag = LineString([(5, 0.3), (5 + 2 * c, 0.3 + 2 * sn)])
+    assert marking_type(frag, REF) == "divider"
+    # the same angle on a 5 m marking is still not a divider
+    long = LineString([(5, 0.3), (5 + 5 * c, 0.3 + 5 * sn)])
+    assert marking_type(long, REF) == "other_paint"

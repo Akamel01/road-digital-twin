@@ -207,6 +207,8 @@ Notes:
 | `features.intensity_pct` | 95 | 50–99.9 |
 | `features.cluster_eps_m` | 0.3 | 0.05–2 |
 | `features.min_points` | 20 | 3–1000 |
+| `features.lidarseg_flat_share` | 0.8 | 0–1 |
+| `features.lidarseg_min_points` | 10 | 1–1000 |
 | `features.curbs.enabled` | true | bool |
 | `features.curbs.step_min_m` | 0.08 | 0.02–0.3 |
 | `features.curbs.step_max_m` | 0.25 | 0.1–0.5 |

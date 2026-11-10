@@ -511,6 +511,7 @@ def _features(d: Path, c: _Ctx) -> dict:
                 coords,
                 id=f"M-{k + 1}",
                 kind="marking",
+                marking_type="divider",
                 n_points=int(inside.sum()),
             )
         )
@@ -710,6 +711,16 @@ def _accuracy(d: Path, c: _Ctx) -> dict:
             "drivable_area", 0.08 + base, 0.21 + base, 0.64, 18, "map-conditioned"
         ),
     }
+    marking_types = {
+        "divider": elements["markings"],
+        "stop_line": _entry(
+            "stop_line", None, None, None, 0, "", "no observed elements"
+        ),
+        "crosswalk_stripe": _entry(
+            "ped_crossing", None, None, None, 0, "", "no observed elements"
+        ),
+        "other_paint": _entry("", None, None, None, 0, "", "no map layer"),
+    }
     min_observed = Params().facilities.min_observed
     facilities = {}
     for f in c.facilities:
@@ -728,6 +739,7 @@ def _accuracy(d: Path, c: _Ctx) -> dict:
         "method": "one-way",
         "buffer_m": Params().accuracy.buffer_m,
         "elements": elements,
+        "marking_types": marking_types,
         "facilities": facilities,
         "qa": {
             "n_observed_only": True,

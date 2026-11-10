@@ -172,6 +172,10 @@ class FeaturesParams(_Strict):
     intensity_pct: float = Field(95.0, ge=50, le=99.9)
     cluster_eps_m: float = Field(0.3, ge=0.05, le=2)
     min_points: int = Field(20, ge=3, le=1000)
+    # A marking stays "observed" only if at least this share of its labelled lidarseg points are
+    # flat.driveable_surface, and it has at least lidarseg_min_points labelled points.
+    lidarseg_flat_share: float = Field(0.8, ge=0, le=1)
+    lidarseg_min_points: int = Field(10, ge=1, le=1000)
     curbs: CurbsParams = Field(default_factory=CurbsParams)
 
 
