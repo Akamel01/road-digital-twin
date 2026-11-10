@@ -152,6 +152,9 @@ class MaskParams(_Strict):
 
 
 class AlignParams(_Strict):
+    # DECISION (coordinator, 2026-11-10): the per-drive height fit (issue 177) is on by default; off gives the
+    # plain KISS-ICP + dataset x/y/yaw poses, for comparison.
+    heights: bool = True
     window_s: float = Field(20.0, ge=2, le=20)
     voxel_m: float = Field(0.5, ge=0.1, le=2)
 

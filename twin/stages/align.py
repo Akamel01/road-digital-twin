@@ -264,16 +264,18 @@ def _execute(ctx: Any, params: AlignParams, use_icp: bool) -> StageResult:
                 )
             # DECISION: heights (z, roll, pitch) are fitted to the drive's own consensus ground after the x/y/yaw
             # anchor, only when ICP succeeded; a fallback keeps the plain dataset poses.
-            refined, rep = heights.correct_heights(anchored, ground)
-            hq = heights.summary(rep)
-            hq["imu_check"] = heights.imu_check(
-                ctx.scene_token,
-                stamps,
-                rep["roll_rad"],
-                rep["pitch_rad"],
-                rep["fitted"],
-            )
-            rows = heights.sweep_rows(rep, stamps)
+            refined = anchored
+            if params.heights:
+                refined, rep = heights.correct_heights(anchored, ground)
+                hq = heights.summary(rep)
+                hq["imu_check"] = heights.imu_check(
+                    ctx.scene_token,
+                    stamps,
+                    rep["roll_rad"],
+                    rep["pitch_rad"],
+                    rep["fitted"],
+                )
+                rows = heights.sweep_rows(rep, stamps)
         except Exception as exc:  # noqa: BLE001 # DECISION: any ICP failure falls back to the dataset poses
             reason = f"{type(exc).__name__}: {exc}"
             refined = ref  # the poses written are the dataset poses; drift above is the failed ICP's

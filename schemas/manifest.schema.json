@@ -24,6 +24,11 @@
     "AlignParams": {
       "additionalProperties": false,
       "properties": {
+        "heights": {
+          "default": true,
+          "title": "Heights",
+          "type": "boolean"
+        },
         "voxel_m": {
           "default": 0.5,
           "maximum": 2,
