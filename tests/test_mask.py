@@ -193,3 +193,38 @@ def test_no_boxes_keeps_every_point(tmp_path):
 
 def test_stage_is_registered():
     assert registry.lookup("mask", "boxes") is mask.run
+
+
+def test_workers_do_not_change_output(tmp_path):
+    rng = np.random.default_rng(0)
+    n = 3000
+    pts = {
+        "x": rng.uniform(5, 15, n),
+        "y": rng.uniform(0, 10, n),
+        "z": rng.uniform(-1, 2, n),
+        "intensity": rng.uniform(0, 255, n).astype(np.float32),
+        "sweep": (np.arange(n) % 7).astype(np.uint16),
+    }
+    boxes = {
+        "sweeps": [
+            {"sweep": s, "boxes": [_box(parked=s % 4 == 0, centre=[8 + s, 5, 0])]}
+            for s in range(0, 7, 2)
+        ]
+    }
+    got = []
+    for w in (1, 3):
+        run = tmp_path / f"w{w}"
+        (run / "1_load").mkdir(parents=True)
+        np.savez(run / "1_load" / "points.npz", **pts)
+        (run / "1_load" / "boxes.json").write_text(json.dumps(boxes))
+        ctx = StageContext(run, "t", 0, logging.getLogger("t"))
+        res = mask.run(ctx, MaskParams(workers=w))
+        got.append(
+            (
+                res.metrics,
+                (run / "2_mask" / "points.npz").read_bytes(),
+                (run / "2_mask" / "parked.npz").read_bytes(),
+            )
+        )
+    assert got[0][0]["n_dropped_moving"] > 0 and got[0][0]["n_parked"] > 0
+    assert got[0] == got[1]

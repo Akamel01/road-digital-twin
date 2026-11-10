@@ -146,6 +146,9 @@ class SelectParams(_Strict):
 
 class MaskParams(_Strict):
     box_margin_m: float = Field(0.3, ge=0, le=1)
+    workers: int | None = Field(
+        None, ge=1, le=64
+    )  # None: min(cores - 4, 16); output is the same for any value
 
 
 class AlignParams(_Strict):
@@ -206,6 +209,9 @@ class AccuracyParams(_Strict):
 
 class FacilitiesParams(_Strict):
     min_observed: float = Field(0.5, ge=0, le=1)
+    workers: int | None = Field(
+        None, ge=1, le=64
+    )  # load's per-sweep pool; None: min(cores - 4, 16)
 
 
 class Params(_Strict):
