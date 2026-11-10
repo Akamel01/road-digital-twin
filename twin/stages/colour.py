@@ -16,6 +16,7 @@ from __future__ import annotations
 import bisect
 import itertools
 import json
+import logging
 import os
 from collections.abc import Iterable
 from pathlib import Path
@@ -30,6 +31,7 @@ from twin.registry import register
 from twin.stages import zbuffer
 from twin.stages.load import DATAROOT_DEFAULT
 
+log = logging.getLogger(__name__)
 OUTPUT_FILES = ("ortho.png", "ortho.pgw", "rgb.npz", "qa.json")
 ORTHO_LABEL = "orthoimage"
 INDETERMINATE_LABEL = "indeterminate (height)"
@@ -103,7 +105,8 @@ def colour_points(
                 vis = cp.asnumpy(
                     zbuffer.visible(g_points, g_nonground, boxes, cam_to_world, K, (w, h), params, cp)
                 )
-            except (RuntimeError, MemoryError):  # out of memory or another CUDA error: CPU from here on
+            except (RuntimeError, MemoryError) as exc:  # out of memory or another CUDA error: CPU from here on
+                log.warning("colour: GPU failed (%s: %s), continuing on the CPU", type(exc).__name__, exc)
                 gpu = None
                 cp.get_default_memory_pool().free_all_blocks()
         if vis is None:
