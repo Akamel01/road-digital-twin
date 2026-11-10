@@ -51,6 +51,9 @@
     },
     "profile": {
       "$ref": "#/$defs/PipelineStage"
+    },
+    "semantics": {
+      "$ref": "#/$defs/PipelineStage"
     }
   },
   "title": "Pipeline",

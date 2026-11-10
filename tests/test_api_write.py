@@ -86,7 +86,7 @@ def test_valid_token_starts_run(client, auth, store, stubs):
     assert (store / run_id / "manifest.json").is_file()
     wait_idle(store)
     manifest = _manifest(store, run_id)
-    assert {s.status for s in manifest.stages} == {"ok"}
+    assert {s.name for s in manifest.stages if s.status != "ok"} == {"semantics"}  # off by default
     assert len(manifest.stages) == len(STAGE_NAMES)
     assert (store / run_id / "1_load" / "out.txt").read_text() == "load"
 
