@@ -236,3 +236,16 @@ def test_manifest_osm_names_null_when_load_has_no_query(tmp_path, stubs):
     registry._REGISTRY[("load", "nuscenes")] = _load_stub({"osm_names": None})
     run_id = runner.start_run(tmp_path, "scene-1", Pipeline(), Params())
     assert _manifest(tmp_path / run_id).data.osm_names is None
+
+
+def test_manifest_records_dataset_version_and_rerun_refuses_mismatch(tmp_path, stubs, monkeypatch):
+    stubs()
+    monkeypatch.setenv("NUSCENES_VERSION", "v1.0-trainval")
+    run_id = runner.start_run(tmp_path, "scene-1", Pipeline(), Params())
+    assert _manifest(tmp_path / run_id).data.nuscenes_version == "v1.0-trainval"
+    assert runner.rerun(tmp_path, run_id, "ground")  # same version: allowed
+    monkeypatch.setenv("NUSCENES_VERSION", "v1.0-mini")
+    before = set(tmp_path.iterdir())
+    with pytest.raises(ValueError, match="dataset version"):
+        runner.rerun(tmp_path, run_id, "ground")
+    assert set(tmp_path.iterdir()) == before
