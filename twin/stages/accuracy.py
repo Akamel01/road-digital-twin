@@ -27,8 +27,13 @@ from twin.registry import register
 OUTPUT_FILES = ("accuracy.json",)
 # Reference layers per element type (spec section 6, Accuracy).
 # Lane markings: lane_divider and road_divider are map lines; road_divider is a median line (weaker reference).
+# Markings are scored per type (features sets properties.marking_type), each against its own map layer.
+# other_paint has no map layer and gets no distance figures.
+MARKING_TYPES = ("divider", "stop_line", "crosswalk_stripe", "other_paint")
 REFERENCE = {
-    "markings": ("lane_divider", "road_divider"),
+    "divider": ("lane_divider", "road_divider"),
+    "stop_line": ("stop_line",),
+    "crosswalk_stripe": ("ped_crossing",),
     "crosswalks": ("ped_crossing",),
     "curbs": ("drivable_area",),
 }
@@ -37,13 +42,18 @@ ELEMENT_FILES = {
     "crosswalks": "crosswalks.geojson",
     "curbs": "curbs.geojson",
 }
+# Scored kinds that come from markings.geojson.
+MARKING_KINDS = ("divider", "stop_line", "crosswalk_stripe")
+# elements.markings keeps its name (the viewer reads it) and holds the divider entry.
+ELEMENT_KEY = {"divider": "markings"}
 # Curbs are scored against the drivable-area edge, which is the map's drawing choice, so they are labelled.
 LABELS = {"curbs": "map-conditioned"}
 # DECISION: a feature belongs to a facility when its centroid lies inside the facility's core polygon.
 # DECISION: crosswalks are area elements. Each extracted vertex is measured to the ped_crossing POLYGON (0 when
 # inside), and coverage is the share of ped_crossing area within buffer_m of the extracted crosswalks. Measuring
 # to the outline would score correct inner stripes ~half a crossing width off.
-AREA_TYPES = frozenset({"crosswalks"})
+# Stop lines and crosswalk stripes are likewise measured to the map's stop_line / ped_crossing polygons.
+AREA_TYPES = frozenset({"crosswalks", "stop_line", "crosswalk_stripe"})
 # Operator decision (2026-11-08): outlines are densified every DENSIFY_M metres before measuring, so P50 and P95
 # are length-weighted and do not depend on how many vertices a shape has.
 DENSIFY_M = 0.25
@@ -126,8 +136,14 @@ def _entry(
     label: str = "",
     reason: str = "",
     n_elements: int = 0,
+    radius_m: float = 1.0,
 ) -> dict[str, Any]:
-    """n = elements scored; n_samples = 0.25 m sample points behind P50/P95."""
+    """n = elements scored; n_samples = 0.25 m sample points behind the figures.
+
+    p50_m / p95_m stay the old one-way figures over all samples (history stays comparable).
+    matched_p50_m / matched_p95_m use only samples within radius_m of the reference; false_positive_rate is the
+    share of samples beyond it (samples are evenly spaced, so this is a share of extracted length).
+    """
     layer_name = ", ".join(layers) if isinstance(layers, tuple) else layers
     if not reason and len(dists) == 0:
         reason = "no observed elements"
@@ -138,16 +154,27 @@ def _entry(
             "reference_layer": layer_name,
             "p50_m": None,
             "p95_m": None,
+            "matched_p50_m": None,
+            "matched_p95_m": None,
+            "false_positive_rate": None,
             "coverage": None,
             "n": n_elements,
             "n_samples": len(dists),
             "label": label,
             "reason": reason,
         }
+    near = dists[dists <= radius_m]
     return {
         "reference_layer": layer_name,
         "p50_m": round(float(np.percentile(dists, 50)), 3),
         "p95_m": round(float(np.percentile(dists, 95)), 3),
+        "matched_p50_m": round(float(np.percentile(near, 50)), 3)
+        if len(near)
+        else None,
+        "matched_p95_m": round(float(np.percentile(near, 95)), 3)
+        if len(near)
+        else None,
+        "false_positive_rate": round(1 - len(near) / len(dists), 3),
         "coverage": round(min(matched / ref_len, 1.0), 3),
         "n": n_elements,
         "n_samples": len(dists),
@@ -163,6 +190,7 @@ def run_one_way(ctx: Any, params: AccuracyParams) -> StageResult:
     features_dir = ctx.input_dir("features")
     load_dir = ctx.input_dir("load")
     buffer_m = params.buffer_m
+    radius_m = params.match_radius_m
 
     feat_qa = json.loads((features_dir / "qa.json").read_text())
     not_scanned = set(feat_qa.get("not_scanned_enough", []))
@@ -179,17 +207,34 @@ def run_one_way(ctx: Any, params: AccuracyParams) -> StageResult:
     elements: dict[str, list[BaseGeometry]] = {}
     excluded = 0
     absent: list[str] = []
+    n_other_paint = 0
     for kind, name in ELEMENT_FILES.items():
         path = features_dir / name
         if not path.is_file():
             # Curbs are off in the run (features.curbs.enabled false): skip, no failure.
             absent.append(kind)
             continue
-        kept, n_excluded = _observed(_read_fc(path))
+        feats = _read_fc(path)
+        if kind == "markings":
+            # A marking without a type is untyped paint: it has no map layer to be scored against.
+            by_type = {t: [] for t in MARKING_TYPES}
+            for f in feats:
+                t = f["properties"].get("marking_type")
+                by_type[t if t in by_type else "other_paint"].append(f)
+            for t in MARKING_KINDS:
+                elements[t], n_excluded = _observed(by_type[t])
+                excluded += n_excluded
+            other, n_excluded = _observed(by_type["other_paint"])
+            n_other_paint = len(other)
+            excluded += n_excluded
+            continue
+        kept, n_excluded = _observed(feats)
         elements[kind] = kept
         excluded += n_excluded
 
-    active = [t for t in elements if not (t == "markings" and not markings_extractable)]
+    active = [
+        t for t in elements if not (t in MARKING_KINDS and not markings_extractable)
+    ]
 
     per_element: dict[str, dict] = {}
     for kind in active:
@@ -210,6 +255,7 @@ def run_one_way(ctx: Any, params: AccuracyParams) -> StageResult:
             _size(r, area),
             LABELS.get(kind, ""),
             n_elements=len(geoms),
+            radius_m=radius_m,
         )
     for kind in elements:
         if kind not in active:
@@ -221,6 +267,21 @@ def run_one_way(ctx: Any, params: AccuracyParams) -> StageResult:
                 LABELS.get(kind, ""),
                 "not extractable at this density",
             )
+
+    # Reported shape: elements.markings = the divider entry (viewer-compatible), marking_types = every type.
+    marking_types = {t: per_element.pop(t) for t in MARKING_KINDS if t in per_element}
+    if "divider" in marking_types:
+        per_element["markings"] = marking_types["divider"]
+    if "markings" in ELEMENT_FILES and "markings" not in absent:
+        marking_types["other_paint"] = _entry(
+            "",
+            np.empty(0),
+            0.0,
+            0.0,
+            "",
+            "no map layer",
+            n_elements=n_other_paint,
+        )
 
     per_facility: dict[str, dict] = {}
     facilities = _read_fc(load_dir / "facilities.geojson")
@@ -262,12 +323,15 @@ def run_one_way(ctx: Any, params: AccuracyParams) -> StageResult:
             ref_len,
             ", ".join(sorted(used_labels)),
             n_elements=n_members,
+            radius_m=radius_m,
         )
 
     doc = {
         "method": "one-way",
         "buffer_m": buffer_m,
+        "match_radius_m": radius_m,
         "elements": per_element,
+        "marking_types": marking_types,
         "facilities": per_facility,
         "qa": {
             "n_observed_only": True,

@@ -43,3 +43,20 @@ export async function loadArea(): Promise<AreaIndex> {
   if (!res.ok) throw new Error(SHOWCASE_MISSING);
   return (await res.json()) as AreaIndex;
 }
+
+/** Written by `twin site publish` (twin/site.py). Absent in a local fake showcase. */
+export interface SiteStatus {
+  run_id: string;
+  published_at: string; // ISO time
+  verdict: string; // go / no-go
+  gates_version: number;
+}
+
+export async function loadStatus(): Promise<SiteStatus | null> {
+  try {
+    const res = await fetch("showcase/status.json", { cache: "no-cache" });
+    return res.ok ? ((await res.json()) as SiteStatus) : null;
+  } catch {
+    return null;
+  }
+}

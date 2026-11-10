@@ -36,8 +36,10 @@ NORMAL_RADIUS_M = 1.0
 OVERLAP_DIST_M = 1.0
 MIN_OVERLAP_POINTS = 500
 MIN_FITNESS = 0.2
-# A ground point of one drive is compared when the other drive has ground within this distance.
-PAIR_DIST_M = 0.5
+# DECISION: dataset heights are relative (each drive starts at z = 0), so drives differ in height by metres.
+# Ground points are matched in plan view, within XY_MATCH_M, and compared if within MAX_DZ_M in height.
+XY_MATCH_M = 0.5
+MAX_DZ_M = 2.0
 
 
 # ------------------------------------------------------------------ geometry
@@ -63,6 +65,19 @@ def nearest(query: np.ndarray, target: np.ndarray) -> tuple[np.ndarray, np.ndarr
     return idx.numpy().ravel(), np.sqrt(d2.numpy().ravel())
 
 
+def nearest_xy(query: np.ndarray, target: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Nearest target point in plan view (z ignored): index and x/y distance."""
+    flat = np.array([1.0, 1.0, 0.0])
+    return nearest(query * flat, target * flat)
+
+
+def z_offset(src: np.ndarray, tgt: np.ndarray) -> float:
+    """Median height of src over tgt where they overlap in plan view (start for ICP: drive heights are relative)."""
+    idx, d = nearest_xy(src, tgt)
+    ok = d <= XY_MATCH_M
+    return float(np.median(tgt[idx[ok], 2] - src[ok, 2])) if ok.any() else 0.0
+
+
 def yaw_translation(t: np.ndarray) -> np.ndarray:
     """Keep only the yaw and translation of a 4x4, as seen from the origin (the polygon centre): tilt is dropped."""
     yaw = np.arctan2(t[1, 0], t[0, 0])
@@ -83,6 +98,7 @@ def register(src: np.ndarray, tgt: np.ndarray) -> tuple[np.ndarray, float, float
     est = o3d.pipelines.registration.TransformationEstimationPointToPlane()
     crit = o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=ICP_MAX_ITER)
     cur = np.eye(4)
+    cur[2, 3] = z_offset(src, tgt)
     for dist in ICP_STEPS_M:
         res = o3d.pipelines.registration.registration_icp(s, t, dist, cur, est, crit)
         cur = yaw_translation(np.asarray(res.transformation))
@@ -91,11 +107,11 @@ def register(src: np.ndarray, tgt: np.ndarray) -> tuple[np.ndarray, float, float
 
 
 def ground_disagreement(a: np.ndarray, b: np.ndarray) -> dict | None:
-    """P50/P95 of the point-to-plane distance from a's ground points to b's ground, where b has ground within PAIR_DIST_M."""
+    """P50/P95 of the point-to-plane distance from a's ground points to b's ground, matched in plan view within XY_MATCH_M."""
     if len(a) == 0 or len(b) == 0:
         return None
-    idx, d = nearest(a, b)
-    ok = d <= PAIR_DIST_M
+    idx, d = nearest_xy(a, b)
+    ok = (d <= XY_MATCH_M) & (np.abs(a[:, 2] - b[idx, 2]) <= MAX_DZ_M)
     if ok.sum() < MIN_OVERLAP_POINTS:
         return None
     normals = np.asarray(_pcd(b, normals=True).normals)[idx[ok]]
@@ -135,7 +151,8 @@ def register_drives(
     todo = [k for k in ids if k != ref]
     while todo:
         overlap = {
-            k: int((nearest(pts[k], target)[1] <= OVERLAP_DIST_M).sum()) for k in todo
+            k: int((nearest_xy(pts[k], target)[1] <= OVERLAP_DIST_M).sum())
+            for k in todo
         }
         k = max(todo, key=lambda x: (overlap[x], x))
         todo.remove(k)
@@ -274,6 +291,25 @@ def merge_area(area: dict, out: Path, params: Params, log) -> dict:
         "ground_disagreement_pairs": res["pairs"],
         "skipped": skipped,
     }
+    # DECISION: a minimal manifest.json so `twin eval <folder>` can read gate G2. The gate's metric is the
+    # median over pairs of the after-registration ground P95; the worst pair is reported beside it.
+    p95 = [p["after"]["p95_m"] for p in res["pairs"] if p["after"]]
+    metrics = {
+        "cross_drive_ground_p95_m": float(np.median(p95)) if p95 else None,
+        "cross_drive_ground_p95_worst_m": max(p95) if p95 else None,
+        "n_drives": len(names),
+        "n_skipped": len(skipped),
+    }
+    (out / "manifest.json").write_text(
+        json.dumps(
+            {
+                "run_id": f"area-{area['name']}",
+                "metrics": {"align": metrics},
+                "stages": [],
+            },
+            indent=2,
+        )
+    )
     (out / "drives.json").write_text(json.dumps(drives, indent=2))
     (out / "qa.json").write_text(json.dumps(qa, indent=2))
     return qa

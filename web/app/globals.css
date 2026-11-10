@@ -109,6 +109,18 @@ button:focus-visible {
   height: 20px;
 }
 
+.stamp {
+  font-size: 11px;
+  color: var(--on-glass-2);
+  white-space: nowrap;
+}
+
+@media (max-width: 700px) {
+  .stamp {
+    display: none;
+  }
+}
+
 .crumbs {
   display: flex;
   align-items: center;

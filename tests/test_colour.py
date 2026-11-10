@@ -4,6 +4,7 @@ import json
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 from PIL import Image
 
 from twin.contracts import STAGES, ColourParams
@@ -77,6 +78,54 @@ def test_box_occludes_ground_behind_it():
     assert not seen_behind.any(), "the box hides the ground behind it"
     _, seen_front, _ = colour.colour_points(front, NO_POINTS, [view], ColourParams())
     assert seen_front.all(), "ground in front of the box is coloured"
+
+
+def _scene():
+    pts = _ground(4.0, 9.0)
+    nonground = np.column_stack([np.full(50, 6.0), np.linspace(-0.2, 0.2, 50), np.full(50, 0.8)])
+    return pts, nonground, [(CAM16, K, _stripe_image(CAM16), [BOX])] * 2
+
+
+def test_out_of_memory_on_the_gpu_falls_back_to_the_cpu(monkeypatch):
+    pts, nonground, views = _scene()
+    cpu_stats: dict = {}
+    want = colour.colour_points(pts, nonground, views, ColourParams(device="cpu"), cpu_stats)
+    assert cpu_stats["device"] == "cpu"
+
+    pool = SimpleNamespace(free_all_blocks=lambda: None)
+    fake_cp = SimpleNamespace(asnumpy=np.asarray, get_default_memory_pool=lambda: pool)
+    monkeypatch.setattr(colour, "_to_gpu", lambda *_: (fake_cp, pts, nonground))
+    real_visible = zbuffer.visible
+    calls = []
+
+    def visible(*args):
+        calls.append(args[-1] is fake_cp)
+        if args[-1] is fake_cp:
+            raise MemoryError("forced out of memory")
+        return real_visible(*args)
+
+    monkeypatch.setattr(zbuffer, "visible", visible)
+    stats: dict = {}
+    got = colour.colour_points(pts, nonground, views, ColourParams(), stats)
+    assert stats["device"] == "cpu", "the run finished on the CPU"
+    assert calls == [True, False, False], "one failed GPU try, then the CPU for every view"
+    for g, w in zip(got, want):
+        assert np.array_equal(g, w)
+
+
+def test_gpu_matches_cpu():
+    cp = pytest.importorskip("cupy")
+    try:
+        cp.cuda.runtime.getDeviceCount()
+    except RuntimeError:
+        pytest.skip("no CUDA device")
+    pts, nonground, views = _scene()
+    stats: dict = {}
+    rgb, observed, n_views = colour.colour_points(pts, nonground, views, ColourParams(), stats)
+    assert stats["device"] == "gpu"
+    want = colour.colour_points(pts, nonground, views, ColourParams(device="cpu"))
+    assert np.array_equal(observed, want[1]) and np.array_equal(n_views, want[2])
+    assert np.abs(rgb.astype(int) - want[0].astype(int)).max() <= 1
 
 
 def test_unseen_cells_stay_transparent():

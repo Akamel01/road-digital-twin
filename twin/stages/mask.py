@@ -13,6 +13,7 @@ from typing import Any
 import numpy as np
 
 from twin.contracts import MaskParams, StageResult
+from twin.parallel import pmap, savez_fast
 from twin.registry import register
 from twin.stages.load import quat_to_matrix
 
@@ -61,6 +62,20 @@ def _subset(fields: dict[str, np.ndarray], sel: np.ndarray) -> dict[str, np.ndar
     return {k: v[sel] for k, v in fields.items()}
 
 
+_JOB: tuple[dict, dict, float] | None = None  # read by forked workers
+
+
+def _mask_sweep(s: int) -> tuple:
+    fields, boxes_by_sweep, margin = _JOB  # type: ignore[misc]
+    boxes = boxes_by_sweep.get(s, [])  # a box only applies to its own sweep
+    if not boxes:
+        e = np.zeros(0, bool)
+        return np.zeros(0, np.intp), e, e, np.zeros(0, np.int32)
+    sel = np.flatnonzero(fields["sweep"] == s)
+    xyz = np.column_stack([fields["x"][sel], fields["y"][sel], fields["z"][sel]])
+    return (sel, *classify(xyz, boxes, margin))
+
+
 @register("mask", "boxes")
 def run(ctx: Any, params: MaskParams) -> StageResult:
     src = ctx.input_dir("load")
@@ -76,21 +91,22 @@ def run(ctx: Any, params: MaskParams) -> StageResult:
     parked_all = np.zeros(n, bool)
     dropped_all = np.zeros(n, bool)
     box_all = np.full(n, -1, np.int32)
-    for s in np.unique(fields["sweep"]):
-        boxes = boxes_by_sweep.get(int(s), [])  # a box only applies to its own sweep
-        if not boxes:
-            continue
-        sel = np.flatnonzero(fields["sweep"] == s)
-        xyz = np.column_stack([fields["x"][sel], fields["y"][sel], fields["z"][sel]])
-        parked, dropped, idx = classify(xyz, boxes, params.box_margin_m)
+    global _JOB
+    _JOB = (fields, boxes_by_sweep, params.box_margin_m)
+    try:
+        # Sweeps are independent; results come back in sweep order, so any worker count gives the same masks.
+        done = pmap(_mask_sweep, np.unique(fields["sweep"]).tolist(), params.workers)
+    finally:
+        _JOB = None
+    for sel, parked, dropped, idx in done:
         parked_all[sel] = parked
         dropped_all[sel] = dropped
         box_all[sel] = idx
 
     keep = ~(parked_all | dropped_all)
-    np.savez_compressed(out / "points.npz", **_subset(fields, keep))
+    savez_fast(out / "points.npz", **_subset(fields, keep))
     parked_fields = _subset(fields, parked_all)
-    np.savez_compressed(out / "parked.npz", **parked_fields, box=box_all[parked_all])
+    savez_fast(out / "parked.npz", **parked_fields, box=box_all[parked_all])
 
     n_parked = int(parked_all.sum())
     n_dropped = int(dropped_all.sum())

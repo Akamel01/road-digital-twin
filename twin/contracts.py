@@ -146,6 +146,9 @@ class SelectParams(_Strict):
 
 class MaskParams(_Strict):
     box_margin_m: float = Field(0.3, ge=0, le=1)
+    workers: int | None = Field(
+        None, ge=1, le=64
+    )  # None: min(cores - 4, 16); output is the same for any value
 
 
 class AlignParams(_Strict):
@@ -172,6 +175,10 @@ class FeaturesParams(_Strict):
     intensity_pct: float = Field(95.0, ge=50, le=99.9)
     cluster_eps_m: float = Field(0.3, ge=0.05, le=2)
     min_points: int = Field(20, ge=3, le=1000)
+    # A marking stays "observed" only if at least this share of its labelled lidarseg points are
+    # flat.driveable_surface, and it has at least lidarseg_min_points labelled points.
+    lidarseg_flat_share: float = Field(0.8, ge=0, le=1)
+    lidarseg_min_points: int = Field(10, ge=1, le=1000)
     curbs: CurbsParams = Field(default_factory=CurbsParams)
 
 
@@ -182,6 +189,8 @@ class ColourParams(_Strict):
     min_depth_m: float = Field(1.0, ge=0.5, le=5)
     top_k: int = Field(5, ge=1, le=12)
     max_range_m: float = Field(12.0, ge=3, le=50)
+    # auto: the GPU when cupy is installed and enough GPU memory is free, otherwise the CPU (ADR 0005).
+    device: Literal["auto", "cpu"] = "auto"
 
 
 class ProfileParams(_Strict):
@@ -202,10 +211,15 @@ class IsdParams(_Strict):
 
 class AccuracyParams(_Strict):
     buffer_m: float = Field(1.0, ge=0.1, le=5)
+    # Samples within this distance of the reference count as matched (precision); beyond it, false positives.
+    match_radius_m: float = Field(1.0, ge=0.1, le=5)
 
 
 class FacilitiesParams(_Strict):
     min_observed: float = Field(0.5, ge=0, le=1)
+    workers: int | None = Field(
+        None, ge=1, le=64
+    )  # load's per-sweep pool; None: min(cores - 4, 16)
 
 
 class Params(_Strict):

@@ -9,6 +9,13 @@
           "minimum": 0.1,
           "title": "Buffer M",
           "type": "number"
+        },
+        "match_radius_m": {
+          "default": 1.0,
+          "maximum": 5,
+          "minimum": 0.1,
+          "title": "Match Radius M",
+          "type": "number"
         }
       },
       "title": "AccuracyParams",
@@ -38,6 +45,15 @@
     "ColourParams": {
       "additionalProperties": false,
       "properties": {
+        "device": {
+          "default": "auto",
+          "enum": [
+            "auto",
+            "cpu"
+          ],
+          "title": "Device",
+          "type": "string"
+        },
         "gsd_m": {
           "default": 0.05,
           "maximum": 0.5,
@@ -119,6 +135,20 @@
           "minimum": 0,
           "title": "Min Observed",
           "type": "number"
+        },
+        "workers": {
+          "anyOf": [
+            {
+              "maximum": 64,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workers"
         }
       },
       "title": "FacilitiesParams",
@@ -143,6 +173,20 @@
           "minimum": 50,
           "title": "Intensity Pct",
           "type": "number"
+        },
+        "lidarseg_flat_share": {
+          "default": 0.8,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Lidarseg Flat Share",
+          "type": "number"
+        },
+        "lidarseg_min_points": {
+          "default": 10,
+          "maximum": 1000,
+          "minimum": 1,
+          "title": "Lidarseg Min Points",
+          "type": "integer"
         },
         "min_points": {
           "default": 20,
@@ -464,6 +508,20 @@
           "minimum": 0,
           "title": "Box Margin M",
           "type": "number"
+        },
+        "workers": {
+          "anyOf": [
+            {
+              "maximum": 64,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workers"
         }
       },
       "title": "MaskParams",

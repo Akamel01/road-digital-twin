@@ -28,6 +28,7 @@ from twin.contracts import FacilitiesParams, IsdParams, StageResult
 from twin.devkit_compat import nuscenes_map_class
 from twin.facilities import MapView, build_facilities, from_nuscenes_map
 from twin.osm_names import fetch_streets, name_facility, osm_names_meta
+from twin.parallel import pmap, savez_fast
 from twin.registry import register
 
 CRS_EPSG = 32619
@@ -44,7 +45,17 @@ OSM_CACHE_DEFAULT = "/data/osm"
 MAP_ORIGIN_LATLON = (42.336849169438615, -71.05785369873047)
 EXTENT_MARGIN_M = 60.0
 # DECISION: the four map layers the accuracy stage reads (spec section 6, Accuracy).
-MAP_LAYERS = ("drivable_area", "ped_crossing", "lane_divider", "road_divider")
+# stop_line is the reference for stop-line markings (features types each marking, accuracy scores it per type).
+MAP_LAYERS = (
+    "drivable_area",
+    "ped_crossing",
+    "lane_divider",
+    "road_divider",
+    "stop_line",
+)
+# nuScenes-lidarseg exists for keyframe LIDAR_TOP sweeps only. Every other sweep carries this sentinel.
+LIDARSEG_NONE = 255
+DRIVEABLE_CATEGORY = "flat.driveable_surface"
 BOX_PREFIXES = (
     "vehicle.",
     "human.",
@@ -59,6 +70,7 @@ OUTPUT_FILES = (
     "reference.geojson",
     "facilities.geojson",
     "cameras.json",
+    "lidarseg.json",
 )
 
 
@@ -365,6 +377,12 @@ class LoadedScene:
     z: np.ndarray
     intensity: np.ndarray
     sweep: np.ndarray
+    lidarseg: (
+        np.ndarray
+    )  # per point: lidarseg class index, LIDARSEG_NONE where the sweep has no labels
+    driveable_index: (
+        int | None
+    )  # lidarseg index of flat.driveable_surface, None without lidarseg
     sweeps: list[dict]  # per sweep: index, token, timestamp_us, matrix (run CRS)
     boxes: list[list[dict]]  # per sweep, run CRS
     cameras: list[dict]
@@ -375,29 +393,53 @@ class LoadedScene:
     # DECISION: facility defaults (IsdParams, FacilitiesParams) are used because load has no parameters (spec section 4).
 
 
-def assemble(source: Any, scene_token: str, tr: Transformer) -> LoadedScene:
+_SWEEP_JOB: tuple[Any, Transformer, list[dict]] | None = None  # read by forked workers
+
+
+def _load_sweep(i: int) -> tuple:
+    source, tr, recs = _SWEEP_JOB  # type: ignore[misc]
+    rec = recs[i]
+    pts = np.asarray(source.sweep_points(rec), dtype=float)
+    g = sweep_to_global(pts[:, :3], rec["calibrated_sensor"], rec["ego_pose"])
+    xu, yu = tr.transform(g[:, 0], g[:, 1])
+    seg_fn = getattr(source, "sweep_labels", None)
+    lab = seg_fn(rec) if seg_fn else None
+    if lab is None:
+        lab = np.full(len(pts), LIDARSEG_NONE, dtype=np.uint8)
+    elif len(lab) != len(pts):
+        raise ValueError(f"sweep {i}: {len(lab)} lidarseg labels for {len(pts)} points")
+    m = sweep_matrix(rec)
+    info = {
+        "sweep": i,
+        "token": rec["token"],
+        "timestamp_us": int(rec["timestamp"]),
+        "matrix": to_run_pose(m, tr).tolist(),
+    }
+    return (
+        np.asarray(xu, float),
+        np.asarray(yu, float),
+        g[:, 2],
+        pts[:, 3].astype(np.float32),
+        np.full(len(pts), i, dtype=np.uint16),
+        info,
+        m[:2, 3],
+        np.asarray(lab, dtype=np.uint8),
+    )
+
+
+def assemble(
+    source: Any, scene_token: str, tr: Transformer, workers: int | None = None
+) -> LoadedScene:
     """Everything the stage writes, built from `source` (the small interface in DevkitSource)."""
     recs = source.sweep_records(scene_token)
-    xs, ys, zs, ints, sws, sweeps, egos = [], [], [], [], [], [], []
-    for i, rec in enumerate(recs):
-        pts = np.asarray(source.sweep_points(rec), dtype=float)
-        g = sweep_to_global(pts[:, :3], rec["calibrated_sensor"], rec["ego_pose"])
-        xu, yu = tr.transform(g[:, 0], g[:, 1])
-        xs.append(np.asarray(xu, float))
-        ys.append(np.asarray(yu, float))
-        zs.append(g[:, 2])
-        ints.append(pts[:, 3].astype(np.float32))
-        sws.append(np.full(len(pts), i, dtype=np.uint16))
-        m = sweep_matrix(rec)
-        egos.append(m[:2, 3])
-        sweeps.append(
-            {
-                "sweep": i,
-                "token": rec["token"],
-                "timestamp_us": int(rec["timestamp"]),
-                "matrix": to_run_pose(m, tr).tolist(),
-            }
-        )
+    global _SWEEP_JOB
+    _SWEEP_JOB = (source, tr, recs)
+    try:
+        # Sweeps are independent; results come back in sweep order, so any worker count gives the same arrays.
+        done = pmap(_load_sweep, range(len(recs)), workers)
+    finally:
+        _SWEEP_JOB = None
+    xs, ys, zs, ints, sws, sweeps, egos, segs = ([d[k] for d in done] for k in range(8))
 
     ego_xy = np.asarray(egos)
     lo, hi = ego_xy.min(axis=0), ego_xy.max(axis=0)
@@ -424,6 +466,8 @@ def assemble(source: Any, scene_token: str, tr: Transformer) -> LoadedScene:
         z=np.concatenate(zs) if zs else np.zeros(0),
         intensity=np.concatenate(ints) if ints else np.zeros(0, np.float32),
         sweep=np.concatenate(sws) if sws else np.zeros(0, np.uint16),
+        lidarseg=np.concatenate(segs) if segs else np.zeros(0, np.uint8),
+        driveable_index=getattr(source, "driveable_index", lambda: None)(),
         sweeps=sweeps,
         boxes=boxes,
         cameras=source.cameras(scene_token),
@@ -442,7 +486,7 @@ def _fc(features: list[dict]) -> dict:
 
 
 def write_outputs(out: Path, scene: LoadedScene, names: list[str]) -> None:
-    np.savez_compressed(
+    savez_fast(
         out / "points.npz",
         # DECISION: x, y, z as float64 (UTM northings near 4.7e6 m lose metres in float32); sweep stored as uint16 (a 20 s scene has about 400 sweeps, more than uint8 holds).
         x=scene.x.astype(np.float64),  # float64: UTM northings near 4.7e6 m need it
@@ -450,6 +494,17 @@ def write_outputs(out: Path, scene: LoadedScene, names: list[str]) -> None:
         z=scene.z.astype(np.float64),
         intensity=scene.intensity.astype(np.float32),
         sweep=scene.sweep.astype(np.uint16),
+        # DECISION: lidarseg label per point (uint8), 255 where the sweep is not a keyframe; mask keeps its own fields, features joins this file by position.
+        lidarseg=scene.lidarseg.astype(np.uint8),
+    )
+    (out / "lidarseg.json").write_text(
+        json.dumps(
+            {
+                "driveable_index": scene.driveable_index,
+                "sentinel": LIDARSEG_NONE,
+                "n_labelled": int((scene.lidarseg != LIDARSEG_NONE).sum()),
+            }
+        )
     )
     (out / "poses.json").write_text(
         json.dumps({"crs": f"EPSG:{CRS_EPSG}", "poses": scene.sweeps})
@@ -488,6 +543,32 @@ class DevkitSource:
             verbose=False,
         )
         self._map: Any = None
+        # sample_data token -> .bin path; empty when lidarseg is not installed.
+        # DECISION: lidarseg.json sits in the version tables folder; the .bin paths in it are relative to the dataroot.
+        self._seg: dict[str, str] = {}
+        table = (
+            Path(dataroot)
+            / os.environ.get("NUSCENES_VERSION", VERSION)
+            / "lidarseg.json"
+        )
+        if table.is_file():
+            self._seg = {
+                r["sample_data_token"]: os.path.join(dataroot, r["filename"])
+                for r in json.loads(table.read_text())
+            }
+
+    def driveable_index(self) -> int | None:
+        for c in self.nusc.category:
+            if c["name"] == DRIVEABLE_CATEGORY:
+                return int(c["index"])
+        return None
+
+    def sweep_labels(self, rec: dict) -> np.ndarray | None:
+        """uint8 lidarseg label per point of a keyframe sweep, or None for any other sweep."""
+        path = self._seg.get(rec["token"])
+        if path is None or not os.path.isfile(path):
+            return None
+        return np.fromfile(path, dtype=np.uint8)
 
     def _map_api(self) -> Any:
         if self._map is None:
@@ -599,6 +680,10 @@ class DevkitSource:
         for tok in recs["drivable_area"]:
             for poly_tok in nm.get("drivable_area", tok)["polygon_tokens"]:
                 out.append(("drivable_area", poly_tok, nm.extract_polygon(poly_tok)))
+        for tok in recs["stop_line"]:
+            poly_tok = nm.get("stop_line", tok).get("polygon_token")
+            if poly_tok:
+                out.append(("stop_line", tok, nm.extract_polygon(poly_tok)))
         for tok in recs["ped_crossing"]:
             poly_tok = nm.get("ped_crossing", tok)["polygon_token"]
             out.append(("ped_crossing", tok, nm.extract_polygon(poly_tok)))
@@ -608,8 +693,13 @@ class DevkitSource:
 
 
 def load_scene(dataroot: str, scene_token: str, params: Any = None) -> LoadedScene:
-    """Adapter entry point. `params` is unused: the load stage has no parameters in spec section 4."""
-    return assemble(DevkitSource(dataroot), scene_token, run_crs(MAP_ORIGIN_LATLON))
+    """Adapter entry point. `params` only supplies `workers` (None or absent: the default)."""
+    return assemble(
+        DevkitSource(dataroot),
+        scene_token,
+        run_crs(MAP_ORIGIN_LATLON),
+        getattr(params, "workers", None),
+    )
 
 
 # ------------------------------------------------------------------ stage
@@ -649,6 +739,7 @@ def run(ctx: Any, params: Any) -> StageResult:
         metrics={
             "n_sweeps": len(scene.sweeps),
             "n_points": len(scene.x),
+            "n_lidarseg_labelled": int((scene.lidarseg != LIDARSEG_NONE).sum()),
             "n_facilities": len(scene.facilities),
             "osm_names": osm,
         },

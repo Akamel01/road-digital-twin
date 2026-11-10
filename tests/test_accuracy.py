@@ -10,8 +10,13 @@ from twin.contracts import STAGES, AccuracyParams
 from twin.runner import StageContext
 
 
-def _line(coords, layer=None, reliability="observed"):
-    props = {"id": "x", "kind": "marking", "reliability": reliability}
+def _line(coords, layer=None, reliability="observed", mtype="divider"):
+    props = {
+        "id": "x",
+        "kind": "marking",
+        "reliability": reliability,
+        "marking_type": mtype,
+    }
     return {
         "type": "Feature",
         "properties": props,
@@ -105,7 +110,9 @@ def test_unobserved_features_are_not_scored(tmp_path):
     ]
     doc = _run(tmp_path, ref, marking)
     # The observed 20 m line is sampled every 0.25 m: 81 points. The modelled line is not counted.
-    assert doc["elements"]["markings"]["n_samples"] == 81  # 20 m line, one sample per 0.25 m
+    assert (
+        doc["elements"]["markings"]["n_samples"] == 81
+    )  # 20 m line, one sample per 0.25 m
     assert doc["elements"]["markings"]["n"] == 1
     assert doc["elements"]["markings"]["p95_m"] == pytest.approx(0.1, abs=1e-3)
     assert doc["qa"]["n_excluded_not_observed"] == 1
@@ -224,10 +231,93 @@ def test_result_metrics_are_the_accuracy_document(tmp_path):
     # The runner stores StageResult.metrics as manifest metrics["accuracy"], so they must equal the file.
     run = tmp_path / "run"
     run.mkdir()
-    _write(run, "load", "reference.geojson", _fc([_ref([[0, 0], [100, 0]], "lane_divider")]))
+    _write(
+        run,
+        "load",
+        "reference.geojson",
+        _fc([_ref([[0, 0], [100, 0]], "lane_divider")]),
+    )
     _write(run, "load", "facilities.geojson", _fc([_core()]))
-    _write(run, "features", "markings.geojson", _fc([_line([[x, 0.1] for x in range(10, 31)])]))
+    _write(
+        run,
+        "features",
+        "markings.geojson",
+        _fc([_line([[x, 0.1] for x in range(10, 31)])]),
+    )
     _write(run, "features", "crosswalks.geojson", _fc([]))
     _write(run, "features", "qa.json", {"not_scanned_enough": []})
     result = registry.lookup("accuracy", "one-way")(_ctx(run), AccuracyParams())
-    assert result.metrics == json.loads((run / "9_accuracy" / "accuracy.json").read_text())
+    assert result.metrics == json.loads(
+        (run / "9_accuracy" / "accuracy.json").read_text()
+    )
+
+
+# ------------------------------------------------------------------ marking types
+
+
+def _poly_ref(coords, layer):
+    return {
+        "type": "Feature",
+        "properties": {"layer": layer, "token": layer + "-1"},
+        "geometry": {"type": "Polygon", "coordinates": [coords]},
+    }
+
+
+def test_each_marking_type_scored_against_its_own_layer(tmp_path):
+    ref = [
+        _ref([[0, 0], [100, 0]], "lane_divider"),
+        _poly_ref([[50, -2], [50.4, -2], [50.4, 2], [50, 2], [50, -2]], "stop_line"),
+        _poly_ref([[20, -3], [24, -3], [24, 3], [20, 3], [20, -3]], "ped_crossing"),
+    ]
+    ms = [
+        _line([[x, 0.2] for x in range(10, 31)]),
+        _line([[50.2, -1.5], [50.2, 1.5]], mtype="stop_line"),
+        _line([[21, -2], [21, 2]], mtype="crosswalk_stripe"),
+        _line([[x, 30.0] for x in range(10, 31)], mtype="other_paint"),
+    ]
+    doc = _run(tmp_path, ref, ms)
+    mt = doc["marking_types"]
+    assert mt["divider"]["reference_layer"] == "lane_divider, road_divider"
+    assert mt["divider"]["p50_m"] == pytest.approx(0.2, abs=1e-3)
+    assert mt["stop_line"]["reference_layer"] == "stop_line"
+    assert mt["stop_line"]["p95_m"] == 0.0 and mt["stop_line"]["n"] == 1
+    assert mt["crosswalk_stripe"]["reference_layer"] == "ped_crossing"
+    assert mt["crosswalk_stripe"]["p95_m"] == 0.0
+    # elements.markings is the divider entry, so the viewer's headline figure stays meaningful
+    assert doc["elements"]["markings"] == mt["divider"]
+
+
+def test_other_paint_gets_no_figures_and_a_reason(tmp_path):
+    ref = [_ref([[0, 0], [100, 0]], "lane_divider")]
+    doc = _run(
+        tmp_path, ref, [_line([[x, 30.0] for x in range(10, 31)], mtype="other_paint")]
+    )
+    o = doc["marking_types"]["other_paint"]
+    assert o["p50_m"] is None and o["p95_m"] is None and o["coverage"] is None
+    assert o["reason"] == "no map layer" and o["n"] == 1
+    # the other paint does not pollute the divider figures
+    assert doc["marking_types"]["divider"]["reason"] == "no observed elements"
+
+
+def test_far_false_positive_changes_fp_rate_not_matched_p95(tmp_path):
+    # One good line 0.1 m off the reference, one line 5 m away (a false positive with no counterpart).
+    ref = [_ref([[0, 0], [100, 0]], "lane_divider")]
+    near = _line([[x, 0.1] for x in range(10, 31)])
+    far = _line([[x, 5.0] for x in range(10, 31)])
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    clean = _run(tmp_path / "a", ref, [near])["elements"]["markings"]
+    dirty = _run(tmp_path / "b", ref, [near, far])["elements"]["markings"]
+    assert clean["false_positive_rate"] == 0
+    assert dirty["false_positive_rate"] == pytest.approx(0.5)
+    assert (
+        dirty["matched_p95_m"] == clean["matched_p95_m"] == pytest.approx(0.1, abs=1e-3)
+    )
+    assert dirty["p95_m"] > 4  # the old one-way figure still carries the false positive
+
+
+def test_nothing_within_radius_gives_no_matched_figures(tmp_path):
+    ref = [_ref([[0, 0], [100, 0]], "lane_divider")]
+    doc = _run(tmp_path, ref, [_line([[x, 5.0] for x in range(10, 31)])])
+    m = doc["elements"]["markings"]
+    assert m["matched_p95_m"] is None and m["false_positive_rate"] == 1

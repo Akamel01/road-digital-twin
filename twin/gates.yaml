@@ -1,0 +1,43 @@
+# Evaluation gates, ADR 0005. The only place thresholds live.
+# Changing a threshold needs the operator's approval; bump `version` when you do.
+version: 2
+noise_tolerance_m: 0.02  # a metric worse than the baseline by more than this is a no-go
+gates:
+  G1:
+    name: Determinism
+    note: needs --rerun; every metric must equal the rerun's, exactly
+    checks:
+      - {metric: determinism.n_differing_metrics, op: "<=", value: 0}
+  G2:
+    name: Cross-drive ground agreement after registration
+    note: not produced yet (multi-drive registration, #141)
+    checks:
+      - {metric: align.cross_drive_ground_p95_m, op: "<=", value: 0.05}
+  G3:
+    name: Ground height QA
+    checks:
+      - {metric: ground.z_disagreement_p95_m, op: "<=", value: 0.10}
+  G4:
+    name: Leave-one-drive-out repeatability
+    note: not produced yet
+    checks:
+      - {metric: repeatability.markings_p95_m, op: "<=", value: 0.10}
+      - {metric: repeatability.curbs_p95_m, op: "<=", value: 0.15}
+  G5:
+    name: Accuracy against the HD map
+    note: matched precision within accuracy.match_radius_m, false positives and coverage; curbs and crosswalks are map-conditioned
+    checks:
+      - {metric: accuracy.elements.markings.matched_p95_m, op: "<=", value: 0.30}
+      - {metric: accuracy.elements.markings.false_positive_rate, op: "<=", value: 0.10}
+      - {metric: accuracy.elements.markings.coverage, op: ">=", value: 0.70}
+      - {metric: accuracy.elements.crosswalks.matched_p95_m, op: "<=", value: 0.50}
+      - {metric: accuracy.elements.crosswalks.false_positive_rate, op: "<=", value: 0.10}
+      - {metric: accuracy.elements.crosswalks.coverage, op: ">=", value: 0.70}
+      - {metric: accuracy.elements.curbs.matched_p95_m, op: "<=", value: 0.50}
+      - {metric: accuracy.elements.curbs.false_positive_rate, op: "<=", value: 0.10}
+      - {metric: accuracy.elements.curbs.coverage, op: ">=", value: 0.70}
+  G6:
+    name: Runtime
+    note: sum of stage seconds from the manifest
+    checks:
+      - {metric: runtime.total_min, op: "<=", value: 30}

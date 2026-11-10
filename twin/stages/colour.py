@@ -16,6 +16,7 @@ from __future__ import annotations
 import bisect
 import itertools
 import json
+import logging
 import os
 from collections.abc import Iterable
 from pathlib import Path
@@ -30,6 +31,7 @@ from twin.registry import register
 from twin.stages import zbuffer
 from twin.stages.load import DATAROOT_DEFAULT
 
+log = logging.getLogger(__name__)
 OUTPUT_FILES = ("ortho.png", "ortho.pgw", "rgb.npz", "qa.json")
 ORTHO_LABEL = "orthoimage"
 INDETERMINATE_LABEL = "indeterminate (height)"
@@ -52,23 +54,87 @@ def footprint(
     return d**3 / (f * f * h)
 
 
+# DECISION: the GPU path needs about this many bytes per point (targets and blockers: float64 xyz, pixels, depth,
+# masks, temporaries). Measured with a margin on scene-0757; a free-memory check below this sends the stage to the CPU.
+GPU_BYTES_PER_POINT = 400
+
+
+def _to_gpu(
+    points: np.ndarray, nonground: np.ndarray, params: ColourParams
+) -> tuple[Any, Any, Any] | None:
+    """(cupy, points, nonground) on the GPU, or None to use the CPU.
+
+    The GPU is shared with other services (ADR 0005), so a GPU is used only when device is auto, cupy imports
+    and works, and the free memory covers the arrays. Any CUDA error or out of memory here means None.
+    """
+    if params.device == "cpu":
+        return None
+    try:
+        import cupy as cp
+
+        free, _ = cp.cuda.runtime.memGetInfo()
+        if free < GPU_BYTES_PER_POINT * (len(points) + len(nonground)):
+            return None
+        return cp, cp.asarray(points), cp.asarray(nonground)
+    except (
+        ImportError,
+        RuntimeError,
+        MemoryError,
+    ):  # no cupy, no CUDA device, or out of memory
+        return None
+
+
 def colour_points(
     points: np.ndarray,
     nonground: np.ndarray,
     views: Iterable[tuple[np.ndarray, np.ndarray, np.ndarray, list[dict]]],
     params: ColourParams,
+    stats: dict | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Per point: median colour of its best top_k visible views.
 
     Returns rgb (N, 3) uint8 (zero where unobserved), observed (N,) bool and n_views (N,) int, the number of views kept.
-    nonground are the occluders (ground never occludes ground); boxes come per view.
+    nonground are the occluders (ground never occludes ground); boxes come per view. Visibility runs on the GPU when
+    params.device allows (see _to_gpu). If it runs out of memory partway, that view and every later one run on the CPU.
+    stats, if given, gets "device": "gpu" or "cpu", the device that finished the run.
     """
     n, k = len(points), params.top_k
     best_fp = np.full((n, k), np.inf)
     best_rgb = np.zeros((n, k, 3), np.uint8)
+    gpu = _to_gpu(points, nonground, params)
     for cam_to_world, K, img, boxes in views:
         h, w = img.shape[:2]
-        vis = zbuffer.visible(points, nonground, boxes, cam_to_world, K, (w, h), params)
+        vis = None
+        if gpu is not None:
+            cp, g_points, g_nonground = gpu
+            try:
+                vis = cp.asnumpy(
+                    zbuffer.visible(
+                        g_points,
+                        g_nonground,
+                        boxes,
+                        cam_to_world,
+                        K,
+                        (w, h),
+                        params,
+                        cp,
+                    )
+                )
+            except (
+                RuntimeError,
+                MemoryError,
+            ) as exc:  # out of memory or another CUDA error: CPU from here on
+                log.warning(
+                    "colour: GPU failed (%s: %s), continuing on the CPU",
+                    type(exc).__name__,
+                    exc,
+                )
+                gpu = None
+                cp.get_default_memory_pool().free_all_blocks()
+        if vis is None:
+            vis = zbuffer.visible(
+                points, nonground, boxes, cam_to_world, K, (w, h), params
+            )
         idx = np.flatnonzero(vis)
         if idx.size == 0:
             continue
@@ -84,6 +150,12 @@ def colour_points(
         best_fp[keep, slot] = fp[better]
         best_rgb[keep, slot] = col[better]
 
+    if stats is not None:
+        stats["device"] = "cpu" if gpu is None else "gpu"
+    if gpu is not None:
+        gpu[
+            0
+        ].get_default_memory_pool().free_all_blocks()  # hand the memory back to the other GPU users
     kept = np.isfinite(best_fp)
     observed = kept.any(axis=1)
     n_views = kept.sum(axis=1)
@@ -297,7 +369,10 @@ def run(ctx: Any, params: ColourParams) -> StageResult:
             img = np.asarray(Image.open(root / cam["image"]).convert("RGB"))
             yield c2w, K, img, boxes_at(sweep_boxes, t)
 
-    rgb, observed, n_views = colour_points(points, nonground_xyz, views(), params)
+    stats: dict = {}
+    rgb, observed, n_views = colour_points(
+        points, nonground_xyz, views(), params, stats
+    )
 
     height_valid = bool(ground_qa["height_valid"])
     ortho, origin = ortho_raster(
@@ -331,6 +406,7 @@ def run(ctx: Any, params: ColourParams) -> StageResult:
         "n_cameras_skipped_outside_sweeps": len(cams) - len(usable),
         "top_k": params.top_k,
         "gsd_m": cell,
+        "device": stats["device"],
         # P95 of |offset| over every measured cross-section of every observed marking (spec section 6, QA).
         "edge_offset_p95_m": float(np.percentile(pooled, 95)) if pooled.size else None,
         "edge_offset_samples": int(pooled.size),
