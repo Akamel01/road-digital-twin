@@ -28,7 +28,7 @@ from twin.runner import (
 )
 
 STATES = ("pending", "running", "done", "failed")
-JOB_TYPES = ("run", "rerun", "eval")
+JOB_TYPES = ("run", "rerun", "eval", "publish")
 # (path, minimum free GB): the root disk is shared with production, /data holds the stores.
 DISK_RULES = (("/", 10), ("/data", 50))
 POLL_SECONDS = 30
@@ -55,7 +55,7 @@ def validate(job: dict) -> None:
     kind = job.get("type")
     if kind not in JOB_TYPES:
         raise ValueError(f"job type must be one of {JOB_TYPES}, got {kind!r}")
-    need = {"run": "scene", "rerun": "run_id", "eval": "run_id"}[kind]
+    need = {"run": "scene", "rerun": "run_id", "eval": "run_id", "publish": "run_id"}[kind]
     if not job.get(need):
         raise ValueError(f"{kind} job needs {need!r}")
     if kind == "rerun" and not job.get("from_stage"):
@@ -64,7 +64,8 @@ def validate(job: dict) -> None:
 
 def add(store: Path | str, job: dict) -> str:
     """Queue a job. Job fields: type run (scene, pipeline, params) | rerun (run_id, from_stage,
-    pipeline, params) | eval (run_id, baseline, rerun); run and rerun accept eval: true."""
+    pipeline, params) | eval (run_id, baseline, rerun) | publish (run_id, dry_run); run and rerun accept
+    eval: true, and publish: true to publish after a GO eval."""
     validate(job)
     job_id = f"{datetime.now(UTC):%Y%m%d-%H%M%S-%f}-{secrets.token_hex(3)}"
     job = {**job, "id": job_id, "added": _now()}
@@ -181,7 +182,7 @@ def execute(store: Path, job: dict) -> dict:
         )
     else:
         run_id = job["run_id"]
-    if job["type"] != "eval":
+    if job["type"] != "eval" and job["type"] != "publish":
         out["run_id"] = run_id
         if _exit_code(store, run_id):
             raise RuntimeError(f"run {run_id} has a failed stage")
@@ -189,6 +190,15 @@ def execute(store: Path, job: dict) -> dict:
         out["eval_result"], err = run_eval(store, job, run_id)
         if err:
             raise RuntimeError(err)
+    if job["type"] == "publish" or (
+        job.get("publish") and out.get("eval_result") == "go"
+    ):
+        from twin.site import SiteStop, publish_run
+
+        try:
+            out["publish_result"] = publish_run(store, run_id, job.get("dry_run", False))
+        except SiteStop as exc:
+            raise RuntimeError(str(exc)) from exc
     return out
 
 
@@ -272,7 +282,10 @@ def queue_command(action: str, job_file: Path | None, store: Path | None) -> int
             job["id"],
             job["type"],
             detail,
-            job.get("error") or job.get("eval_result") or "",
+            job.get("error")
+            or job.get("publish_result")
+            or job.get("eval_result")
+            or "",
         )
     return 0
 

@@ -6,7 +6,7 @@ import Profile from "@/components/Profile";
 import Rail from "@/components/Rail";
 import type { Sheet } from "@/components/SheetHead";
 import TopBar from "@/components/TopBar";
-import { type AreaIndex, loadArea } from "@/lib/showcase";
+import { type AreaIndex, loadArea, loadStatus, type SiteStatus } from "@/lib/showcase";
 import { parseRoute, type Route, routeUrl } from "@/lib/route";
 import { PHONE, TABLET, useMedia } from "@/lib/media";
 
@@ -31,6 +31,7 @@ export default function Shell() {
   const search = useSyncExternalStore(subscribe, getSearch, getServerSearch);
   const [area, setArea] = useState<AreaIndex | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<SiteStatus | null>(null);
   const [railCollapsed, setRailCollapsed] = useState(false); // the \ shortcut and the top-bar button
   const [sumMax, setSumMax] = useState(false); // pipeline summary maximised: the inspector shrinks to a bar
   // The selected road line (a centreline id). It lives here, not in the map, so a 3D view can read it too.
@@ -41,6 +42,7 @@ export default function Shell() {
 
   useEffect(() => {
     loadArea().then(setArea, (e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+    loadStatus().then(setStatus);
   }, []);
 
   // Tablet: the side panel is open in landscape and closed in portrait. It follows the orientation.
@@ -119,6 +121,7 @@ export default function Shell() {
     <div className={railCollapsed && !phone ? "app collapsed" : "app"}>
       <TopBar
         areaName={AREA_NAME}
+        status={status}
         facility={facility}
         element={element}
         onUp={up}
