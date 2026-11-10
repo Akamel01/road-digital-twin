@@ -90,10 +90,14 @@ def _reference(
 
 
 def _observed(features: list[dict]) -> tuple[list[BaseGeometry], int]:
-    """Geometries of observed features, and how many were left out as not observed."""
+    """Geometries of observed features, and how many were left out as not observed or changed.
+
+    A feature the area twin marked properties.changed (its cells differ between drive dates, #142) is left out.
+    """
     kept, excluded = [], 0
     for f in features:
-        if f["properties"].get("reliability") == "observed":
+        props = f["properties"]
+        if props.get("reliability") == "observed" and not props.get("changed"):
             kept.append(_geom(f))
         else:
             excluded += 1
@@ -206,6 +210,7 @@ def run_one_way(ctx: Any, params: AccuracyParams) -> StageResult:
 
     elements: dict[str, list[BaseGeometry]] = {}
     excluded = 0
+    n_changed = 0
     absent: list[str] = []
     n_other_paint = 0
     for kind, name in ELEMENT_FILES.items():
@@ -215,6 +220,7 @@ def run_one_way(ctx: Any, params: AccuracyParams) -> StageResult:
             absent.append(kind)
             continue
         feats = _read_fc(path)
+        n_changed += sum(bool(f["properties"].get("changed")) for f in feats)
         if kind == "markings":
             # A marking without a type is untyped paint: it has no map layer to be scored against.
             by_type = {t: [] for t in MARKING_TYPES}
@@ -337,6 +343,7 @@ def run_one_way(ctx: Any, params: AccuracyParams) -> StageResult:
         "qa": {
             "n_observed_only": True,
             "n_excluded_not_observed": excluded,
+            "n_excluded_changed": n_changed,
             "absent_element_files": absent,
             "markings_extractable": markings_extractable,
         },

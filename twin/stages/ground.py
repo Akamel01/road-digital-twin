@@ -303,9 +303,6 @@ def _run(
     method: str,
     classify: Callable[[np.ndarray, GroundParams], np.ndarray],
 ) -> StageResult:
-    out: Path = ctx.stage_dir("ground")
-    out.mkdir(exist_ok=True)
-    min_observed = ctx.min_observed
     align_dir = ctx.input_dir("align")
     align_qa = json.loads((align_dir / "qa.json").read_text())
     refined = np.array(
@@ -345,6 +342,29 @@ def _run(
         if seg_file.is_file()
         else None
     )
+    return split_and_write(
+        ctx, params, method, classify, xyz, intensity, sweep, labels, drv, align_qa, features
+    )
+
+
+def split_and_write(
+    ctx: Any,
+    params: GroundParams,
+    method: str,
+    classify: Callable[[np.ndarray, GroundParams], np.ndarray],
+    xyz: np.ndarray,
+    intensity: np.ndarray,
+    sweep: np.ndarray,
+    labels: np.ndarray | None,
+    drv: int | None,
+    align_qa: dict,
+    features: list[dict],
+) -> StageResult:
+    """Ground split, surface grid, QA and files for already aligned, thinned points (the area twin calls this
+    with the merged cloud, where `sweep` is the drive index)."""
+    out: Path = ctx.stage_dir("ground")
+    out.mkdir(exist_ok=True)
+    min_observed = ctx.min_observed
     ground = classify(xyz, params)
     if not ground.any():
         return StageResult(status="failed", message="no ground points after the split")

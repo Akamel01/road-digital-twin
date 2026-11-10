@@ -121,6 +121,10 @@ def build_parser() -> argparse.ArgumentParser:
     merge.add_argument("name")
     merge.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
     merge.add_argument("--heights", action="store_true", help="also fit sweep heights across drives")
+    at = area.add_parser("twin", help="twin from the merged cloud, with change detection")
+    at.add_argument("name")
+    at.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
+    at.add_argument("--check-date", help="report the change layer against the construction seen on this date")
     ev = sub.add_parser("eval", help="go/no-go report for a run against the gates")
     ev.add_argument("run", help="run id (or run folder)")
     ev.add_argument("--baseline", help="run to compare every metric with")
@@ -214,6 +218,10 @@ def main(argv: list[str] | None = None) -> int:
         from twin.merge import area_merge_command
 
         return area_merge_command(args.name, args.store, args.heights)
+    if args.command == "area" and args.area_cmd == "twin":
+        from twin.areatwin import area_twin_command
+
+        return area_twin_command(args.name, args.store, args.check_date)
     if args.command == "box":
         from twin.telemetry import box_command
 
