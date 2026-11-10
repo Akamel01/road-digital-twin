@@ -8,6 +8,7 @@ import json
 import os
 import subprocess
 import threading
+import time
 import urllib.request
 from contextlib import contextmanager
 
@@ -115,12 +116,23 @@ def lease(
         unload_all(urls, record)
     except Exception as exc:  # noqa: BLE001
         record["errors"].append(f"{type(exc).__name__}: {exc}")
-    record["free_mib_after_unload"] = free_mib()
+    before = record["free_mib_before"]
+    for _ in range(
+        20
+    ):  # ollama frees the memory a moment after the unload call returns
+        record["free_mib_after_unload"] = free_mib()
+        if (
+            not record["unloaded"]
+            or before is None
+            or record["free_mib_after_unload"] > before
+        ):
+            break
+        time.sleep(0.5)
 
     def watch():
         while not stop.wait(recheck):
             try:
-                unload_all(urls, record)
+                unload_all([u for u in urls if u not in record["skipped"]], record)
             except Exception as exc:  # noqa: BLE001
                 record["errors"].append(f"{type(exc).__name__}: {exc}")
 
