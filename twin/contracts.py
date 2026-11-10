@@ -178,6 +178,16 @@ class CurbsParams(_Strict):
     edge_max_angle_deg: float = Field(20.0, ge=5, le=45)
 
 
+class CrosswalksParams(_Strict):
+    # A crosswalk is a run of at least min_stripes parallel stripes of similar length, side by side, with an
+    # edge-to-edge gap of gap_min_m to gap_max_m between neighbours. A larger gap ends the run.
+    parallel_tol_deg: float = Field(10.0, ge=2, le=30)
+    gap_min_m: float = Field(0.3, ge=0.05, le=1)
+    gap_max_m: float = Field(1.0, ge=0.3, le=3)
+    length_ratio_min: float = Field(0.7, ge=0.3, le=1)
+    min_stripes: int = Field(3, ge=2, le=10)
+
+
 class FeaturesParams(_Strict):
     intensity_pct: float = Field(95.0, ge=50, le=99.9)
     cluster_eps_m: float = Field(0.3, ge=0.05, le=2)
@@ -187,6 +197,7 @@ class FeaturesParams(_Strict):
     lidarseg_flat_share: float = Field(0.8, ge=0, le=1)
     lidarseg_min_points: int = Field(10, ge=1, le=1000)
     curbs: CurbsParams = Field(default_factory=CurbsParams)
+    crosswalks: CrosswalksParams = Field(default_factory=CrosswalksParams)
 
 
 class ColourParams(_Strict):

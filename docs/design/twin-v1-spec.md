@@ -209,6 +209,11 @@ Notes:
 | `features.min_points` | 20 | 3–1000 |
 | `features.lidarseg_flat_share` | 0.8 | 0–1 |
 | `features.lidarseg_min_points` | 10 | 1–1000 |
+| `features.crosswalks.parallel_tol_deg` | 10 | 2–30 |
+| `features.crosswalks.gap_min_m` | 0.3 | 0.05–1 |
+| `features.crosswalks.gap_max_m` | 1.0 | 0.3–3 |
+| `features.crosswalks.length_ratio_min` | 0.7 | 0.3–1 |
+| `features.crosswalks.min_stripes` | 3 | 2–10 |
 | `features.curbs.enabled` | true | bool |
 | `features.curbs.step_min_m` | 0.08 | 0.02–0.3 |
 | `features.curbs.step_max_m` | 0.20 | 0.1–0.5 |
@@ -331,7 +336,7 @@ If a scene fails the markings threshold, its runs report markings as "not extrac
 **Markings and crosswalks.**
 - Ground points above the `features.intensity_pct` intensity percentile in each tile are kept.
 - They are clustered with DBSCAN, and polylines are fitted to the clusters.
-- Crosswalks are reported as polygons around clustered stripes.
+- Crosswalks are reported as polygons around a run of stripes (issue #161): parallel within `parallel_tol_deg`, side by side with an edge-to-edge gap of `gap_min_m` to `gap_max_m`, lengths within `length_ratio_min` of each other, at least `min_stripes` long. A larger gap ends a run; stripes are never merged across it. Each crosswalk reports its stripe count, spacing and orientation.
 - This follows the classic mobile-mapping approach ([guan-2014-road-markings-mls]). Whether it works at 32-beam density is unproven; select tests it.
 - Geometry follows the points (1 m bins along the stripe); gaps are not bridged. Every feature carries `evidence` (sensors that saw it), `reliability` (`observed`; anything inferred is a separate feature marked `modelled`) and point density, because extracted markings are audited (decision 2026-11-08).
 

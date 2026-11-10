@@ -13,6 +13,7 @@ inferred feature must be a separate feature with reliability "modelled" and evid
 
 from __future__ import annotations
 
+import itertools
 import json
 import math
 import warnings
@@ -26,7 +27,13 @@ import shapely
 from shapely.geometry import MultiPoint, mapping, shape
 from shapely.ops import unary_union
 
-from twin.contracts import CurbsParams, FeaturesParams, SelectParams, StageResult
+from twin.contracts import (
+    CrosswalksParams,
+    CurbsParams,
+    FeaturesParams,
+    SelectParams,
+    StageResult,
+)
 from twin.registry import register
 from twin.select import go, paint_contrast, road_density
 
@@ -54,12 +61,12 @@ BIN_M = 1.0
 TILE_M = 5.0
 # DECISION: a cluster at least this long (m) is a line marking. Shorter clusters are stripes or noise.
 LINE_MIN_LEN_M = 2.0
-# DECISION: two clusters can share a crosswalk group if their centres are within this distance (m) and
-# their stripe axes differ by at most this angle (degrees).
-CROSS_GROUP_M = 6.0
-CROSS_MAX_ANGLE_DEG = 15.0
-# DECISION: a crosswalk needs at least this many stripes in one group.
-CROSS_MIN_STRIPES = 3
+# DECISION (issue #161): a cluster is a crosswalk stripe candidate if it is at least this long (m) and at least twice
+# as long as wide. Two stripes are neighbours only if their centres are offset along the stripe axis by at most
+# CROSS_ALIGN_FRAC of the mean stripe length (they stand side by side, not staggered). All other crosswalk
+# thresholds are params (CrosswalksParams).
+CROSS_STRIPE_MIN_LEN_M = 1.0
+CROSS_ALIGN_FRAC = 0.5
 # DECISION: curb step test on a grid of this cell side (m). Each cell takes its median z.
 # Ceiling: a cell straddling the edge dilutes the step; a finer cell is noisier.
 CURB_CELL_M = 0.25
@@ -466,6 +473,67 @@ def _feature(
     }
 
 
+def crosswalk_runs(clusters: list[dict], p: CrosswalksParams) -> list[list[int]]:
+    """Runs of stripe clusters (indices, ordered across the crosswalk) that satisfy the crosswalk rules.
+
+    Neighbours are parallel, similar in length, side by side, with an edge-to-edge gap in gap_min_m..gap_max_m.
+    Each connected group is then held to its mean axis and cut wherever a gap leaves that range, so a chain of
+    stripes never bridges a larger gap. Runs shorter than min_stripes are dropped.
+    """
+    ids = [
+        i
+        for i, c in enumerate(clusters)
+        if c["len"] >= CROSS_STRIPE_MIN_LEN_M and c["len"] >= 2 * c["w"]
+    ]
+    cos_tol = np.cos(np.radians(p.parallel_tol_deg))
+    adj: list[list[int]] = [[] for _ in ids]
+    for a, i in enumerate(ids):
+        for b, j in enumerate(ids[a + 1 :], a + 1):
+            ci, cj = clusters[i], clusters[j]
+            if abs(ci["u"] @ cj["u"]) < cos_tol:
+                continue
+            if min(ci["len"], cj["len"]) < p.length_ratio_min * max(
+                ci["len"], cj["len"]
+            ):
+                continue
+            u = ci["u"] if ci["u"] @ cj["u"] >= 0 else -ci["u"]
+            u = u + cj["u"]
+            u /= np.linalg.norm(u)
+            d = cj["c"] - ci["c"]
+            gap = abs(d @ np.array([-u[1], u[0]])) - (ci["w"] + cj["w"]) / 2
+            shift = abs(d @ u)
+            if (
+                p.gap_min_m <= gap <= p.gap_max_m
+                and shift <= CROSS_ALIGN_FRAC * (ci["len"] + cj["len"]) / 2
+            ):
+                adj[a].append(b)
+                adj[b].append(a)
+    runs = []
+    for comp in _components(adj):
+        group = [ids[k] for k in comp]
+        ref = clusters[group[0]]["u"]
+        axes = np.array(
+            [clusters[i]["u"] * np.sign(clusters[i]["u"] @ ref) for i in group]
+        )
+        mean_u = axes.mean(axis=0)
+        mean_u /= np.linalg.norm(mean_u)
+        normal = np.array([-mean_u[1], mean_u[0]])
+        group = [i for i in group if abs(clusters[i]["u"] @ mean_u) >= cos_tol]
+        group.sort(key=lambda i: clusters[i]["c"] @ normal)
+        run = group[:1]
+        for prev, i in itertools.pairwise(group):
+            gap = (clusters[i]["c"] - clusters[prev]["c"]) @ normal - (
+                clusters[i]["w"] + clusters[prev]["w"]
+            ) / 2
+            if p.gap_min_m <= gap <= p.gap_max_m:
+                run.append(i)
+            else:
+                runs.append(run)
+                run = [i]
+        runs.append(run)
+    return [r for r in runs if len(r) >= p.min_stripes]
+
+
 def extract(
     xyz: np.ndarray, params: FeaturesParams
 ) -> tuple[list[dict], list[dict], dict[str, int]]:
@@ -491,37 +559,25 @@ def extract(
                 "c": c,
                 "u": u,
                 "len": float(t.max() - t.min()),
+                "w": float(np.ptp((p[:, :2] - c) @ np.array([-u[1], u[0]]))),
             }
         )
 
-    # Crosswalk candidates: clusters close together with near-parallel axes, grouped by connectivity.
+    # Crosswalks: runs of parallel, evenly spaced stripes (crosswalk_runs). Stripes outside a run stay markings.
     k = len(clusters)
-    adj: list[list[int]] = [[] for _ in range(k)]
-    if k:
-        cen = np.array([cl["c"] for cl in clusters])
-        ax = np.array([cl["u"] for cl in clusters])
-        dist = np.linalg.norm(cen[:, None, :] - cen[None, :, :], axis=2)
-        par = np.abs(ax @ ax.T) >= np.cos(np.radians(CROSS_MAX_ANGLE_DEG))
-        near = (dist <= CROSS_GROUP_M) & par
-        for i, j in zip(*np.nonzero(np.triu(near, 1)), strict=True):
-            adj[i].append(int(j))
-            adj[j].append(int(i))
-
     crosswalks: list[dict] = []
     used = set()
-    for comp in _components(adj):
-        if len(comp) < CROSS_MIN_STRIPES:
-            continue
+    for comp in crosswalk_runs(clusters, params.crosswalks):
         cen = np.array([clusters[i]["c"] for i in comp])
-        mean_u = np.mean([clusters[i]["u"] for i in comp], axis=0)
+        mean_u = np.mean(
+            [
+                clusters[i]["u"] * np.sign(clusters[i]["u"] @ clusters[comp[0]]["u"])
+                for i in comp
+            ],
+            axis=0,
+        )
         mean_u /= np.linalg.norm(mean_u)
-        normal = np.array([-mean_u[1], mean_u[0]])
-        along = np.ptp(cen @ mean_u)
-        across = np.ptp(cen @ normal)
-        # Stripes side by side (across the group wider than along it) are a crosswalk.
-        # Collinear dashes of one line are not.
-        if across <= along:
-            continue
+        pitch = np.diff(np.sort(cen @ np.array([-mean_u[1], mean_u[0]])))
         # Footprint = union of each stripe's observed hull. Gaps between stripes are not filled.
         footprints = [
             MultiPoint([tuple(q) for q in clusters[i]["xy"]]).convex_hull for i in comp
@@ -540,6 +596,14 @@ def extract(
                 {
                     "n_points": n,
                     "stripes": len(comp),
+                    # Evidence of the run: spacing = centre-to-centre pitch, orientation = stripe axis, 0 to 180 degrees from x.
+                    "spacing_m": round(float(np.median(pitch)), 3),
+                    "stripe_length_m": round(
+                        float(np.median([clusters[i]["len"] for i in comp])), 3
+                    ),
+                    "orientation_deg": round(
+                        math.degrees(math.atan2(mean_u[1], mean_u[0])) % 180, 1
+                    ),
                     "area_m2": round(float(group.area), 3),
                     "points_per_m2": round(n / group.area, 3),
                 },
