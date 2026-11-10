@@ -111,3 +111,20 @@ def test_ego_ground_uses_labels_else_ransac():
         len(out[1]) > 0 and np.median(out[1][:, 2]) < 0.1
     )  # unlabelled: RANSAC finds the plane
     assert (out[1][:, 2] < 0.2).mean() > 0.95
+
+
+def test_guard_rejects_an_implausible_sweep_and_keeps_its_pose():
+    """One sweep is 1 m low (over the 0.5 m bound): it keeps its pose and is counted; the others are fitted."""
+    _, est, ground = _drifting_sweeps()
+    est[7, 2, 3] -= 1.0
+    new, rep = heights.correct_heights(est, ground)
+    assert rep["rejected"][7] and not rep["fitted"][7]
+    assert np.array_equal(new[7], est[7])
+    assert heights.summary(rep)["n_rejected"] >= 1
+    ok = np.arange(N) != 7
+    assert rep["fitted"][ok].all()
+    # a tilt over 2 degrees is rejected the same way
+    _, est2, ground2 = _drifting_sweeps()
+    est2[9, :3, :3] = est2[9, :3, :3] @ _rx(np.radians(3.0))
+    _, rep2 = heights.correct_heights(est2, ground2)
+    assert rep2["rejected"][9]

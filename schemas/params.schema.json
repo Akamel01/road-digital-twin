@@ -349,6 +349,18 @@
       "title": "MaskParams",
       "type": "object"
     },
+    "MergeParams": {
+      "additionalProperties": false,
+      "properties": {
+        "heights": {
+          "default": false,
+          "title": "Heights",
+          "type": "boolean"
+        }
+      },
+      "title": "MergeParams",
+      "type": "object"
+    },
     "ProfileParams": {
       "additionalProperties": false,
       "properties": {
@@ -410,6 +422,9 @@
     },
     "mask": {
       "$ref": "#/$defs/MaskParams"
+    },
+    "merge": {
+      "$ref": "#/$defs/MergeParams"
     },
     "profile": {
       "$ref": "#/$defs/ProfileParams"

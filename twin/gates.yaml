@@ -10,11 +10,15 @@ gates:
       - {metric: determinism.n_differing_metrics, op: "<=", value: 0}
   G2:
     name: Cross-drive ground agreement after registration
+    # 2026-11-10 amendment (ADR 0005): measured on ground-class points only (lidarseg driveable_surface, sidewalk,
+    # terrain where labels exist, else the RANSAC ground). Name and threshold unchanged.
     note: not produced yet (multi-drive registration, #141)
     checks:
       - {metric: align.cross_drive_ground_p95_m, op: "<=", value: 0.05}
   G3:
     name: Ground height QA
+    # 2026-11-10 amendment (ADR 0005): the sweep disagreement counts ground-class points only (lidarseg driveable_surface,
+    # sidewalk, terrain where labels exist, else the ground split). Name and threshold unchanged.
     checks:
       - {metric: ground.z_disagreement_p95_m, op: "<=", value: 0.10}
   G4:

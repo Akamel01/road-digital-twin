@@ -222,6 +222,12 @@ class FacilitiesParams(_Strict):
     )  # load's per-sweep pool; None: min(cores - 4, 16)
 
 
+class MergeParams(_Strict):
+    # DECISION (coordinator, 2026-11-10): heights are fitted per drive in align, but across drives in the area
+    # merge only on request. On the seaport area the fit gave implausible tilts (issue 177).
+    heights: bool = False
+
+
 class Params(_Strict):
     select: SelectParams = Field(default_factory=SelectParams)
     mask: MaskParams = Field(default_factory=MaskParams)
@@ -232,6 +238,7 @@ class Params(_Strict):
     profile: ProfileParams = Field(default_factory=ProfileParams)
     isd: IsdParams = Field(default_factory=IsdParams)
     accuracy: AccuracyParams = Field(default_factory=AccuracyParams)
+    merge: MergeParams = Field(default_factory=MergeParams)
     facilities: FacilitiesParams = Field(default_factory=FacilitiesParams)
     seed: int = 0
 

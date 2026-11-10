@@ -146,18 +146,22 @@ def thin(xyz: np.ndarray, voxel: float) -> np.ndarray:
 
 
 def register_drives(
-    clouds: dict[str, np.ndarray], centre: np.ndarray, seed: int = 0
+    clouds: dict[str, np.ndarray],
+    centre: np.ndarray,
+    seed: int = 0,
+    ground: dict[str, np.ndarray] | None = None,
 ) -> dict:
     """Register drives to a growing reference. clouds: drive id -> (N, 3) in the map frame.
 
     The reference is the drive with the most points. Then, repeatedly, the unregistered drive with
     the most overlap with the registered cloud is aligned to it. Returns per-drive corrections
     (4x4, in the frame centred on `centre`), a note per drive, and the ground disagreement
-    per pair before and after.
+    per pair before and after. `ground` (drive id -> (N, 3), same frame) are the drives' ground-class points; the
+    ground disagreement is measured on them (2026-11-10 amendment to ADR 0005), or on `clouds` when absent.
     """
     o3d.utility.random.seed(seed)
     pts = {k: thin(v - centre, ICP_VOXEL_M) for k, v in clouds.items()}
-    gnd = {k: v - centre for k, v in clouds.items()}
+    gnd = {k: v - centre for k, v in (ground or clouds).items()}
     ids = sorted(clouds)
     ref = max(ids, key=lambda k: (len(clouds[k]), k))
     corr = {ref: np.eye(4)}
@@ -246,14 +250,32 @@ def build_drive(scene: dict, work: Path, polygon, params: Params, log) -> np.nda
 # ------------------------------------------------------------------ heights across drives
 
 
-def drive_ground(work: Path) -> tuple[np.ndarray, list[np.ndarray]]:
-    """A drive's align poses (S, 4, 4) and its ground points per sweep in the ego frame (saved by align)."""
+def drive_ground(work: Path, polygon) -> tuple[np.ndarray, list[np.ndarray]] | None:
+    """A drive's align poses (S, 4, 4) and its ground points per sweep in the ego frame (saved by align), clipped
+    to the polygon (by their position at the align poses). None when the drive has no ground file."""
+    f = work / "3_align" / "ground_ego.npz"
+    if not f.is_file():
+        return None
     poses = _poses(work / "3_align")
-    with np.load(work / "3_align" / "ground_ego.npz") as f:
-        xyz = np.column_stack([f["x"], f["y"], f["z"]])
-        sweep = f["sweep"].astype(np.int64)
+    with np.load(f) as z:
+        xyz = np.column_stack([z["x"], z["y"], z["z"]])
+        sweep = z["sweep"].astype(np.int64)
     bounds = np.concatenate([[0], np.cumsum(np.bincount(sweep, minlength=len(poses)))])
-    return poses, [xyz[bounds[k] : bounds[k + 1]] for k in range(len(poses))]
+    ego = [xyz[bounds[k] : bounds[k + 1]] for k in range(len(poses))]
+    for k in range(len(poses)):
+        w = apply(poses[k], ego[k])
+        ego[k] = ego[k][shapely.contains_xy(polygon, w[:, 0], w[:, 1])]
+    return poses, ego
+
+
+def world_ground(poses: np.ndarray, ego: list[np.ndarray]) -> np.ndarray:
+    """(N, 4): x, y, z in the map frame and the sweep index, of a drive's ground points."""
+    return np.vstack(
+        [
+            np.column_stack([apply(poses[k], g), np.full(len(g), k)])
+            for k, g in enumerate(ego)
+        ]
+    )
 
 
 def about(t: np.ndarray, centre: np.ndarray) -> np.ndarray:
@@ -266,37 +288,32 @@ def about(t: np.ndarray, centre: np.ndarray) -> np.ndarray:
 
 
 def fit_heights(
-    works: dict[str, Path], corr: dict[str, np.ndarray], centre: np.ndarray, polygon
+    drives: dict[str, tuple[np.ndarray, list[np.ndarray]]],
+    corr: dict[str, np.ndarray],
+    centre: np.ndarray,
 ) -> tuple[dict[str, np.ndarray], dict]:
     """Per-sweep z, roll and pitch of all registered drives against one consensus ground (heights.correct_heights).
 
-    works: drive -> its work folder. Returns, per drive, the (S, 4, 4) map-frame transform that takes a sweep's
-    points from where the registration left them to where the height fit puts them, and the QA.
+    drives: drive -> (align poses, ground points per sweep in the ego frame), from drive_ground. Returns, per
+    drive, the (S, 4, 4) map-frame transform that takes a sweep's points from where the registration left them to
+    where the height fit puts them, and the QA.
     DECISION: only registered drives enter; an unregistered drive's height is unknown, so it is left alone.
-    DECISION: ground points are clipped to the area polygon, as the clouds are.
     """
     poses, ground, owner = [], [], []
-    for name in sorted(works):
-        if name not in corr:
-            continue
-        p, g = drive_ground(works[name])
+    names = [n for n in sorted(drives) if n in corr]
+    for name in names:
+        p, g = drives[name]
         p = about(corr[name], centre) @ p
-        for k in range(len(p)):
-            w = apply(p[k], g[k])
-            g[k] = g[k][shapely.contains_xy(polygon, w[:, 0], w[:, 1])]
         poses.append(p)
         ground += g
         owner += [(name, k) for k in range(len(p))]
     allp = np.concatenate(poses)
     new, rep = heights.correct_heights(allp, ground)
     delta = new @ np.linalg.inv(allp)
-    out = {}
-    i = 0
-    for name in sorted(works):
-        if name in corr:
-            n = len(poses[len(out)])
-            out[name] = delta[i : i + n]
-            i += n
+    out, i = {}, 0
+    for name, p in zip(names, poses, strict=True):
+        out[name] = delta[i : i + len(p)]
+        i += len(p)
     rows = heights.sweep_rows(rep)
     for row, (name, k) in zip(rows, owner, strict=True):
         row["scene"], row["sweep"] = name, k
@@ -348,13 +365,28 @@ def merge_area(area: dict, out: Path, params: Params, log) -> dict:
         meta[sc["scene"]] = sc
     if not clouds:
         raise RuntimeError("no drive could be built")
-    res = register_drives({k: v[:, :3] for k, v in clouds.items()}, centre, params.seed)
     names = sorted(clouds)
-    # DECISION: heights are fitted after the drive registration (it gives the drives' overall dz) and move only
-    # z, roll and pitch of each sweep; x, y and yaw stay as align and the registration gave them.
-    deltas, hqa = fit_heights(
-        {k: out / "drives" / k for k in names}, res["corrections"], centre, polygon
+    # DECISION (2026-11-10 amendment to ADR 0005): the cross-drive ground disagreement is measured on ground-class
+    # points (align's ground_ego.npz: lidarseg labels where a sweep has them, else RANSAC), not on every point.
+    # A drive without that file falls back to all its points.
+    found = {k: drive_ground(out / "drives" / k, polygon) for k in names}
+    gworld = {k: world_ground(*found[k]) for k in names if found[k] is not None}
+    ground_pts = {
+        k: gworld[k][:, :3] if k in gworld else clouds[k][:, :3] for k in names
+    }
+    res = register_drives(
+        {k: v[:, :3] for k, v in clouds.items()}, centre, params.seed, ground_pts
     )
+    # DECISION: heights are fitted across drives only when merge.heights is set (off by default). They come after
+    # the drive registration (it gives the drives' overall dz) and move only z, roll and pitch of each sweep; x, y
+    # and yaw stay as align and the registration gave them.
+    deltas, hqa = {}, None
+    if params.merge.heights:
+        deltas, hqa = fit_heights(
+            {k: found[k] for k in names if found[k] is not None},
+            res["corrections"],
+            centre,
+        )
     parts = []
     for i, k in enumerate(names):
         p = clouds[k]
@@ -371,12 +403,25 @@ def merge_area(area: dict, out: Path, params: Params, log) -> dict:
         intensity=allp[:, 3],
         drive=allp[:, 4].astype(np.uint16),
     )
-    # the pair table: "after" now includes the height fit; "registered" is the registration alone
-    final = {k: allp[allp[:, 4] == i, :3] for i, k in enumerate(names)}
-    cells = {k: ground_cells(v) for k, v in final.items()}
-    for row in res["pairs"]:
-        row["registered"] = row["after"]
-        row["after"] = ground_disagreement(cells[row["a"]], cells[row["b"]])
+    if params.merge.heights:
+        # the pair table: "after" includes the height fit; "registered" is the registration alone
+        cells, reg_cells = {}, {}
+        for k in names:
+            g = (
+                apply(res["corrections"].get(k, np.eye(4)), ground_pts[k] - centre)
+                + centre
+            )
+            reg_cells[k] = ground_cells(g)
+            if k in deltas and k in gworld:
+                g = move_sweeps(
+                    np.column_stack([g, g[:, 0], gworld[k][:, 3]]), deltas[k]
+                )
+            cells[k] = ground_cells(g)
+        for row in res["pairs"]:
+            row["registered"] = ground_disagreement(
+                reg_cells[row["a"]], reg_cells[row["b"]]
+            )
+            row["after"] = ground_disagreement(cells[row["a"]], cells[row["b"]])
     drives = [
         {
             "index": i,
@@ -395,13 +440,13 @@ def merge_area(area: dict, out: Path, params: Params, log) -> dict:
         "reference": res["reference"],
         "drives": drives,
         "ground_disagreement_pairs": res["pairs"],
-        "heights": hqa["summary"],
+        "heights": hqa["summary"] if hqa else None,
         "skipped": skipped,
     }
     # DECISION: a minimal manifest.json so `twin eval <folder>` can read gate G2. The gate's metric is the
     # median over pairs of the after-registration ground P95; the worst pair is reported beside it.
     p95 = [p["after"]["p95_m"] for p in res["pairs"] if p["after"]]
-    reg = [p["registered"]["p95_m"] for p in res["pairs"] if p["registered"]]
+    reg = [p["registered"]["p95_m"] for p in res["pairs"] if p.get("registered")]
     metrics = {
         "cross_drive_ground_p95_m": float(np.median(p95)) if p95 else None,
         "cross_drive_ground_p95_worst_m": max(p95) if p95 else None,
@@ -422,11 +467,12 @@ def merge_area(area: dict, out: Path, params: Params, log) -> dict:
     )
     (out / "drives.json").write_text(json.dumps(drives, indent=2))
     (out / "qa.json").write_text(json.dumps(qa, indent=2))
-    (out / "heights.json").write_text(json.dumps(hqa["sweeps"]))
+    if hqa:
+        (out / "heights.json").write_text(json.dumps(hqa["sweeps"]))
     return qa
 
 
-def area_merge_command(name: str, store: Path | None) -> int:
+def area_merge_command(name: str, store: Path | None, heights_on: bool = False) -> int:
     from twin.runner import default_store
 
     base = Path(store) if store else default_store()
@@ -437,6 +483,7 @@ def area_merge_command(name: str, store: Path | None) -> int:
     out = base / "areas" / f"{name}-merged"
     out.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(level=logging.INFO)
-    qa = merge_area(area, out, Params(), logging.getLogger("twin.merge"))
+    params = Params(merge={"heights": heights_on})
+    qa = merge_area(area, out, params, logging.getLogger("twin.merge"))
     print(json.dumps(qa, indent=2))
     return 0

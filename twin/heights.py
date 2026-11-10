@@ -56,6 +56,11 @@ MIN_SPAN_M = 4.0
 HUBER_K = 1.345
 SCALE_FLOOR_M = 0.01
 IRLS_PASSES = 8
+# DECISION: plausibility guard (coordinator, 2026-11-10). A sweep whose fit would exceed these is rejected: it
+# keeps its input pose and is counted in the QA. A real vehicle does not tilt 2 degrees on a road, and a 0.5 m
+# height step in the fit is more likely a different road layer than drift.
+MAX_TILT_RAD = np.radians(2.0)
+MAX_DZ_M = 0.5
 # DECISION: stop when no sweep moves more than 1 mm in z or 0.01 degree in roll or pitch; 100 passes at most
 # (low-frequency drift spreads along the drive by one overlap per pass).
 MAX_ITER = 100
@@ -136,6 +141,17 @@ def _voxel_first(xyz: np.ndarray, voxel_m: float) -> np.ndarray:
     return first
 
 
+def label_ground(
+    labels: np.ndarray, driveable_index: int | None
+) -> tuple[np.ndarray, np.ndarray]:
+    """(labelled, is_ground) per point from lidarseg labels: driveable surface, sidewalk and terrain are ground."""
+    if driveable_index is None:
+        return np.zeros(len(labels), bool), np.zeros(len(labels), bool)
+    return labels != LIDARSEG_NONE, np.isin(
+        labels, [driveable_index + o for o in GROUND_LABEL_OFFSETS]
+    )
+
+
 # ------------------------------------------------------------------ the correction
 
 
@@ -165,7 +181,7 @@ def correct_heights(
 
     poses: (S, 4, 4) sweep poses, ego frame -> map. ground[k]: sweep k's ground points in its ego frame (n_k, 3).
     Only z, roll and pitch change: the returned pose keeps x, y and yaw (to the 1e-6 rounding of the angles).
-    A sweep with too little ground keeps its pose, and `report["fitted"][k]` is False.
+    A sweep with too little ground, or one whose fit breaks the plausibility guard, keeps its pose: `report["fitted"][k]` is False and `report["rejected"][k]` says which.
     The mean of the corrections over fitted sweeps is zero, so the group's overall height and tilt stay as given.
 
     report: arrays dz_m, roll_rad, pitch_rad, fitted, n_points, residual_before_m, residual_after_m (median
@@ -205,6 +221,7 @@ def correct_heights(
     )  # z' = z + dz + a * u + b * v (small angles); pitch = -a, roll = b
     b = np.zeros(s_n)
     fitted = np.zeros(s_n, bool)
+    rejected = np.zeros(s_n, bool)
     res_before = np.full(s_n, np.nan)
 
     def surface(z: np.ndarray) -> np.ndarray:
@@ -229,7 +246,7 @@ def correct_heights(
             sel = usable[sl]
             if it == 0 and sel.any():
                 res_before[k] = float(np.median(np.abs(resid[sl][sel])))
-            if sel.sum() < MIN_FIT_POINTS:
+            if rejected[k] or sel.sum() < MIN_FIT_POINTS:
                 continue
             uk, vk, rk = u[sl][sel], v[sl][sel], resid[sl][sel]
             cols = [np.ones_like(uk)]
@@ -249,6 +266,19 @@ def correct_heights(
             if use_roll:
                 step_b[k] = beta[i]
         dz, a, b = dz + step_dz, a + step_a, b + step_b
+        # the guard: a sweep over a bound goes back to its input pose for good, and stops being fitted
+        bad = (
+            fitted
+            & ~rejected
+            & (
+                (np.abs(dz) > MAX_DZ_M)
+                | (np.abs(a) > MAX_TILT_RAD)
+                | (np.abs(b) > MAX_TILT_RAD)
+            )
+        )
+        rejected |= bad
+        fitted &= ~bad
+        dz[bad], a[bad], b[bad] = 0.0, 0.0, 0.0
         # DECISION: gauge. The surface fixes heights only relative to the sweeps themselves, so the mean correction
         # over fitted sweeps is removed: the group keeps the overall height and tilt it came with.
         if fitted.any():
@@ -291,6 +321,7 @@ def correct_heights(
         "roll_rad": roll,
         "pitch_rad": pitch,
         "fitted": fitted,
+        "rejected": rejected,
         "n_points": counts,
         "residual_before_m": res_before,
         "residual_after_m": res_after,
@@ -312,6 +343,7 @@ def summary(report: dict) -> dict:
     return {
         "n_sweeps": len(f),
         "n_fitted": int(f.sum()),
+        "n_rejected": int(report["rejected"].sum()),
         "iterations": int(report["iterations"]),
         "converged": bool(report["converged"]),
         "last_step_z_m": report["last_step_z_m"],
@@ -331,6 +363,7 @@ def sweep_rows(report: dict, stamps_us: list[int] | None = None) -> list[dict]:
         row = {
             "sweep": k,
             "fitted": bool(report["fitted"][k]),
+            "rejected": bool(report["rejected"][k]),
             "dz_m": float(report["dz_m"][k]),
             "roll_deg": float(np.degrees(report["roll_rad"][k])),
             "pitch_deg": float(np.degrees(report["pitch_rad"][k])),

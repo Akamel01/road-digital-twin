@@ -110,7 +110,8 @@ def test_fit_heights_lifts_a_drive_that_sits_low(tmp_path):
         )
         works[name] = tmp_path / name
         corr[name] = np.eye(4)
-    deltas, qa = merge.fit_heights(works, corr, np.zeros(3), box(0, 0, 80, 40))
+    drives = {n: merge.drive_ground(w, box(0, 0, 80, 40)) for n, w in works.items()}
+    deltas, qa = merge.fit_heights(drives, corr, np.zeros(3))
     assert qa["summary"]["n_fitted"] == 60
     # a and b meet halfway: the mean correction is zero, the gap of 0.4 m closes
     assert abs((deltas["a"][:, 2, 3] - deltas["b"][:, 2, 3]).mean() + 0.4) < 0.01
