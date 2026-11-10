@@ -303,7 +303,8 @@ def run_one_way(ctx: Any, params: AccuracyParams) -> StageResult:
             if r is None:
                 continue
             members = [g for g in elements[kind] if core.contains(g.centroid)]
-            clipped = r.intersection(core)
+            # Map polygons can be invalid (GEOS side location conflict); make_valid is a no-op on valid ones.
+            clipped = shapely.make_valid(r).intersection(shapely.make_valid(core))
             if clipped.is_empty:
                 continue
             area = kind in AREA_TYPES
