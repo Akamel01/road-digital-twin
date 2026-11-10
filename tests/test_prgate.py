@@ -9,7 +9,12 @@ def fake_gh(prs, calls):
     def gh(*args):
         calls.append(args)
         if args[0] == "pr":
-            return json.dumps([{"number": n, "headRefOid": s} for n, s in prs])
+            return json.dumps(
+                [
+                    {"number": n, "headRefOid": s, "labels": [{"name": "method"}]}
+                    for n, s in prs
+                ]
+            )
         if args[-1] == "--paginate":
             return json.dumps([{"id": 7, "body": prgate.MARKER + " old"}])
         return ""
@@ -29,6 +34,17 @@ def test_poll_queues_once_per_head(tmp_path):
         0
     ].startswith("would")
     assert len(jobqueue.list_jobs(tmp_path)) == 2
+
+
+def test_poll_marks_other_prs_na(tmp_path):
+    calls = []
+
+    def gh(*args):
+        calls.append(args)
+        return json.dumps([{"number": 3, "headRefOid": "e" * 40, "labels": []}])
+
+    assert prgate.poll(tmp_path, gh=gh) == []
+    assert "state=success" in calls[-1] and jobqueue.list_jobs(tmp_path) == []
 
 
 def test_prgate_job_needs_sha(tmp_path):

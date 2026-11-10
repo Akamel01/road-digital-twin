@@ -39,21 +39,32 @@ def gh(*args: str) -> str:
     return done.stdout
 
 
-def method_prs(repo: str = REPO, gh=gh) -> list[dict]:
-    out = gh("pr", "list", "-R", repo, "--label", LABEL, "--state", "open",
-             "--json", "number,headRefOid")  # fmt: skip
-    return [{"pr": p["number"], "sha": p["headRefOid"]} for p in json.loads(out)]
+def open_prs(repo: str = REPO, gh=gh) -> list[dict]:
+    out = gh("pr", "list", "-R", repo, "--state", "open", "--limit", "100",
+             "--json", "number,headRefOid,labels")  # fmt: skip
+    return [
+        {
+            "pr": p["number"],
+            "sha": p["headRefOid"],
+            "method": LABEL in [x["name"] for x in p["labels"]],
+        }
+        for p in json.loads(out)
+    ]
 
 
 def poll(store: Path, repo: str = REPO, dry_run: bool = False, gh=gh) -> list[str]:
-    """Queue a prgate job for every method PR whose head has no job yet. Returns lines."""
+    """Queue a prgate job for every method PR whose head has no job yet. Other open PRs get
+    a success status `twin-gates` (n/a), so the check can be required on main. Returns lines."""
     seen = {
         (j.get("pr"), j.get("sha"))
         for j in jobqueue.list_jobs(store)
         if j["type"] == "prgate"
     }
     lines = []
-    for p in method_prs(repo, gh):
+    for p in open_prs(repo, gh):
+        if not p["method"]:
+            set_status(repo, p["sha"], "success", "n/a: not a method PR", dry_run, gh)
+            continue
         if (p["pr"], p["sha"]) in seen:
             continue
         if dry_run:
