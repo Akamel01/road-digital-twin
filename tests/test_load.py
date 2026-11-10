@@ -413,6 +413,14 @@ def test_run_writes_outputs_and_falls_back_when_network_fails(tmp_path, monkeypa
     assert all((tmp_path / "1_load" / f).is_file() for f in OUTPUT_FILES)
 
 
+def test_assemble_same_for_any_worker_count():
+    a = assemble(FakeSource(), "scene-0", TR, workers=1)
+    b = assemble(FakeSource(), "scene-0", TR, workers=3)
+    for k in ("x", "y", "z", "intensity", "sweep"):
+        assert getattr(a, k).tobytes() == getattr(b, k).tobytes()
+    assert a.sweeps == b.sweeps and a.boxes == b.boxes
+
+
 class SegSource(FakeSource):
     """Lidarseg labels on sweep 0 only (a keyframe); the other sweeps have none."""
 

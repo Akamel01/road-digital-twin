@@ -297,3 +297,27 @@ def test_other_paint_gets_no_figures_and_a_reason(tmp_path):
     assert o["reason"] == "no map layer" and o["n"] == 1
     # the other paint does not pollute the divider figures
     assert doc["marking_types"]["divider"]["reason"] == "no observed elements"
+
+
+def test_far_false_positive_changes_fp_rate_not_matched_p95(tmp_path):
+    # One good line 0.1 m off the reference, one line 5 m away (a false positive with no counterpart).
+    ref = [_ref([[0, 0], [100, 0]], "lane_divider")]
+    near = _line([[x, 0.1] for x in range(10, 31)])
+    far = _line([[x, 5.0] for x in range(10, 31)])
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    clean = _run(tmp_path / "a", ref, [near])["elements"]["markings"]
+    dirty = _run(tmp_path / "b", ref, [near, far])["elements"]["markings"]
+    assert clean["false_positive_rate"] == 0
+    assert dirty["false_positive_rate"] == pytest.approx(0.5)
+    assert (
+        dirty["matched_p95_m"] == clean["matched_p95_m"] == pytest.approx(0.1, abs=1e-3)
+    )
+    assert dirty["p95_m"] > 4  # the old one-way figure still carries the false positive
+
+
+def test_nothing_within_radius_gives_no_matched_figures(tmp_path):
+    ref = [_ref([[0, 0], [100, 0]], "lane_divider")]
+    doc = _run(tmp_path, ref, [_line([[x, 5.0] for x in range(10, 31)])])
+    m = doc["elements"]["markings"]
+    assert m["matched_p95_m"] is None and m["false_positive_rate"] == 1
