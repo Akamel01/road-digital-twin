@@ -1,5 +1,5 @@
 import DevLink from "@/components/dev/DevLink";
-import type { AreaFacility } from "@/lib/showcase";
+import type { AreaFacility, SiteStatus } from "@/lib/showcase";
 
 // Crown mark: copied from prototypes/plan-view/index.html (CROWN). Source of truth: papyrus-home#37.
 export function Crown() {
@@ -31,6 +31,7 @@ export function Crown() {
 
 interface Props {
   areaName: string;
+  status: SiteStatus | null;
   facility: AreaFacility | null;
   element: string | null;
   onUp: (level: "area" | "facility") => void;
@@ -38,7 +39,7 @@ interface Props {
   onToggleRail: () => void;
 }
 
-export default function TopBar({ areaName, facility, element, onUp, railCollapsed, onToggleRail }: Props) {
+export default function TopBar({ areaName, status, facility, element, onUp, railCollapsed, onToggleRail }: Props) {
   return (
     <header className="top">
       <div className="brand">
@@ -69,6 +70,12 @@ export default function TopBar({ areaName, facility, element, onUp, railCollapse
           <b aria-current="location">{areaName}</b>
         )}
       </nav>
+      {status && (
+        <span className="stamp" title={`Run ${status.run_id}`}>
+          Gates: {status.verdict === "go" ? "GO" : status.verdict.toUpperCase()} · updated{" "}
+          {status.published_at.slice(0, 10)}
+        </span>
+      )}
       <button
         type="button"
         className="railbtn glass"
