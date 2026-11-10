@@ -97,7 +97,7 @@ export default function LatestBuild() {
               Gate scorecard
             </h2>
             <div className={styles.tableWrap}>
-              <table>
+              <table className={styles.table}>
                 <thead>
                   <tr>
                     <th>Gate</th>
@@ -146,7 +146,7 @@ export default function LatestBuild() {
               Drives in this build
             </h2>
             <div className={styles.tableWrap}>
-              <table>
+              <table className={styles.table}>
                 <thead>
                   <tr>
                     <th>Scene</th>

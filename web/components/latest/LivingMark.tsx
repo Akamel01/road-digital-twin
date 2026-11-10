@@ -15,13 +15,13 @@ export default function LivingMark({ state, size = 32 }: { state: MarkState; siz
   const ref = useRef<SVGSVGElement>(null);
   const mark = useRef<Mounted | null>(null);
   const want = useRef(state);
-  want.current = state;
 
   useEffect(() => {
     let dead = false;
     const svg = ref.current;
     if (!svg) return;
-    import(/* webpackIgnore: true */ "/brand/living-mark.js").then((m: { mount: (s: SVGSVGElement, c: string, st: string) => Mounted }) => {
+    const url: string = "/brand/living-mark.js";
+    import(/* webpackIgnore: true */ url).then((m: { mount: (s: SVGSVGElement, c: string, st: string) => Mounted }) => {
       if (dead) return;
       mark.current = m.mount(svg, "crown", want.current);
     });
@@ -33,6 +33,7 @@ export default function LivingMark({ state, size = 32 }: { state: MarkState; siz
   }, []);
 
   useEffect(() => {
+    want.current = state;
     mark.current?.setState(state);
   }, [state]);
 
