@@ -1,3 +1,4 @@
+import contextlib
 import hashlib
 import json
 import os
@@ -5,7 +6,7 @@ import time
 
 import pytest
 
-from twin import jobqueue, registry, runner, scheduler
+from twin import gpulease, jobqueue, registry, runner, scheduler
 from twin.contracts import STAGE_NAMES, STAGES, ManifestStage, Pipeline, StageResult
 from twin.parallel import pmap
 
@@ -121,6 +122,32 @@ def test_gpu_task_reserves_cores(tmp_path, monkeypatch):
     s.running = []
     s.admit()
     assert started == ["colour", "profile"]  # idle box: both start (3 + 1 cores)
+    s.release_gpu()
+
+
+def test_gpu_lease_held_across_gpu_tasks(tmp_path, stubs, monkeypatch):
+    """Two colour tasks back to back: one unload at the start, one release at the end."""
+    stubs()
+    events = []
+    monkeypatch.setattr(gpulease, "unload_all", lambda urls, record: events.append("unload"))
+    monkeypatch.setattr(gpulease, "free_mib", lambda: None)
+    monkeypatch.setattr(gpulease, "endpoints", list)
+    real = gpulease.lease
+
+    @contextlib.contextmanager
+    def spy(record, *a, **kw):
+        with real(record, *a, **kw):
+            yield record
+        events.append("release")
+
+    monkeypatch.setattr(gpulease, "lease", spy)
+    for scene in "ab":
+        jobqueue.add(tmp_path, {"type": "run", "scene": scene})
+    _sched(tmp_path, max_tasks=1)  # one at a time: the colour tasks cannot overlap
+    colours = [n for k, n, sc, t in _log(tmp_path) if k == "e" and n == "colour"]
+    assert colours == ["colour", "colour"] and len(_done(tmp_path)) == 2
+    assert events == ["unload", "release"]
+    assert "gpu_lease" in _done(tmp_path)["a"]
 
 
 def test_dead_task_fails_its_run_only(tmp_path, stubs, monkeypatch):

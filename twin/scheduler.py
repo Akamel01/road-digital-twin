@@ -6,6 +6,7 @@ the state, so a crash loses nothing). A run is a chain: stage k+1 is ready the m
 Results equal the serial runner's: the child runs the same runner._run_step.
 """
 
+import copy
 import json
 import multiprocessing
 import os
@@ -71,19 +72,13 @@ def _peak_gb() -> float:
     return rss / (1024**3 if sys.platform == "darwin" else 1024**2)
 
 
-def _child(conn, fn: Callable, args: tuple, gpu: bool) -> None:
-    """Run one task. Sends (status, result or message, gpu lease record, peak GB)."""
-    held: dict = {}
+def _child(conn, fn: Callable, args: tuple) -> None:
+    """Run one task. Sends (status, result or message, peak GB)."""
     try:
-        if gpu:
-            with gpulease.lease(held):
-                out = fn(*args)
-        else:
-            out = fn(*args)
-        msg: tuple = ("ok", out)
+        msg: tuple = ("ok", fn(*args))
     except BaseException as exc:  # noqa: BLE001 - reported to the scheduler, which fails the job
         msg = ("err", f"{type(exc).__name__}: {exc}")
-    conn.send((*msg, held, _peak_gb()))
+    conn.send((*msg, _peak_gb()))
 
 
 @dataclass
@@ -137,6 +132,8 @@ class Scheduler:
         if path.is_file():
             self.observed = json.loads(path.read_text())
         self.log: list[str] = []
+        self.gpu_record: dict = {}
+        self._lease = None
 
     # --- costs -------------------------------------------------------------------------
     def cost(self, name: str, enabled: bool = True) -> Cost:
@@ -244,8 +241,11 @@ class Scheduler:
         gpu_busy = any(r.cost.gpu for r in self.running)
         locks = {r.task.lock for r in self.running if r.task.lock}
         reserve: Cost | None = None
+        ready = self.ready()
+        if self._lease is None and any(t.cost.gpu for t in ready):
+            self.hold_gpu()
         # ponytail: a big CPU task can wait behind a stream of small ones; add ageing if seen.
-        for t in self.ready():
+        for t in ready:
             if len(self.running) >= self.max_tasks:
                 break
             c = t.cost
@@ -261,9 +261,29 @@ class Scheduler:
             elif c.gpu and reserve is None:
                 reserve = c
 
+    def hold_gpu(self) -> None:
+        """Take the GPU lease (unload Librarian's ollama models) and keep it until no GPU task
+        is left, so the models cannot reload between two GPU tasks."""
+        self._lease = gpulease.lease(self.gpu_record)
+        self._lease.__enter__()
+
+    def release_gpu(self) -> None:
+        if self._lease is not None:
+            lease, self._lease = self._lease, None
+            lease.__exit__(None, None, None)
+
+    def _gpu_wanted(self) -> bool:
+        """True while a GPU task runs or any active run still has an enabled GPU stage ahead."""
+        return any(
+            a.phase == "stages" and any(
+                n in GPU_STAGES and getattr(a.pipeline, n).enabled for n in STAGE_NAMES[a.next:]
+            )
+            for a in self.active
+        )
+
     def _start(self, t: Task) -> None:
         parent, child = self.ctx.Pipe(duplex=False)
-        proc = self.ctx.Process(target=_child, args=(child, t.fn, t.args, t.cost.gpu))
+        proc = self.ctx.Process(target=_child, args=(child, t.fn, t.args))
         proc.start()
         child.close()
         t.job.busy = True
@@ -288,10 +308,10 @@ class Scheduler:
         a = t.job
         a.busy = False
         if msg is None:
-            msg = ("err", f"task {t.name} died (exit {exitcode})", {}, 0.0)
-        status, out, held, peak = msg
-        if held:
-            a.extra.setdefault("gpu_lease", {})[t.name] = held
+            msg = ("err", f"task {t.name} died (exit {exitcode})", 0.0)
+        status, out, peak = msg
+        if t.cost.gpu:  # a snapshot: the lease goes on after this task
+            a.extra.setdefault("gpu_lease", {})[t.name] = copy.deepcopy(self.gpu_record)
         if peak and t.cost != FREE:
             self.observed[t.name] = max(self.observed.get(t.name, 0.0), peak)
             self.cost_path.write_text(json.dumps(self.observed, indent=2))
@@ -321,6 +341,12 @@ class Scheduler:
 
     # --- loop --------------------------------------------------------------------------
     def run(self, poll: float = 5, exit_when_idle: bool = False) -> None:
+        try:
+            self._loop(poll, exit_when_idle)
+        finally:
+            self.release_gpu()
+
+    def _loop(self, poll: float, exit_when_idle: bool) -> None:
         while True:
             self.fill()
             for a in list(self.active):
@@ -328,6 +354,8 @@ class Scheduler:
                     a.checked = True
                     self._after_stages(a)
             self.admit()
+            if self._lease is not None and not self._gpu_wanted():
+                self.release_gpu()
             if not self.running:
                 if not self.active and exit_when_idle and not self.hold_pending():
                     return
