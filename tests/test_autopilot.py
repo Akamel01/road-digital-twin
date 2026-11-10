@@ -1,12 +1,15 @@
 import json
+from datetime import UTC, datetime, timedelta
 
 from twin import autopilot, jobqueue, prgate
 from twin.cli import main
 
 
 def _pending(store, n):
+    """n jobs taken by the scheduler (the active count the autopilot reads)."""
     for _ in range(n):
         jobqueue.add(store, {"type": "run", "scene": "x"})
+        jobqueue.take(store)
 
 
 def _fakes(monkeypatch, calls, adds=1):
@@ -28,8 +31,7 @@ def test_low_water_refill(tmp_path, monkeypatch):
     autopilot.step(tmp_path)
     assert calls == ["P0"]  # at the mark: only the cheap P0 poll, no refill
     calls.clear()
-    _pending(tmp_path, 0)
-    jobqueue.take(tmp_path)  # one below the mark
+    jobqueue.finish(tmp_path, jobqueue.list_jobs(tmp_path)[0])  # one below the mark
     out = autopilot.step(tmp_path)
     assert calls == ["P0", "P2", "P3", "P4"], out
 
@@ -79,14 +81,18 @@ def test_p4_holds_on_low_disk_and_limits(tmp_path, monkeypatch):
     names = [f"scene-{i:04d}" for i in range(9)]
     (nus / "scene.json").write_text(json.dumps([{"name": n, "token": f"t{n}"} for n in names]))
     monkeypatch.setattr(autopilot, "NUSCENES", nus)
-    monkeypatch.setattr(autopilot.telemetry, "free_gb", lambda p: 30.0)
+    monkeypatch.setattr(autopilot.telemetry, "free_gb", lambda p: 300.0)
     monkeypatch.setattr(autopilot, "ranked_areas", lambda: {"l/a": names, "l/b": names, "l/c": names})
     state = {}
     assert autopilot.p4_prefetch(tmp_path, state) == autopilot.PREFETCH_SCENES
     autopilot.p4_prefetch(tmp_path, state)
-    assert autopilot.p4_prefetch(tmp_path, state) == 0  # two areas at most
+    assert autopilot.p4_prefetch(tmp_path, state) == autopilot.PREFETCH_SCENES  # a third area: no cap
+    assert autopilot.p4_prefetch(tmp_path, state) == 0  # ranking exhausted
+    monkeypatch.setattr(autopilot.telemetry, "free_gb", lambda p: 30.0 if p == "/" else 50.0)
+    monkeypatch.setattr(autopilot, "ranked_areas", lambda: {"l/d": names})
+    assert autopilot.p4_prefetch(tmp_path, state) == 0  # store filesystem under 100 GB: held
     jobs = jobqueue.list_jobs(tmp_path)
-    assert len(jobs) == 2 * autopilot.PREFETCH_SCENES
+    assert len(jobs) == 3 * autopilot.PREFETCH_SCENES
     assert all(j["priority"] == 4 and j["tags"] == ["autopilot"] for j in jobs)
     assert all(j["stop_after"] == "mask" for j in jobs)
 
@@ -110,6 +116,8 @@ def test_narrow_and_stall(tmp_path, monkeypatch):
         autopilot.p3_sweep(tmp_path, state)
     # round 1 from the seed, then three flat boards end the line: no 4th round
     assert len(queued) == 3 and state["p3"]["stopped"]
+    # the stalled line is replaced by a new one (no base run here, so nothing queued yet)
+    assert autopilot.p3_sweep(tmp_path, state) == 0 and len(queued) == 3
 
 
 def test_cli_once(tmp_path, monkeypatch):
@@ -135,3 +143,125 @@ def test_skip_source(tmp_path, monkeypatch):
     _fakes(monkeypatch, calls)
     autopilot.step(tmp_path, skip=("P3",))
     assert calls == ["P0", "P2", "P4"]
+
+
+def _base(store, run_id, version="v1.0-trainval", accuracy="ok", parent=None):
+    (store / run_id).mkdir()
+    m = {"data": {"nuscenes_version": version}, "stages": [{"name": "accuracy", "status": accuracy}]}
+    (store / run_id / "manifest.json").write_text(json.dumps({**m, "parent": parent}))
+
+
+def test_stalled_p3_starts_new_line(tmp_path, monkeypatch):
+    monkeypatch.setattr(autopilot, "dataset_version", lambda: "v1.0-trainval")
+    _base(tmp_path, "20261110-000001-aaaaaa")
+    _base(tmp_path, "20261110-000002-bbbbbb")
+    _base(tmp_path, "20261110-000003-cccccc", accuracy="failed")  # not dry
+    _base(tmp_path, "20261110-000004-dddddd", version="v1.0-mini")
+    assert autopilot.base_runs(tmp_path) == ["20261110-000001-aaaaaa", "20261110-000002-bbbbbb"]
+    monkeypatch.setattr(autopilot.sweep, "queue_sweep", lambda s, t, sp, extra: seen.append((t, sp)) or "n")
+    monkeypatch.setattr(autopilot.json, "loads", lambda t, real=json.loads: {"variants": [1, 2]} if t == "V" else real(t))
+    (tmp_path / "sweeps" / "n").mkdir(parents=True)
+    (tmp_path / "sweeps" / "n" / "sweep.json").write_text("V")
+    seen = []
+    state = {"p3": {"sweep": "old", "best": [0, 1.0], "stall": 0, "round": 3, "stopped": True}}
+    assert autopilot.p3_sweep(tmp_path, state) == 2  # no seed needed after a stalled line
+    assert autopilot.p3_sweep(tmp_path, {}) == 2  # no board at all: also a new line
+    state["p3"]["stopped"] = True
+    autopilot.p3_sweep(tmp_path, state)
+    (t0, sp0), (_, _), (t2, _sp2) = seen
+    assert t0 != t2  # the base run rotates
+    assert {k.split(".")[0] for k in sp0["params"]} == {"ground"}
+    assert state["p3"]["sweep"] == "n" and state["p3"]["stall"] == 0
+
+
+def test_group_space_uses_contract_ranges():
+    for g in autopilot.GROUPS:
+        sp = autopilot.group_space(g, 0)
+        assert sp["params"] and all(k.startswith(g + ".") for k in sp["params"])
+        assert all(v["min"] < v["max"] for v in sp["params"].values())
+
+
+def _failed(store, n, error, sweep_id="s", tags=("autopilot",)):
+    for _ in range(n):
+        jobqueue.add(store, {"type": "run", "scene": "x", "sweep": sweep_id, "tags": list(tags)})
+        jobqueue.finish(store, jobqueue.take(store), error)
+
+
+def test_fail_streak_pauses_source(tmp_path, monkeypatch):
+    calls = []
+    _fakes(monkeypatch, calls)
+    _failed(tmp_path, 6, "RuntimeError: GEOS")
+    _failed(tmp_path, 4, None)
+    autopilot.step(tmp_path)
+    alarm = tmp_path / "autopilot" / "alarm.txt"
+    assert "P3 paused" in alarm.read_text() and "GEOS" in alarm.read_text()
+    assert "P3" not in calls and "P2" in calls  # only the failing source stops
+    alarm.unlink()
+    calls.clear()
+    autopilot.step(tmp_path)  # alarm cleared: resumes, old failures no longer count
+    assert "P3" in calls and not alarm.exists()
+
+
+def test_mixed_errors_do_not_alarm(tmp_path, monkeypatch):
+    _fakes(monkeypatch, [])
+    for i in range(10):
+        _failed(tmp_path, 1, f"RuntimeError: e{i}")
+    autopilot.step(tmp_path)
+    assert not (tmp_path / "autopilot" / "alarm.txt").exists()
+
+
+def test_idle_alarm(tmp_path, capsys):
+    now = datetime(2026, 11, 10, 12, 0, tzinfo=UTC)
+
+    def write(cpu, gpu, running=0):
+        rows = ["ts,cpu_avg_pct,gpu_util_pct,queue_running,queue_pending"]
+        for m in range(31):
+            ts = (now - timedelta(minutes=30 - m)).isoformat(timespec="seconds")
+            rows.append(f"{ts},{cpu},{gpu},{running},0")
+        (tmp_path / "telemetry").mkdir(exist_ok=True)
+        (tmp_path / "telemetry" / "2026-11-10.csv").write_text("\n".join(rows) + "\n")
+
+    write(10, 0, running=1)
+    assert not autopilot.idle_alarm(tmp_path, {}, now)  # busy queue
+    write(60, 0)
+    assert not autopilot.idle_alarm(tmp_path, {}, now)  # CPU busy
+    write(10, 0)
+    state = {}
+    assert autopilot.idle_alarm(tmp_path, state, now)
+    assert "ALARM idle" in capsys.readouterr().out
+    assert not autopilot.idle_alarm(tmp_path, state, now)  # once per window
+
+
+def test_p2b_reevals_when_gates_change(tmp_path, monkeypatch):
+    monkeypatch.setattr(autopilot, "main_commit", lambda: "a" * 40)
+    ran = []
+    monkeypatch.setattr(autopilot, "_detached", lambda s, name, cmd: ran.append(name) or (999999, "x"))
+    monkeypatch.setattr(autopilot, "_alive", lambda pid: False)
+    state = {"p2": {"built": "a" * 40}, "p2b": {"gates": "old"}}
+    autopilot.p2_area(tmp_path, state)
+    assert ran == ["p2b"] and state["p2b"]["gates"] == autopilot.gates_hash()
+    state["p2b"]["running"] = False
+    autopilot.p2_area(tmp_path, state)
+    assert ran == ["p2b"]  # gates unchanged since
+
+
+def test_g2_history_and_ratchet(tmp_path, capsys):
+    out = tmp_path / "areas" / "seaport-merged"
+    out.mkdir(parents=True)
+
+    def build(run_id, value, threshold=0.20):
+        status = "go" if value <= threshold else "no-go"
+        rep = {"run_id": run_id, "gates": {"G2": {"checks": [{"value": value, "threshold": threshold, "status": status}]}}}
+        (out / "gates.json").write_text(json.dumps(rep))
+        autopilot.record_g2(tmp_path)
+
+    build("20261110-000001-aaaaaa", 0.15)
+    build("20261110-000001-aaaaaa", 0.15)  # same build re-evaluated: one entry
+    build("20261110-000002-bbbbbb", 0.30)  # fails: the streak restarts
+    build("20261110-000003-cccccc", 0.12)
+    build("20261110-000004-dddddd", 0.11)
+    assert "ratchet" not in capsys.readouterr().out
+    build("20261110-000005-eeeeee", 0.10)
+    assert "G2 ratchet due: lower to 0.1" in capsys.readouterr().out
+    history = json.loads((tmp_path / "autopilot" / "g2_history.json").read_text())
+    assert len(history) == 5 and history[-1]["status"] == "go"
