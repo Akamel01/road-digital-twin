@@ -88,8 +88,7 @@ def test_p4_holds_on_low_disk_and_limits(tmp_path, monkeypatch):
     jobs = jobqueue.list_jobs(tmp_path)
     assert len(jobs) == 2 * autopilot.PREFETCH_SCENES
     assert all(j["priority"] == 4 and j["tags"] == ["autopilot"] for j in jobs)
-    enabled = {s for s, v in jobs[0]["pipeline"].items() if v["enabled"]}
-    assert enabled == {"load", "mask"}
+    assert all(j["stop_after"] == "mask" for j in jobs)
 
 
 def test_narrow_and_stall(tmp_path, monkeypatch):
@@ -119,3 +118,20 @@ def test_cli_once(tmp_path, monkeypatch):
     monkeypatch.setattr(autopilot, "ranked_areas", dict)
     assert main(["autopilot", "--store", str(tmp_path), "--once"]) == 0
     assert (tmp_path / "autopilot" / "state.json").is_file()
+
+
+def test_p3_skips_other_dataset_version(tmp_path, monkeypatch):
+    monkeypatch.setattr(autopilot, "dataset_version", lambda: "v1.0-trainval")
+    (tmp_path / "base").mkdir()
+    (tmp_path / "base" / "manifest.json").write_text(json.dumps({"data": {"nuscenes_version": "v1.0-mini"}}))
+    (tmp_path / "sweeps" / "s1").mkdir(parents=True)
+    (tmp_path / "sweeps" / "s1" / "sweep.json").write_text(json.dumps({"target": "base", "variants": []}))
+    assert autopilot._latest_scored(tmp_path) is None
+    assert autopilot.p3_sweep(tmp_path, {}) == 0
+
+
+def test_skip_source(tmp_path, monkeypatch):
+    calls = []
+    _fakes(monkeypatch, calls)
+    autopilot.step(tmp_path, skip=("P3",))
+    assert calls == ["P0", "P2", "P4"]

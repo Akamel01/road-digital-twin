@@ -17,6 +17,7 @@ from pathlib import Path
 from filelock import FileLock, Timeout
 
 from twin import jobqueue, prgate, sweep, telemetry
+from twin.runner import dataset_version
 
 TAGS = {"tags": ["autopilot"]}
 LOW_WATER = 6  # ready jobs below this: refill
@@ -33,13 +34,6 @@ NUSCENES = Path("/data/nuscenes/v1.0-trainval")
 PREFETCH_AREAS = 2  # disk is shared with production: few areas, few scenes, load+mask only
 PREFETCH_SCENES = 6
 PREFETCH_MIN_FREE_GB = 15.0
-PREFETCH_PIPELINE = {
-    s: {"method": m, "enabled": s in ("load", "mask")}
-    for s, m in (("load", "nuscenes"), ("mask", "boxes"), ("align", "kiss-icp"),
-                 ("ground", "ransac-tiles"), ("features", "intensity"), ("colour", "zbuffer-topk"),
-                 ("profile", "centreline"), ("isd", "aashto-b"), ("accuracy", "one-way"),
-                 ("outputs", "dxf-pdf"))
-}  # fmt: skip
 
 
 def _state_path(store: Path) -> Path:
@@ -122,7 +116,7 @@ def p2_area(store: Path, state: dict) -> int:
     exit_file.unlink(missing_ok=True)
     twin = f"{sys.executable} -m twin.cli"
     cmd = (f"{twin} area merge {AREA} --store {store} && "
-           f"{twin} eval areas/{AREA}-merged --store {store}")  # fmt: skip
+           f"({twin} eval areas/{AREA}-merged --store {store}; [ $? -le 1 ])")  # eval exit 1 is a no-go verdict, not a failure
     proc = subprocess.Popen(
         ["sh", "-c", f"{cmd}; echo $? > {exit_file}"],
         stdout=(logs / f"p2-{commit[:7]}.log").open("w"), stderr=subprocess.STDOUT,
@@ -159,8 +153,20 @@ def _board(store: Path, sweep_id: str) -> dict | None:
         return None
 
 
+def _usable(store: Path, folder: Path) -> bool:
+    """A rerun sweep needs the base run built from the worker's dataset version."""
+    try:
+        target = json.loads((folder / "sweep.json").read_text())["target"]
+        made = json.loads((store / target / "manifest.json").read_text())["data"]["nuscenes_version"]
+    except (OSError, ValueError, KeyError):
+        return False
+    return made == dataset_version()
+
+
 def _latest_scored(store: Path) -> str | None:
     for folder in sorted((store / "sweeps").glob("*"), reverse=True):
+        if not _usable(store, folder):
+            continue
         board = _board(store, folder.name)
         if board and board["rows"]:
             return folder.name
@@ -248,7 +254,7 @@ def p4_prefetch(store: Path, state: dict) -> int:
     except (OSError, ValueError):
         return 0
     jobs = [
-        jobqueue.add(store, {"type": "run", "scene": tokens[n], "pipeline": PREFETCH_PIPELINE,
+        jobqueue.add(store, {"type": "run", "scene": tokens[n], "stop_after": "mask",
                              "priority": 4, "prefetch": key, **TAGS})
         for n in ranked_areas()[key][:PREFETCH_SCENES] if n in tokens
     ]  # fmt: skip
@@ -260,7 +266,7 @@ def p4_prefetch(store: Path, state: dict) -> int:
 SOURCES = (("P2", p2_area), ("P3", p3_sweep), ("P4", p4_prefetch))  # P0 runs on every pass
 
 
-def step(store: Path, ready=None) -> str:
+def step(store: Path, ready=None, skip: tuple = ()) -> str:
     """One pass. Returns a short status line."""
     store = Path(store)
     if (store / PAUSE_FILE).exists():
@@ -270,6 +276,8 @@ def step(store: Path, ready=None) -> str:
     n = telemetry.queue_counts(store)[2] if ready is None else ready
     if n < LOW_WATER:
         for name, source in SOURCES:
+            if name in skip:
+                continue
             if n >= TARGET:
                 break
             queued[name] = source(store, state)
@@ -278,7 +286,7 @@ def step(store: Path, ready=None) -> str:
     return f"ready {n}, queued {queued}"
 
 
-def autopilot_command(store: Path | None, poll: float, once: bool) -> int:
+def autopilot_command(store: Path | None, poll: float, once: bool, skip: tuple = ()) -> int:
     from twin.runner import default_store
 
     store = Path(store or default_store())
@@ -292,7 +300,7 @@ def autopilot_command(store: Path | None, poll: float, once: bool) -> int:
     try:
         while True:
             try:
-                say(step(store))
+                say(step(store, skip=skip))
             except Exception as exc:  # noqa: BLE001 - one bad pass must not end the loop
                 say(f"pass failed: {type(exc).__name__}: {exc}")
             if once:

@@ -344,7 +344,7 @@ class Scheduler:
         if not t.stage:
             return self._end(a, None, out)
         a.next += 1
-        if out or a.next >= len(STAGE_NAMES):
+        if out or a.next >= len(STAGE_NAMES) or STAGE_NAMES[a.next - 1] == a.job.get("stop_after"):
             a.phase = "post"
 
     def _after_stages(self, a: Active) -> None:

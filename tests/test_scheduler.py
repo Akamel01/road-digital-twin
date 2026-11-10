@@ -201,3 +201,12 @@ def test_one_worker_equals_many(tmp_path, stubs):
             for scene, j in _done(store).items()
         }
     assert outs["one"] == outs["many"] and len(outs["one"]["a"]) > 5
+
+
+def test_stop_after_ends_the_run_early(tmp_path, stubs):
+    stubs()
+    jobqueue.add(tmp_path, {"type": "run", "scene": "a", "stop_after": "mask"})
+    _sched(tmp_path)
+    done = _done(tmp_path)
+    manifest = json.loads((tmp_path / done["a"]["run_id"] / "manifest.json").read_text())
+    assert [s["name"] for s in manifest["stages"]] == ["load", "mask"]
