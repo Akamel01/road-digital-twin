@@ -83,6 +83,11 @@ class StageContext:
         return path
 
 
+def dataset_version() -> str:
+    """The nuScenes version this process reads: NUSCENES_VERSION, else the manifest default."""
+    return os.environ.get("NUSCENES_VERSION") or ManifestData.model_fields["nuscenes_version"].default
+
+
 def default_store() -> Path:
     return Path(os.environ.get("TWIN_RUNS") or DEFAULT_STORE)
 
@@ -300,7 +305,7 @@ def _create_locked(
 
     if parent is None:
         # osm_names is filled from the load stage's metrics once it has run (see _run_stages).
-        data = ManifestData(scene_token=scene_token)
+        data = ManifestData(scene_token=scene_token, nuscenes_version=dataset_version())
         parent_ref = None
     else:
         data = parent.data.model_copy()
@@ -532,6 +537,12 @@ def _rerun_args(
     parent_params = Params.model_validate(
         yaml.safe_load((parent_dir / "params.yaml").read_text()) or {}
     )
+    # DECISION: the dataset version is not a param; the environment names it, and a re-run must read the parent's.
+    if dataset_version() != parent.data.nuscenes_version:
+        raise ValueError(
+            f"dataset version {dataset_version()!r} differs from the parent run's "
+            f"{parent.data.nuscenes_version!r}"
+        )
     new_pipeline = _merge(parent_pipeline, pipeline, Pipeline)
     new_params = _merge(parent_params, params, Params)
     check_rerun(parent_pipeline, parent_params, new_pipeline, new_params, from_stage)

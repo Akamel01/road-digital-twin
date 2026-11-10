@@ -246,6 +246,12 @@ def build_drive(scene: dict, work: Path, polygon, params: Params, log) -> np.nda
 
 
 def merge_area(area: dict, out: Path, params: Params, log) -> dict:
+    version = area["dataset_version"]
+    old = out / "manifest.json"
+    if old.is_file():  # DECISION: a folder built from another dataset version is refused (its cached drives would mix)
+        had = json.loads(old.read_text()).get("data", {}).get("nuscenes_version")
+        if had is not None and had != version:
+            raise ValueError(f"dataset version {version!r} differs from the earlier merge's {had!r}")
     polygon = shape(area["polygon"])
     centre = np.array([*polygon.centroid.coords[0], 0.0])
     scenes = sorted(
@@ -318,6 +324,7 @@ def merge_area(area: dict, out: Path, params: Params, log) -> dict:
         json.dumps(
             {
                 "run_id": f"area-{area['name']}",
+                "data": {"nuscenes_version": version},
                 "metrics": {"align": metrics},
                 "stages": [],
             },

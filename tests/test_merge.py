@@ -38,3 +38,28 @@ def test_no_overlap_stays_unregistered():
     b = a + [500.0, 0, 0]
     res = merge.register_drives({"a": a, "b": b}, np.array([20.0, 10.0, 0.0]))
     assert [v["role"] for v in res["info"].values()].count("unregistered") == 1
+
+
+def test_area_manifest_records_version_and_refuses_mismatch(tmp_path, monkeypatch):
+    import json
+    import logging
+
+    import pytest
+    from shapely.geometry import box, mapping
+
+    from twin.contracts import Params
+
+    pts = np.column_stack([_cloud(1), np.ones(len(_cloud(1))), np.zeros(len(_cloud(1)))])
+    monkeypatch.setattr(merge, "build_drive", lambda *a: pts)
+    area = {
+        "name": "a",
+        "dataset_version": "v1.0-trainval",
+        "polygon": mapping(box(0, 0, 40, 20)),
+        "drives": [{"scene": "s1", "date": "2018-01-01", "build_input": True, "scene_token": "t"}],
+    }
+    log = logging.getLogger("t")
+    merge.merge_area(area, tmp_path, Params(), log)
+    man = json.loads((tmp_path / "manifest.json").read_text())
+    assert man["data"]["nuscenes_version"] == "v1.0-trainval"
+    with pytest.raises(ValueError, match="dataset version"):
+        merge.merge_area({**area, "dataset_version": "v1.0-mini"}, tmp_path, Params(), log)
