@@ -21,12 +21,11 @@ import open3d as o3d
 import shapely
 from shapely.geometry import shape
 
-from twin.contracts import GroundParams, Params
+from twin.contracts import Params
 from twin.stages import align, ground, load, mask
 
-# DECISION: registration works on points thinned to one per 0.3 m voxel; the ground split uses 0.2 m.
+# DECISION: registration works on points thinned to one per 0.3 m voxel.
 ICP_VOXEL_M = 0.3
-GROUND_VOXEL_M = 0.2
 # DECISION: coarse-to-fine ICP, three correspondence distances. Dataset poses start within a few metres.
 ICP_STEPS_M = (2.0, 1.0, 0.5)
 ICP_MAX_ITER = 50
@@ -37,9 +36,16 @@ OVERLAP_DIST_M = 1.0
 MIN_OVERLAP_POINTS = 500
 MIN_FITNESS = 0.2
 # DECISION: dataset heights are relative (each drive starts at z = 0), so drives differ in height by metres.
-# Ground points are matched in plan view, within XY_MATCH_M, and compared if within MAX_DZ_M in height.
+# z_offset matches points in plan view within XY_MATCH_M.
 XY_MATCH_M = 0.5
-MAX_DZ_M = 2.0
+# DECISION: ground disagreement is the height difference of the ground per CELL_M plan cell, where the ground is the
+# GROUND_PCT-th percentile of z in the cell (cells with MIN_CELL_POINTS or more points). The tiled RANSAC split
+# picked several layers (roofs, car tops) and made the pair distances meaningless. On a near-flat road a
+# vertical difference is the point-to-plane distance to within cos(slope).
+CELL_M = 0.5
+GROUND_PCT = 10
+MIN_CELL_POINTS = 5
+MIN_CELLS = 200
 
 
 # ------------------------------------------------------------------ geometry
@@ -106,20 +112,31 @@ def register(src: np.ndarray, tgt: np.ndarray) -> tuple[np.ndarray, float, float
     return cur, float(final.fitness), float(final.inlier_rmse)
 
 
-def ground_disagreement(a: np.ndarray, b: np.ndarray) -> dict | None:
-    """P50/P95 of the point-to-plane distance from a's ground points to b's ground, matched in plan view within XY_MATCH_M."""
-    if len(a) == 0 or len(b) == 0:
+def ground_cells(xyz: np.ndarray) -> dict[tuple[int, int], float]:
+    """Ground height per CELL_M plan cell: the GROUND_PCT percentile of z, for cells with enough points."""
+    ij = np.floor(xyz[:, :2] / CELL_M).astype(np.int64)
+    order = np.lexsort((ij[:, 1], ij[:, 0]))
+    ij, z = ij[order], xyz[order, 2]
+    cut = np.flatnonzero(np.any(np.diff(ij, axis=0) != 0, axis=1)) + 1
+    out = {}
+    for lo, hi in zip(np.r_[0, cut], np.r_[cut, len(z)], strict=True):
+        if hi - lo >= MIN_CELL_POINTS:
+            out[(int(ij[lo, 0]), int(ij[lo, 1]))] = float(
+                np.percentile(z[lo:hi], GROUND_PCT)
+            )
+    return out
+
+
+def ground_disagreement(ca: dict, cb: dict) -> dict | None:
+    """P50/P95 of the ground height difference between two drives' ground_cells, over cells both see (>= MIN_CELLS)."""
+    shared = ca.keys() & cb.keys()
+    if len(shared) < MIN_CELLS:
         return None
-    idx, d = nearest_xy(a, b)
-    ok = (d <= XY_MATCH_M) & (np.abs(a[:, 2] - b[idx, 2]) <= MAX_DZ_M)
-    if ok.sum() < MIN_OVERLAP_POINTS:
-        return None
-    normals = np.asarray(_pcd(b, normals=True).normals)[idx[ok]]
-    dist = np.abs(np.einsum("ij,ij->i", a[ok] - b[idx[ok]], normals))
+    dz = np.abs([ca[k] - cb[k] for k in sorted(shared)])
     return {
-        "n_points": int(ok.sum()),
-        "p50_m": float(np.percentile(dist, 50)),
-        "p95_m": float(np.percentile(dist, 95)),
+        "n_cells": len(shared),
+        "p50_m": float(np.percentile(dz, 50)),
+        "p95_m": float(np.percentile(dz, 95)),
     }
 
 
@@ -139,10 +156,7 @@ def register_drives(
     """
     o3d.utility.random.seed(seed)
     pts = {k: thin(v - centre, ICP_VOXEL_M) for k, v in clouds.items()}
-    gnd = {}
-    for k, v in clouds.items():
-        g = thin(v - centre, GROUND_VOXEL_M)
-        gnd[k] = g[ground.ransac_ground(g, GroundParams())]
+    gnd = {k: v - centre for k, v in clouds.items()}
     ids = sorted(clouds)
     ref = max(ids, key=lambda k: (len(clouds[k]), k))
     corr = {ref: np.eye(4)}
@@ -166,17 +180,17 @@ def register_drives(
         corr[k] = t
         info[k] = {"role": "registered", "fitness": fit, "rmse_m": rmse}
         target = np.vstack([target, apply(t, pts[k])])
-    pairs = []
     eye = np.eye(4)
+    before = {k: ground_cells(gnd[k]) for k in ids}
+    after = {k: ground_cells(apply(corr.get(k, eye), gnd[k])) for k in ids}
+    pairs = []
     for i, a in enumerate(ids):
         for b in ids[i + 1 :]:
             row = {
                 "a": a,
                 "b": b,
-                "before": ground_disagreement(gnd[a], gnd[b]),
-                "after": ground_disagreement(
-                    apply(corr.get(a, eye), gnd[a]), apply(corr.get(b, eye), gnd[b])
-                ),
+                "before": ground_disagreement(before[a], before[b]),
+                "after": ground_disagreement(after[a], after[b]),
             }
             if row["before"] or row["after"]:
                 pairs.append(row)
