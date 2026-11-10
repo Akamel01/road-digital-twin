@@ -216,7 +216,7 @@ def correct_heights(
         hi = sv[c_start + c_count // 2]
         return 0.5 * (lo + hi)
 
-    iterations, converged = 0, False
+    iterations, converged, last_z, last_angle = 0, False, 0.0, 0.0
     for it in range(MAX_ITER):
         iterations = it + 1
         z = z0 + dz[sweep] + a[sweep] * u + b[sweep] * v
@@ -296,6 +296,8 @@ def correct_heights(
         "residual_after_m": res_after,
         "iterations": iterations,
         "converged": converged,
+        "last_step_z_m": last_z,
+        "last_step_angle_deg": float(np.degrees(last_angle)),
     }
 
 
@@ -312,6 +314,8 @@ def summary(report: dict) -> dict:
         "n_fitted": int(f.sum()),
         "iterations": int(report["iterations"]),
         "converged": bool(report["converged"]),
+        "last_step_z_m": report["last_step_z_m"],
+        "last_step_angle_deg": report["last_step_angle_deg"],
         "dz_p95_abs_m": p95(np.abs(report["dz_m"][f])),
         "roll_p95_abs_deg": p95(np.degrees(np.abs(report["roll_rad"][f]))),
         "pitch_p95_abs_deg": p95(np.degrees(np.abs(report["pitch_rad"][f]))),
