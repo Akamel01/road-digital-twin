@@ -139,6 +139,11 @@ def build_parser() -> argparse.ArgumentParser:
     worker.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
     worker.add_argument("--jobs", type=int, default=0, help="stop after N jobs (0: run on)")
     worker.add_argument("--poll", type=float, default=30, help="seconds between checks")
+    sweep = sub.add_parser("sweep", help="queue a parameter sweep, or rank a finished one")
+    sweep.add_argument("target", nargs="?", help="base run id, or scene token")
+    sweep.add_argument("--space", type=Path, help="search space yaml")
+    sweep.add_argument("--report", metavar="SWEEP_ID", help="write the leaderboard")
+    sweep.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
     serve = sub.add_parser("serve", help="run the control API")
     serve.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
     serve.add_argument("--host", default="127.0.0.1")
@@ -204,6 +209,10 @@ def main(argv: list[str] | None = None) -> int:
         from twin.jobqueue import worker_command
 
         return worker_command(args.store, args.jobs, args.poll)
+    if args.command == "sweep":
+        from twin.sweep import sweep_command
+
+        return sweep_command(args.target, args.space, args.report, args.store)
     if args.command == "serve":
         from twin.api import serve_command
 

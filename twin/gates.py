@@ -80,6 +80,28 @@ def _combine(statuses: list[str]) -> str:
     return NOT_MEASURED if NOT_MEASURED in statuses else GO
 
 
+def margin_score(report: dict) -> float:
+    """Sweep score: the sum over measured checks of the normalised margin
+    (threshold - value) / threshold for "<=" and (value - threshold) / threshold for ">=",
+    each clipped to [-1, 1]. Positive is headroom, negative is a miss. A zero threshold
+    cannot be normalised, so that check scores 0 when it passes and -1 when it fails.
+    Not-measured checks add nothing. This is the only place the formula lives."""
+    total = 0.0
+    for gate in report["gates"].values():
+        for c in gate["checks"]:
+            if c["value"] is None:
+                continue
+            if c["status"] == GO and not c["threshold"]:
+                continue
+            if not c["threshold"]:
+                total -= 1
+                continue
+            sign = 1 if c["op"] == "<=" else -1
+            margin = sign * (c["threshold"] - c["value"]) / abs(c["threshold"])
+            total += max(-1.0, min(1.0, margin))
+    return round(total, 6)
+
+
 def regressions(run: dict, base: dict, tol: float) -> list[dict]:
     """Error metrics worse than the baseline by more than tol, or lost since."""
     cur, old = _flatten(run), _flatten(base)
