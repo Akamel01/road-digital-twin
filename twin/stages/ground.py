@@ -233,15 +233,18 @@ def sweep_disagreement_p95(
 def qa_ground(
     split_ground: np.ndarray, labels: np.ndarray | None, driveable_index: int | None
 ) -> np.ndarray:
-    """Which points the disagreement QA uses: lidarseg ground where a point has a label, else the split's ground.
+    """Which points the disagreement QA uses: the split's ground, where a labelled point must also be labelled ground.
 
-    DECISION (2026-11-10 amendment to ADR 0005): the labels are driveable_surface, sidewalk and terrain; a point
-    of an unlabelled sweep keeps the ground split's verdict (RANSAC or CSF).
+    DECISION (2026-11-10 amendment to ADR 0005): the labels are driveable_surface, sidewalk and terrain. A point
+    of an unlabelled sweep keeps the ground split's verdict (RANSAC or CSF). A labelled point counts only if the
+    label says ground AND the split agrees. Labels alone were tried first and measured label noise, not height:
+    on scene-0757 the labelled driveable points alone gave 0.38 m disagreement against 0.09 m for the RANSAC
+    ground, because a semantic label does not say the point lies on the road plane.
     """
     if labels is None:
         return split_ground
     labelled, is_ground = heights.label_ground(labels, driveable_index)
-    return np.where(labelled, is_ground, split_ground)
+    return split_ground & (~labelled | is_ground)
 
 
 def observed_core(
