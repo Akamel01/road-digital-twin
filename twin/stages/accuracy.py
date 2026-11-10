@@ -136,8 +136,14 @@ def _entry(
     label: str = "",
     reason: str = "",
     n_elements: int = 0,
+    radius_m: float = 1.0,
 ) -> dict[str, Any]:
-    """n = elements scored; n_samples = 0.25 m sample points behind P50/P95."""
+    """n = elements scored; n_samples = 0.25 m sample points behind the figures.
+
+    p50_m / p95_m stay the old one-way figures over all samples (history stays comparable).
+    matched_p50_m / matched_p95_m use only samples within radius_m of the reference; false_positive_rate is the
+    share of samples beyond it (samples are evenly spaced, so this is a share of extracted length).
+    """
     layer_name = ", ".join(layers) if isinstance(layers, tuple) else layers
     if not reason and len(dists) == 0:
         reason = "no observed elements"
@@ -148,16 +154,27 @@ def _entry(
             "reference_layer": layer_name,
             "p50_m": None,
             "p95_m": None,
+            "matched_p50_m": None,
+            "matched_p95_m": None,
+            "false_positive_rate": None,
             "coverage": None,
             "n": n_elements,
             "n_samples": len(dists),
             "label": label,
             "reason": reason,
         }
+    near = dists[dists <= radius_m]
     return {
         "reference_layer": layer_name,
         "p50_m": round(float(np.percentile(dists, 50)), 3),
         "p95_m": round(float(np.percentile(dists, 95)), 3),
+        "matched_p50_m": round(float(np.percentile(near, 50)), 3)
+        if len(near)
+        else None,
+        "matched_p95_m": round(float(np.percentile(near, 95)), 3)
+        if len(near)
+        else None,
+        "false_positive_rate": round(1 - len(near) / len(dists), 3),
         "coverage": round(min(matched / ref_len, 1.0), 3),
         "n": n_elements,
         "n_samples": len(dists),
@@ -173,6 +190,7 @@ def run_one_way(ctx: Any, params: AccuracyParams) -> StageResult:
     features_dir = ctx.input_dir("features")
     load_dir = ctx.input_dir("load")
     buffer_m = params.buffer_m
+    radius_m = params.match_radius_m
 
     feat_qa = json.loads((features_dir / "qa.json").read_text())
     not_scanned = set(feat_qa.get("not_scanned_enough", []))
@@ -237,6 +255,7 @@ def run_one_way(ctx: Any, params: AccuracyParams) -> StageResult:
             _size(r, area),
             LABELS.get(kind, ""),
             n_elements=len(geoms),
+            radius_m=radius_m,
         )
     for kind in elements:
         if kind not in active:
@@ -304,11 +323,13 @@ def run_one_way(ctx: Any, params: AccuracyParams) -> StageResult:
             ref_len,
             ", ".join(sorted(used_labels)),
             n_elements=n_members,
+            radius_m=radius_m,
         )
 
     doc = {
         "method": "one-way",
         "buffer_m": buffer_m,
+        "match_radius_m": radius_m,
         "elements": per_element,
         "marking_types": marking_types,
         "facilities": per_facility,

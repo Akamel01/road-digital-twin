@@ -9,6 +9,13 @@
           "minimum": 0.1,
           "title": "Buffer M",
           "type": "number"
+        },
+        "match_radius_m": {
+          "default": 1.0,
+          "maximum": 5,
+          "minimum": 0.1,
+          "title": "Match Radius M",
+          "type": "number"
         }
       },
       "title": "AccuracyParams",

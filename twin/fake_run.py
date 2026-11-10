@@ -691,6 +691,9 @@ def _entry(
         "reference_layer": layer,
         "p50_m": None if p50 is None else round(p50, 3),
         "p95_m": None if p95 is None else round(p95, 3),
+        "matched_p50_m": None if p50 is None else round(p50, 3),
+        "matched_p95_m": None if p95 is None else round(p95, 3),
+        "false_positive_rate": None if p50 is None else 0.05,
         "coverage": None if cov is None else round(cov, 3),
         "n": n,
         "n_samples": 0 if reason else 4 * n,
@@ -738,6 +741,7 @@ def _accuracy(d: Path, c: _Ctx) -> dict:
     doc = {
         "method": "one-way",
         "buffer_m": Params().accuracy.buffer_m,
+        "match_radius_m": Params().accuracy.match_radius_m,
         "elements": elements,
         "marking_types": marking_types,
         "facilities": facilities,
