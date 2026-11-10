@@ -66,6 +66,9 @@ def _set(tree: dict, path: str, value) -> None:
 def build_variants(space: dict, base: dict) -> list[dict]:
     """Return [{overrides, params, from_stage}], deduplicated, none equal to base.
     Raises ValueError when a value falls outside the contract ranges or a path is unknown."""
+    base = Params.model_validate(base).model_dump(
+        mode="json"
+    )  # fill fields an old manifest lacks
     dims = space.get("params") or {}
     if not dims:
         raise ValueError("space has no params")

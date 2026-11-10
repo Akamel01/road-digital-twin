@@ -180,3 +180,12 @@ def test_scene_target_queues_full_runs(tmp_path):
         {"n": 2, "params": {"ground.ransac_dist_m": {"min": 0.02, "max": 0.2}}},
     )
     assert {j["type"] for j in jobqueue.list_jobs(tmp_path)} == {"run"}
+
+
+def test_old_manifest_params_do_not_force_load():
+    old = json.loads(json.dumps(BASE))
+    del old["mask"]["workers"]
+    out = build_variants(
+        {"mode": "grid", "params": {"features.min_points": {"values": [10]}}}, old
+    )
+    assert out[0]["from_stage"] == "features"
