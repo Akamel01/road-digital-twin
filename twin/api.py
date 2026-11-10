@@ -113,11 +113,7 @@ def create_app(store: Path, verifier: Verifier | None = None) -> FastAPI:
         verifier = verifier_from_env()
     app = FastAPI(title="twin control API")
     # TWIN_EXTRA_ORIGIN is a dev-only hook for a local web/ dev server (e.g. http://localhost:3000). Unset in production.
-    extra = [
-        o.strip()
-        for o in os.environ.get("TWIN_EXTRA_ORIGIN", "").split(",")
-        if o.strip()
-    ]
+    extra = [o.strip() for o in os.environ.get("TWIN_EXTRA_ORIGIN", "").split(",") if o.strip()]
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[ALLOWED_ORIGIN, *extra],
@@ -204,20 +200,14 @@ def create_app(store: Path, verifier: Verifier | None = None) -> FastAPI:
     @write.get("/signin")
     def signin(next_url: str = Query(..., alias="next")) -> RedirectResponse:
         # Open-redirect guard: only the panel origin (or a dev-only extra origin) may be the target.
-        if (
-            not next_url.startswith(next_prefixes)
-            or not next_url.isascii()
-            or not next_url.isprintable()
-        ):
+        if not next_url.startswith(next_prefixes) or not next_url.isascii() or not next_url.isprintable():
             raise HTTPException(400, "next must be on the panel origin")
         return RedirectResponse(next_url, status_code=302)
 
     @write.post("/runs", status_code=202)
     def new_run(body: NewRun) -> dict[str, str]:
         try:
-            run_id = start_run_async(
-                store, body.scene_token, body.pipeline, body.params
-            )
+            run_id = start_run_async(store, body.scene_token, body.pipeline, body.params)
         except ValueError as exc:
             raise _refusal(exc) from exc
         return {"run_id": run_id}
@@ -226,9 +216,7 @@ def create_app(store: Path, verifier: Verifier | None = None) -> FastAPI:
     def rerun_run(run_id: str, body: RerunBody) -> dict[str, str]:
         _known_run(store, run_id)
         try:
-            new_id = rerun_async(
-                store, run_id, body.from_stage, body.pipeline, body.params
-            )
+            new_id = rerun_async(store, run_id, body.from_stage, body.pipeline, body.params)
         except ValueError as exc:
             raise _refusal(exc) from exc
         return {"run_id": new_id}
@@ -247,9 +235,7 @@ def serve_command(store: Path | None, host: str, port: int) -> int:
     import uvicorn
 
     store = store or default_store()
-    for run_id in recover_interrupted(
-        store
-    ):  # runs cut off by a restart: stage marked failed
+    for run_id in recover_interrupted(store):  # runs cut off by a restart: stage marked failed
         logging.getLogger("twin.api").warning("run %s: %s", run_id, INTERRUPTED)
     uvicorn.run(create_app(store), host=host, port=port)
     return 0

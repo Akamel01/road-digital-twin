@@ -33,7 +33,6 @@ from twin.registry import register
 
 CRS_EPSG = 32619
 # DECISION: dataset version is fixed to v1.0-mini, matching the manifest default (contracts ManifestData).
-# Default version; the area merge sets NUSCENES_VERSION=v1.0-trainval (area files record the dataset version).
 VERSION = "v1.0-mini"
 LOCATION = "boston-seaport"
 # DECISION: nuScenes reads data from NUSCENES_ROOT, default /data/nuscenes (as tests/itest does).
@@ -537,20 +536,12 @@ class DevkitSource:
         from nuscenes.nuscenes import NuScenes
 
         self.root = dataroot
-        self.nusc = NuScenes(
-            os.environ.get("NUSCENES_VERSION", VERSION),
-            dataroot=dataroot,
-            verbose=False,
-        )
+        self.nusc = NuScenes(os.environ.get("NUSCENES_VERSION", VERSION), dataroot=dataroot, verbose=False)
         self._map: Any = None
         # sample_data token -> .bin path; empty when lidarseg is not installed.
         # DECISION: lidarseg.json sits in the version tables folder; the .bin paths in it are relative to the dataroot.
         self._seg: dict[str, str] = {}
-        table = (
-            Path(dataroot)
-            / os.environ.get("NUSCENES_VERSION", VERSION)
-            / "lidarseg.json"
-        )
+        table = Path(dataroot) / os.environ.get("NUSCENES_VERSION", VERSION) / "lidarseg.json"
         if table.is_file():
             self._seg = {
                 r["sample_data_token"]: os.path.join(dataroot, r["filename"])

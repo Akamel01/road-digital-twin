@@ -59,9 +59,7 @@ def footprint(
 GPU_BYTES_PER_POINT = 400
 
 
-def _to_gpu(
-    points: np.ndarray, nonground: np.ndarray, params: ColourParams
-) -> tuple[Any, Any, Any] | None:
+def _to_gpu(points: np.ndarray, nonground: np.ndarray, params: ColourParams) -> tuple[Any, Any, Any] | None:
     """(cupy, points, nonground) on the GPU, or None to use the CPU.
 
     The GPU is shared with other services (ADR 0005), so a GPU is used only when device is auto, cupy imports
@@ -76,11 +74,7 @@ def _to_gpu(
         if free < GPU_BYTES_PER_POINT * (len(points) + len(nonground)):
             return None
         return cp, cp.asarray(points), cp.asarray(nonground)
-    except (
-        ImportError,
-        RuntimeError,
-        MemoryError,
-    ):  # no cupy, no CUDA device, or out of memory
+    except (ImportError, RuntimeError, MemoryError):  # no cupy, no CUDA device, or out of memory
         return None
 
 
@@ -109,32 +103,14 @@ def colour_points(
             cp, g_points, g_nonground = gpu
             try:
                 vis = cp.asnumpy(
-                    zbuffer.visible(
-                        g_points,
-                        g_nonground,
-                        boxes,
-                        cam_to_world,
-                        K,
-                        (w, h),
-                        params,
-                        cp,
-                    )
+                    zbuffer.visible(g_points, g_nonground, boxes, cam_to_world, K, (w, h), params, cp)
                 )
-            except (
-                RuntimeError,
-                MemoryError,
-            ) as exc:  # out of memory or another CUDA error: CPU from here on
-                log.warning(
-                    "colour: GPU failed (%s: %s), continuing on the CPU",
-                    type(exc).__name__,
-                    exc,
-                )
+            except (RuntimeError, MemoryError) as exc:  # out of memory or another CUDA error: CPU from here on
+                log.warning("colour: GPU failed (%s: %s), continuing on the CPU", type(exc).__name__, exc)
                 gpu = None
                 cp.get_default_memory_pool().free_all_blocks()
         if vis is None:
-            vis = zbuffer.visible(
-                points, nonground, boxes, cam_to_world, K, (w, h), params
-            )
+            vis = zbuffer.visible(points, nonground, boxes, cam_to_world, K, (w, h), params)
         idx = np.flatnonzero(vis)
         if idx.size == 0:
             continue
@@ -153,9 +129,7 @@ def colour_points(
     if stats is not None:
         stats["device"] = "cpu" if gpu is None else "gpu"
     if gpu is not None:
-        gpu[
-            0
-        ].get_default_memory_pool().free_all_blocks()  # hand the memory back to the other GPU users
+        gpu[0].get_default_memory_pool().free_all_blocks()  # hand the memory back to the other GPU users
     kept = np.isfinite(best_fp)
     observed = kept.any(axis=1)
     n_views = kept.sum(axis=1)
@@ -244,9 +218,7 @@ EDGE_MAX_WIDTH_M = 1.0
 EDGE_MIN_SAMPLES = 4
 
 
-def _cross_section_offset(
-    lum: np.ndarray, ok: np.ndarray, s: np.ndarray
-) -> float | None:
+def _cross_section_offset(lum: np.ndarray, ok: np.ndarray, s: np.ndarray) -> float | None:
     """Signed centre (m) of the painted stripe nearest the lidar line, from one cross-section.
 
     lum, ok and s run along the normal: lum the luminance of each sample, ok whether it is an observed pixel,
@@ -293,9 +265,7 @@ def marking_offsets(
     lum = rgba[..., :3].astype(float).mean(axis=2)
     observed = rgba[..., 3] > 0
     n_side = int(np.ceil(EDGE_SEARCH_M / cell_m))
-    s_grid = (
-        np.arange(-n_side, n_side) + 0.5
-    ) * cell_m  # pixel-centre offsets, so each sample is one pixel
+    s_grid = (np.arange(-n_side, n_side) + 0.5) * cell_m  # pixel-centre offsets, so each sample is one pixel
     out: dict[str, np.ndarray] = {}
     for feat in markings:
         props = feat["properties"]
@@ -315,10 +285,7 @@ def marking_offsets(
                 xy = a + t * u + s_grid[:, None] * normal
                 j = np.floor((xy[:, 1] - origin[1]) / cell_m).astype(np.int64)
                 i = np.floor((xy[:, 0] - origin[0]) / cell_m).astype(np.int64)
-                row, col = (
-                    ny - 1 - j,
-                    i,
-                )  # ortho_raster flips rows so that row 0 is north
+                row, col = ny - 1 - j, i  # ortho_raster flips rows so that row 0 is north
                 inside = (row >= 0) & (row < ny) & (col >= 0) & (col < nx)
                 row, col = np.clip(row, 0, ny - 1), np.clip(col, 0, nx - 1)
                 ok = inside & observed[row, col]
@@ -370,9 +337,7 @@ def run(ctx: Any, params: ColourParams) -> StageResult:
             yield c2w, K, img, boxes_at(sweep_boxes, t)
 
     stats: dict = {}
-    rgb, observed, n_views = colour_points(
-        points, nonground_xyz, views(), params, stats
-    )
+    rgb, observed, n_views = colour_points(points, nonground_xyz, views(), params, stats)
 
     height_valid = bool(ground_qa["height_valid"])
     ortho, origin = ortho_raster(

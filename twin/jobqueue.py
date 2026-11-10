@@ -55,13 +55,7 @@ def validate(job: dict) -> None:
     kind = job.get("type")
     if kind not in JOB_TYPES:
         raise ValueError(f"job type must be one of {JOB_TYPES}, got {kind!r}")
-    need = {
-        "run": "scene",
-        "rerun": "run_id",
-        "eval": "run_id",
-        "publish": "run_id",
-        "prgate": "pr",
-    }[kind]
+    need = {"run": "scene", "rerun": "run_id", "eval": "run_id", "publish": "run_id", "prgate": "pr"}[kind]
     if not job.get(need):
         raise ValueError(f"{kind} job needs {need!r}")
     if kind == "rerun" and not job.get("from_stage"):
@@ -208,9 +202,7 @@ def execute(store: Path, job: dict) -> dict:
         from twin.site import SiteStop, publish_run
 
         try:
-            out["publish_result"] = publish_run(
-                store, run_id, job.get("dry_run", False)
-            )
+            out["publish_result"] = publish_run(store, run_id, job.get("dry_run", False))
         except SiteStop as exc:
             raise RuntimeError(str(exc)) from exc
     return out

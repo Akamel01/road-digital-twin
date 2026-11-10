@@ -110,9 +110,7 @@ def build_parser() -> argparse.ArgumentParser:
     define.add_argument(
         "--store", type=Path, help="run store (default: $TWIN_RUNS or /data/twin-runs)"
     )
-    merge = area.add_parser(
-        "merge", help="register the drives of an area into one cloud"
-    )
+    merge = area.add_parser("merge", help="register the drives of an area into one cloud")
     merge.add_argument("name")
     merge.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
     ev = sub.add_parser("eval", help="go/no-go report for a run against the gates")
@@ -142,13 +140,8 @@ def build_parser() -> argparse.ArgumentParser:
     queue.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
     worker = sub.add_parser("worker", help="process queued jobs, one at a time")
     worker.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
-    worker.add_argument(
-        "--jobs", type=int, default=0, help="stop after N jobs (0: run on)"
-    )
+    worker.add_argument("--jobs", type=int, default=0, help="stop after N jobs (0: run on)")
     worker.add_argument("--poll", type=float, default=30, help="seconds between checks")
-    pg = sub.add_parser(
-        "prgate", help="gate method PRs: poll the open ones, or run one"
-    )
     sweep = sub.add_parser("sweep", help="queue a parameter sweep, or rank a finished one")
     sweep.add_argument("target", nargs="?", help="base run id, or scene token")
     sweep.add_argument("--space", type=Path, help="search space yaml")

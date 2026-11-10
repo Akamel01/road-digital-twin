@@ -92,11 +92,7 @@ def camera_to_world(
 
 
 def box_blockers(
-    boxes: list[dict],
-    cam_to_world: np.ndarray,
-    K: np.ndarray,
-    params: ColourParams,
-    xp: Any = np,
+    boxes: list[dict], cam_to_world: np.ndarray, K: np.ndarray, params: ColourParams, xp: Any = np
 ) -> np.ndarray:
     """Box face samples for one camera, spaced one depth-buffer cell apart at each box's nearest distance.
 
@@ -216,9 +212,7 @@ def visible(
     return t_ok & depth_ok & in_range
 
 
-def _cell(
-    uv: np.ndarray, scale: float, buf_w: int, buf_h: int, xp: Any = np
-) -> np.ndarray:
+def _cell(uv: np.ndarray, scale: float, buf_w: int, buf_h: int, xp: Any = np) -> np.ndarray:
     col = xp.clip(xp.floor(uv[:, 0] * scale).astype(xp.int64), 0, buf_w - 1)
     row = xp.clip(xp.floor(uv[:, 1] * scale).astype(xp.int64), 0, buf_h - 1)
     return row * buf_w + col
