@@ -52,7 +52,7 @@ def open_prs(repo: str = REPO, gh=gh) -> list[dict]:
     ]
 
 
-def poll(store: Path, repo: str = REPO, dry_run: bool = False, gh=gh) -> list[str]:
+def poll(store: Path, repo: str = REPO, dry_run: bool = False, gh=gh, extra: dict | None = None) -> list[str]:
     """Queue a prgate job for every method PR whose head has no job yet. Other open PRs get
     a success status `twin-gates` (n/a), so the check can be required on main. Returns lines."""
     seen = {
@@ -70,7 +70,7 @@ def poll(store: Path, repo: str = REPO, dry_run: bool = False, gh=gh) -> list[st
         if dry_run:
             lines.append(f"would queue PR #{p['pr']} {p['sha'][:7]}")
             continue
-        job = {"type": "prgate", "pr": p["pr"], "sha": p["sha"], "repo": repo}
+        job = {"type": "prgate", "pr": p["pr"], "sha": p["sha"], "repo": repo, **(extra or {})}
         lines.append(f"queued {jobqueue.add(store, job)} PR #{p['pr']} {p['sha'][:7]}")
     return lines
 

@@ -165,6 +165,11 @@ def build_parser() -> argparse.ArgumentParser:
     pg.add_argument("--root", type=Path, default=Path.home() / "rdt-prgate")
     pg.add_argument("--dry-run", action="store_true", help="post nothing, print it")
     pg.add_argument("--store", type=Path, help="main run store (baseline, queue)")
+    ap = sub.add_parser("autopilot", help="keep the queue full: PR gates, area rebuild, sweeps, prefetch")
+    ap.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
+    ap.add_argument("--poll", type=float, default=60, help="seconds between checks")
+    ap.add_argument("--once", action="store_true", help="one pass, then exit")
+    ap.add_argument("--skip", action="append", default=[], metavar="P2|P3|P4", help="leave a source off")
     serve = sub.add_parser("serve", help="run the control API")
     serve.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
     serve.add_argument("--host", default="127.0.0.1")
@@ -250,6 +255,10 @@ def main(argv: list[str] | None = None) -> int:
         from twin.prgate import prgate_command
 
         return prgate_command(args)
+    if args.command == "autopilot":
+        from twin.autopilot import autopilot_command
+
+        return autopilot_command(args.store, args.poll, args.once, tuple(args.skip))
     if args.command == "serve":
         from twin.api import serve_command
 

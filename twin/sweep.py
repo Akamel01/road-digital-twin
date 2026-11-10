@@ -120,7 +120,7 @@ def earliest_stage(base: dict, params: dict) -> str:
     return min(stages, key=STAGE_NAMES.index)
 
 
-def queue_sweep(store: Path, target: str, space: dict) -> str:
+def queue_sweep(store: Path, target: str, space: dict, extra: dict | None = None) -> str:
     """Queue one job per variant and write sweeps/<id>/sweep.json. Returns the sweep id."""
     is_run = re.fullmatch(RUN_ID_RE, target) is not None
     if is_run:
@@ -148,6 +148,7 @@ def queue_sweep(store: Path, target: str, space: dict) -> str:
                 "eval": True,
                 "sweep": sweep_id,
                 "variant": n,
+                **(extra or {}),
             },
         )
         del var["params"]  # the job and the run manifest hold the full params
