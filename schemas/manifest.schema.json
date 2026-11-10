@@ -91,6 +91,48 @@
       "title": "ColourParams",
       "type": "object"
     },
+    "CrosswalksParams": {
+      "additionalProperties": false,
+      "properties": {
+        "gap_max_m": {
+          "default": 1.0,
+          "maximum": 3,
+          "minimum": 0.3,
+          "title": "Gap Max M",
+          "type": "number"
+        },
+        "gap_min_m": {
+          "default": 0.3,
+          "maximum": 1,
+          "minimum": 0.05,
+          "title": "Gap Min M",
+          "type": "number"
+        },
+        "length_ratio_min": {
+          "default": 0.7,
+          "maximum": 1,
+          "minimum": 0.3,
+          "title": "Length Ratio Min",
+          "type": "number"
+        },
+        "min_stripes": {
+          "default": 3,
+          "maximum": 10,
+          "minimum": 2,
+          "title": "Min Stripes",
+          "type": "integer"
+        },
+        "parallel_tol_deg": {
+          "default": 10.0,
+          "maximum": 30,
+          "minimum": 2,
+          "title": "Parallel Tol Deg",
+          "type": "number"
+        }
+      },
+      "title": "CrosswalksParams",
+      "type": "object"
+    },
     "CurbsParams": {
       "additionalProperties": false,
       "properties": {
@@ -182,6 +224,9 @@
           "minimum": 0.05,
           "title": "Cluster Eps M",
           "type": "number"
+        },
+        "crosswalks": {
+          "$ref": "#/$defs/CrosswalksParams"
         },
         "curbs": {
           "$ref": "#/$defs/CurbsParams"

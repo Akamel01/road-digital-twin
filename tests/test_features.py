@@ -580,3 +580,85 @@ def test_steep_ramp_is_not_a_curb(tmp_path):
     assert qa["n_curb_candidates"] > 0
     assert qa["n_curb_rejected_step"] == qa["n_curb_candidates"]
     assert qa["n_curbs"] == 0
+
+
+def _stripe(cx, cy, length=4.0, width=0.5, angle_deg=90.0):
+    """Paint stripe centred on (cx, cy), long axis at angle_deg from x, sampled at 0.1 m."""
+    a = np.radians(angle_deg)
+    u, n = np.array([np.cos(a), np.sin(a)]), np.array([-np.sin(a), np.cos(a)])
+    gl, gw = np.meshgrid(
+        np.arange(-length / 2, length / 2, 0.1), np.arange(-width / 2, width / 2, 0.1)
+    )
+    xy = np.array([cx, cy]) + gl.reshape(-1, 1) * u + gw.reshape(-1, 1) * n
+    return np.column_stack([xy, np.zeros(len(xy)), np.full(len(xy), STRIPE)])
+
+
+def _crosswalks(tmp_path, stripes):
+    _, crosswalks, out = _run(tmp_path, _ground_with(np.random.default_rng(0), stripes))
+    return crosswalks, out
+
+
+def test_regular_stripes_report_count_spacing_and_orientation(tmp_path):
+    crosswalks, _ = _crosswalks(tmp_path, [_stripe(20 + 1.0 * k, 0) for k in range(5)])
+
+    assert len(crosswalks) == 1
+    p = crosswalks[0]["properties"]
+    assert p["stripes"] == 5
+    assert abs(p["spacing_m"] - 1.0) < 0.05
+    assert abs(p["orientation_deg"] - 90) < 2
+    assert abs(p["stripe_length_m"] - 4.0) < 0.3
+
+
+def test_two_runs_across_a_wide_gap_stay_two_crosswalks(tmp_path):
+    """Two crossings 3 m apart (more than the 1 m gap rule): one crosswalk each, never one blob."""
+    left = [_stripe(20 + 1.0 * k, 0) for k in range(4)]
+    right = [_stripe(27 + 1.0 * k, 0) for k in range(4)]
+    crosswalks, _ = _crosswalks(tmp_path, left + right)
+
+    assert [c["properties"]["stripes"] for c in crosswalks] == [4, 4]
+
+
+def test_gap_in_the_middle_splits_the_run(tmp_path):
+    stripes = [_stripe(20 + x, 0) for x in (0, 1, 2, 5, 6, 7)]
+    crosswalks, _ = _crosswalks(tmp_path, stripes)
+
+    assert sorted(c["properties"]["stripes"] for c in crosswalks) == [3, 3]
+
+
+def test_irregular_spacing_is_no_crosswalk(tmp_path):
+    """Stripes 2.5 m apart edge to edge are lane-width apart, not a crosswalk."""
+    crosswalks, _ = _crosswalks(tmp_path, [_stripe(20 + 3.0 * k, 0) for k in range(5)])
+
+    assert crosswalks == []
+
+
+def test_too_few_stripes_is_no_crosswalk(tmp_path):
+    crosswalks, _ = _crosswalks(tmp_path, [_stripe(20, 0), _stripe(21, 0)])
+
+    assert crosswalks == []
+
+
+def test_fanned_stripes_are_not_parallel(tmp_path):
+    """Stripes 25 degrees apart, one metre away: not parallel within the tolerance."""
+    stripes = [_stripe(20 + k, 0, angle_deg=90 + 25 * k) for k in range(4)]
+    crosswalks, _ = _crosswalks(tmp_path, stripes)
+
+    assert crosswalks == []
+
+
+def test_stripes_of_different_length_are_not_one_crosswalk(tmp_path):
+    stripes = [
+        _stripe(20, 0, length=4),
+        _stripe(21, 0, length=2),
+        _stripe(22, 0, length=4),
+    ]
+    crosswalks, _ = _crosswalks(tmp_path, stripes)
+
+    assert crosswalks == []
+
+
+def test_stripes_in_a_row_along_their_axis_are_not_a_crosswalk(tmp_path):
+    """Dashes of one lane line (end to end) do not stand side by side."""
+    crosswalks, _ = _crosswalks(tmp_path, [_stripe(20, 5 * k) for k in range(4)])
+
+    assert crosswalks == []
