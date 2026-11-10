@@ -139,6 +139,11 @@ def build_parser() -> argparse.ArgumentParser:
     worker.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
     worker.add_argument("--jobs", type=int, default=0, help="stop after N jobs (0: run on)")
     worker.add_argument("--poll", type=float, default=30, help="seconds between checks")
+    sweep = sub.add_parser("sweep", help="queue a parameter sweep, or rank a finished one")
+    sweep.add_argument("target", nargs="?", help="base run id, or scene token")
+    sweep.add_argument("--space", type=Path, help="search space yaml")
+    sweep.add_argument("--report", metavar="SWEEP_ID", help="write the leaderboard")
+    sweep.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
     pg = sub.add_parser("prgate", help="gate method PRs: poll the open ones, or run one")
     pg.add_argument("action", choices=("poll", "run"))
     pg.add_argument("pr", nargs="?", type=int, help="PR number (for run)")
@@ -212,6 +217,10 @@ def main(argv: list[str] | None = None) -> int:
         from twin.jobqueue import worker_command
 
         return worker_command(args.store, args.jobs, args.poll)
+    if args.command == "sweep":
+        from twin.sweep import sweep_command
+
+        return sweep_command(args.target, args.space, args.report, args.store)
     if args.command == "prgate":
         from twin.prgate import prgate_command
 
