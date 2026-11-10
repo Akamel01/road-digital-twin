@@ -44,7 +44,17 @@ OSM_CACHE_DEFAULT = "/data/osm"
 MAP_ORIGIN_LATLON = (42.336849169438615, -71.05785369873047)
 EXTENT_MARGIN_M = 60.0
 # DECISION: the four map layers the accuracy stage reads (spec section 6, Accuracy).
-MAP_LAYERS = ("drivable_area", "ped_crossing", "lane_divider", "road_divider")
+# stop_line is the reference for stop-line markings (features types each marking, accuracy scores it per type).
+MAP_LAYERS = (
+    "drivable_area",
+    "ped_crossing",
+    "lane_divider",
+    "road_divider",
+    "stop_line",
+)
+# nuScenes-lidarseg exists for keyframe LIDAR_TOP sweeps only. Every other sweep carries this sentinel.
+LIDARSEG_NONE = 255
+DRIVEABLE_CATEGORY = "flat.driveable_surface"
 BOX_PREFIXES = (
     "vehicle.",
     "human.",
@@ -59,6 +69,7 @@ OUTPUT_FILES = (
     "reference.geojson",
     "facilities.geojson",
     "cameras.json",
+    "lidarseg.json",
 )
 
 
@@ -365,6 +376,12 @@ class LoadedScene:
     z: np.ndarray
     intensity: np.ndarray
     sweep: np.ndarray
+    lidarseg: (
+        np.ndarray
+    )  # per point: lidarseg class index, LIDARSEG_NONE where the sweep has no labels
+    driveable_index: (
+        int | None
+    )  # lidarseg index of flat.driveable_surface, None without lidarseg
     sweeps: list[dict]  # per sweep: index, token, timestamp_us, matrix (run CRS)
     boxes: list[list[dict]]  # per sweep, run CRS
     cameras: list[dict]
@@ -384,6 +401,12 @@ def _load_sweep(i: int) -> tuple:
     pts = np.asarray(source.sweep_points(rec), dtype=float)
     g = sweep_to_global(pts[:, :3], rec["calibrated_sensor"], rec["ego_pose"])
     xu, yu = tr.transform(g[:, 0], g[:, 1])
+    seg_fn = getattr(source, "sweep_labels", None)
+    lab = seg_fn(rec) if seg_fn else None
+    if lab is None:
+        lab = np.full(len(pts), LIDARSEG_NONE, dtype=np.uint8)
+    elif len(lab) != len(pts):
+        raise ValueError(f"sweep {i}: {len(lab)} lidarseg labels for {len(pts)} points")
     m = sweep_matrix(rec)
     info = {
         "sweep": i,
@@ -399,6 +422,7 @@ def _load_sweep(i: int) -> tuple:
         np.full(len(pts), i, dtype=np.uint16),
         info,
         m[:2, 3],
+        np.asarray(lab, dtype=np.uint8),
     )
 
 
@@ -414,7 +438,7 @@ def assemble(
         done = pmap(_load_sweep, range(len(recs)), workers)
     finally:
         _SWEEP_JOB = None
-    xs, ys, zs, ints, sws, sweeps, egos = ([d[k] for d in done] for k in range(7))
+    xs, ys, zs, ints, sws, sweeps, egos, segs = ([d[k] for d in done] for k in range(8))
 
     ego_xy = np.asarray(egos)
     lo, hi = ego_xy.min(axis=0), ego_xy.max(axis=0)
@@ -441,6 +465,8 @@ def assemble(
         z=np.concatenate(zs) if zs else np.zeros(0),
         intensity=np.concatenate(ints) if ints else np.zeros(0, np.float32),
         sweep=np.concatenate(sws) if sws else np.zeros(0, np.uint16),
+        lidarseg=np.concatenate(segs) if segs else np.zeros(0, np.uint8),
+        driveable_index=getattr(source, "driveable_index", lambda: None)(),
         sweeps=sweeps,
         boxes=boxes,
         cameras=source.cameras(scene_token),
@@ -467,6 +493,17 @@ def write_outputs(out: Path, scene: LoadedScene, names: list[str]) -> None:
         z=scene.z.astype(np.float64),
         intensity=scene.intensity.astype(np.float32),
         sweep=scene.sweep.astype(np.uint16),
+        # DECISION: lidarseg label per point (uint8), 255 where the sweep is not a keyframe; mask keeps its own fields, features joins this file by position.
+        lidarseg=scene.lidarseg.astype(np.uint8),
+    )
+    (out / "lidarseg.json").write_text(
+        json.dumps(
+            {
+                "driveable_index": scene.driveable_index,
+                "sentinel": LIDARSEG_NONE,
+                "n_labelled": int((scene.lidarseg != LIDARSEG_NONE).sum()),
+            }
+        )
     )
     (out / "poses.json").write_text(
         json.dumps({"crs": f"EPSG:{CRS_EPSG}", "poses": scene.sweeps})
@@ -501,6 +538,28 @@ class DevkitSource:
         self.root = dataroot
         self.nusc = NuScenes(VERSION, dataroot=dataroot, verbose=False)
         self._map: Any = None
+        # sample_data token -> .bin path; empty when lidarseg is not installed.
+        # DECISION: lidarseg.json sits in the version tables folder; the .bin paths in it are relative to the dataroot.
+        self._seg: dict[str, str] = {}
+        table = Path(dataroot) / VERSION / "lidarseg.json"
+        if table.is_file():
+            self._seg = {
+                r["sample_data_token"]: os.path.join(dataroot, r["filename"])
+                for r in json.loads(table.read_text())
+            }
+
+    def driveable_index(self) -> int | None:
+        for c in self.nusc.category:
+            if c["name"] == DRIVEABLE_CATEGORY:
+                return int(c["index"])
+        return None
+
+    def sweep_labels(self, rec: dict) -> np.ndarray | None:
+        """uint8 lidarseg label per point of a keyframe sweep, or None for any other sweep."""
+        path = self._seg.get(rec["token"])
+        if path is None or not os.path.isfile(path):
+            return None
+        return np.fromfile(path, dtype=np.uint8)
 
     def _map_api(self) -> Any:
         if self._map is None:
@@ -612,6 +671,10 @@ class DevkitSource:
         for tok in recs["drivable_area"]:
             for poly_tok in nm.get("drivable_area", tok)["polygon_tokens"]:
                 out.append(("drivable_area", poly_tok, nm.extract_polygon(poly_tok)))
+        for tok in recs["stop_line"]:
+            poly_tok = nm.get("stop_line", tok).get("polygon_token")
+            if poly_tok:
+                out.append(("stop_line", tok, nm.extract_polygon(poly_tok)))
         for tok in recs["ped_crossing"]:
             poly_tok = nm.get("ped_crossing", tok)["polygon_token"]
             out.append(("ped_crossing", tok, nm.extract_polygon(poly_tok)))
@@ -667,6 +730,7 @@ def run(ctx: Any, params: Any) -> StageResult:
         metrics={
             "n_sweeps": len(scene.sweeps),
             "n_points": len(scene.x),
+            "n_lidarseg_labelled": int((scene.lidarseg != LIDARSEG_NONE).sum()),
             "n_facilities": len(scene.facilities),
             "osm_names": osm,
         },

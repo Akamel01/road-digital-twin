@@ -419,3 +419,27 @@ def test_assemble_same_for_any_worker_count():
     for k in ("x", "y", "z", "intensity", "sweep"):
         assert getattr(a, k).tobytes() == getattr(b, k).tobytes()
     assert a.sweeps == b.sweeps and a.boxes == b.boxes
+
+
+class SegSource(FakeSource):
+    """Lidarseg labels on sweep 0 only (a keyframe); the other sweeps have none."""
+
+    def sweep_labels(self, rec):
+        return np.array([24, 17], np.uint8) if rec["token"] == "sd0" else None
+
+    def driveable_index(self):
+        return 24
+
+
+def test_lidarseg_label_on_keyframes_and_sentinel_elsewhere(tmp_path):
+    sc = assemble(SegSource(), "scene-0", TR)
+    assert sc.lidarseg.tolist() == [24, 17, 255, 255, 255, 255]
+    write_outputs(tmp_path, sc, [])
+    with np.load(tmp_path / "points.npz") as f:
+        assert f["lidarseg"].dtype == np.uint8
+    meta = json.loads((tmp_path / "lidarseg.json").read_text())
+    assert meta == {"driveable_index": 24, "sentinel": 255, "n_labelled": 2}
+
+
+def test_no_lidarseg_source_gives_all_sentinel(scene):
+    assert (scene.lidarseg == 255).all() and scene.driveable_index is None
