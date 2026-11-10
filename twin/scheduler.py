@@ -263,7 +263,7 @@ class Scheduler:
 
     def _start(self, t: Task) -> None:
         parent, child = self.ctx.Pipe(duplex=False)
-        proc = self.ctx.Process(target=_child, args=(child, t.fn, t.args, t.cost.gpu), daemon=True)
+        proc = self.ctx.Process(target=_child, args=(child, t.fn, t.args, t.cost.gpu))
         proc.start()
         child.close()
         t.job.busy = True

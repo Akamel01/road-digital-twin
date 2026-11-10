@@ -7,6 +7,7 @@ import pytest
 
 from twin import jobqueue, registry, runner, scheduler
 from twin.contracts import STAGE_NAMES, STAGES, ManifestStage, Pipeline, StageResult
+from twin.parallel import pmap
 
 
 @pytest.fixture
@@ -28,6 +29,7 @@ def stubs(monkeypatch):
                 if name == "ground" and os.environ.get("TWIN_DIE") == ctx.scene_token:
                     os._exit(9)
                 time.sleep(sleep)
+                assert pmap(abs, [-1, -2, -3], 2) == [1, 2, 3]  # a task may fork a pool
                 data = hashlib.sha256(f"{ctx.scene_token}{name}".encode()).hexdigest()
                 (ctx.stage_dir(name) / "out.txt").write_text(data)
                 with log.open("a") as f:
