@@ -92,13 +92,14 @@ def camera_to_world(
 
 
 def box_blockers(
-    boxes: list[dict], cam_to_world: np.ndarray, K: np.ndarray, params: ColourParams
+    boxes: list[dict], cam_to_world: np.ndarray, K: np.ndarray, params: ColourParams, xp: Any = np
 ) -> np.ndarray:
     """Box face samples for one camera, spaced one depth-buffer cell apart at each box's nearest distance.
 
     A fixed spacing leaves see-through gaps up close: at 5 m a 4 px cell is about 2.5 cm, so the
     samples must follow the depth. Nearest distance = centre distance minus half the box diagonal,
     floored at min_depth_m.
+    Up close this is millions of samples, so with xp=cupy they are built on the GPU.
     """
     cam = cam_to_world[:3, 3]
     fx = float(np.asarray(K)[0, 0])
@@ -107,11 +108,11 @@ def box_blockers(
         radius = np.linalg.norm(np.asarray(b["size"], dtype=float)) / 2
         dist = np.linalg.norm(np.asarray(b["center"], dtype=float) - cam) - radius
         step = max(dist, params.min_depth_m) / (fx * params.zbuf_scale)
-        out.append(box_samples([b], step))
-    return np.vstack(out) if out else np.empty((0, 3))
+        out.append(box_samples([b], step, xp))
+    return xp.vstack(out) if out else xp.empty((0, 3))
 
 
-def box_samples(boxes: list[dict], step_m: float) -> np.ndarray:
+def box_samples(boxes: list[dict], step_m: float, xp: Any = np) -> np.ndarray:
     """(M, 3) points on the six faces of each box (boxes.json format, run CRS), spaced step_m apart."""
     out = []
     for b in boxes:
@@ -121,19 +122,19 @@ def box_samples(boxes: list[dict], step_m: float) -> np.ndarray:
         centre = np.asarray(b["center"], dtype=float)
         for axis in range(3):
             a1, a2 = [a for a in range(3) if a != axis]
-            g1 = np.linspace(
+            g1 = xp.linspace(
                 -half[a1], half[a1], max(2, math.ceil(2 * half[a1] / step_m) + 1)
             )
-            g2 = np.linspace(
+            g2 = xp.linspace(
                 -half[a2], half[a2], max(2, math.ceil(2 * half[a2] / step_m) + 1)
             )
-            u, v = np.meshgrid(g1, g2)
+            u, v = xp.meshgrid(g1, g2)
             for sign in (-1.0, 1.0):
-                p = np.zeros((u.size, 3))
+                p = xp.zeros((u.size, 3))
                 p[:, a1], p[:, a2] = u.ravel(), v.ravel()
                 p[:, axis] = sign * half[axis]
-                out.append(p @ rot.T + centre)
-    return np.vstack(out) if out else np.empty((0, 3))
+                out.append(p @ xp.asarray(rot.T) + xp.asarray(centre))
+    return xp.vstack(out) if out else xp.empty((0, 3))
 
 
 # ------------------------------------------------------------------ projection and visibility
@@ -179,7 +180,7 @@ def visible(
     """
     width, height = image_size
     s = params.zbuf_scale
-    blockers = xp.vstack([nonground, xp.asarray(box_blockers(boxes, cam_to_world, K, params))])
+    blockers = xp.vstack([nonground, box_blockers(boxes, cam_to_world, K, params, xp)])
 
     def in_image(uv: np.ndarray, depth: np.ndarray) -> np.ndarray:
         with np.errstate(invalid="ignore"):
