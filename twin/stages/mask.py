@@ -18,6 +18,8 @@ from twin.registry import register
 from twin.stages.load import quat_to_matrix
 
 POINT_FIELDS = ("x", "y", "z", "intensity", "sweep")
+# DECISION: lidarseg labels travel with the points when load wrote them, so align can pick ground by label (issue 177).
+OPTIONAL_FIELDS = ("lidarseg",)
 OUTPUT_FILES = ("points.npz", "parked.npz")
 
 
@@ -83,7 +85,7 @@ def run(ctx: Any, params: MaskParams) -> StageResult:
     out.mkdir(exist_ok=True)
 
     with np.load(src / "points.npz") as f:
-        fields = {k: f[k] for k in POINT_FIELDS}
+        fields = {k: f[k] for k in (*POINT_FIELDS, *OPTIONAL_FIELDS) if k in f.files}
     sweeps = json.loads((src / "boxes.json").read_text())["sweeps"]
     boxes_by_sweep = {int(s["sweep"]): s["boxes"] for s in sweeps}
 
