@@ -211,7 +211,11 @@ Notes:
 | `features.lidarseg_min_points` | 10 | 1–1000 |
 | `features.curbs.enabled` | true | bool |
 | `features.curbs.step_min_m` | 0.08 | 0.02–0.3 |
-| `features.curbs.step_max_m` | 0.25 | 0.1–0.5 |
+| `features.curbs.step_max_m` | 0.20 | 0.1–0.5 |
+| `features.curbs.road_side_m` | 1.5 | 0.5–5 |
+| `features.curbs.road_share_min` | 0.5 | 0–1 |
+| `features.curbs.road_labels_min` | 10 | 1–1000 |
+| `features.curbs.edge_max_angle_deg` | 20 | 5–45 |
 | `colour.gsd_m` | 0.05 | 0.02–0.5 |
 | `colour.zbuf_scale` | 0.25 | 0.1–1 |
 | `colour.zbuf_tol_m` | 0.2 | 0.05–1 |
@@ -333,6 +337,7 @@ If a scene fails the markings threshold, its runs report markings as "not extrac
 
 **Curbs (optional).**
 - Found as height steps between `step_min_m` and `step_max_m` at the edge of the ground surface, then chained into polylines.
+- A candidate is kept only if (issue #160): the step measured across the line (median height 0.25 to 0.75 m either side) is within `step_min_m` to `step_max_m`; the low side is road surface (lidarseg flat.driveable_surface within `road_side_m`); and it runs within `edge_max_angle_deg` of the nearest road edge. Without lidarseg labels only the step rule runs. QA reports the candidates and how many each rule rejects.
 - Curbs are scored against the `drivable_area` boundary, so they are labelled "map-conditioned".
 
 **ISD.** AASHTO Case B (stop control), in 3D against the twin's surface. Intersections: one line per leg. Access points: exit lines left and right.

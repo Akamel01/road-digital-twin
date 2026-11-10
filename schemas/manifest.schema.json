@@ -87,13 +87,41 @@
     "CurbsParams": {
       "additionalProperties": false,
       "properties": {
+        "edge_max_angle_deg": {
+          "default": 20.0,
+          "maximum": 45,
+          "minimum": 5,
+          "title": "Edge Max Angle Deg",
+          "type": "number"
+        },
         "enabled": {
           "default": true,
           "title": "Enabled",
           "type": "boolean"
         },
+        "road_labels_min": {
+          "default": 10,
+          "maximum": 1000,
+          "minimum": 1,
+          "title": "Road Labels Min",
+          "type": "integer"
+        },
+        "road_share_min": {
+          "default": 0.5,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Road Share Min",
+          "type": "number"
+        },
+        "road_side_m": {
+          "default": 1.5,
+          "maximum": 5,
+          "minimum": 0.5,
+          "title": "Road Side M",
+          "type": "number"
+        },
         "step_max_m": {
-          "default": 0.25,
+          "default": 0.2,
           "maximum": 0.5,
           "minimum": 0.1,
           "title": "Step Max M",
