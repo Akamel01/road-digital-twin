@@ -265,3 +265,26 @@ def test_g2_history_and_ratchet(tmp_path, capsys):
     assert "G2 ratchet due: lower to 0.1" in capsys.readouterr().out
     history = json.loads((tmp_path / "autopilot" / "g2_history.json").read_text())
     assert len(history) == 5 and history[-1]["status"] == "go"
+
+
+def test_latest_build_published_after_p2_and_p2b_and_failures_do_not_crash(tmp_path, monkeypatch):
+    monkeypatch.setattr(autopilot, "main_commit", lambda: None)
+    monkeypatch.setattr(autopilot, "_alive", lambda pid: False)
+    monkeypatch.setattr(autopilot, "_exit_code", lambda job: "1")  # a no-go eval
+    for hook in ("leave_one_drive_out", "rain_test", "record_g2"):
+        monkeypatch.setattr(autopilot, hook, lambda *a: 0)
+    calls = []
+
+    def fake(store, area, dry_run=False):
+        calls.append(area)
+        if len(calls) == 2:
+            raise autopilot.site.SiteStop("no token")
+        if len(calls) == 3:
+            raise RuntimeError("boom")
+        return "ok"
+
+    monkeypatch.setattr(autopilot.site, "publish_latest", fake)
+    autopilot.p2_area(tmp_path, {"p2": {"building": "a" * 40, "pid": 1}})
+    autopilot.p2_area(tmp_path, {"p2": {"built": "a" * 40}, "p2b": {"running": True, "gates": autopilot.gates_hash()}})
+    autopilot.p2_area(tmp_path, {"p2": {"building": "b" * 40, "pid": 1}})  # SiteStop, then RuntimeError: no raise
+    assert calls == ["seaport-merged"] * 3
