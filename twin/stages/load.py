@@ -28,6 +28,7 @@ from twin.contracts import FacilitiesParams, IsdParams, StageResult
 from twin.devkit_compat import nuscenes_map_class
 from twin.facilities import MapView, build_facilities, from_nuscenes_map
 from twin.osm_names import fetch_streets, name_facility, osm_names_meta
+from twin.parallel import pmap, savez_fast
 from twin.registry import register
 
 CRS_EPSG = 32619
@@ -391,38 +392,53 @@ class LoadedScene:
     # DECISION: facility defaults (IsdParams, FacilitiesParams) are used because load has no parameters (spec section 4).
 
 
-def assemble(source: Any, scene_token: str, tr: Transformer) -> LoadedScene:
+_SWEEP_JOB: tuple[Any, Transformer, list[dict]] | None = None  # read by forked workers
+
+
+def _load_sweep(i: int) -> tuple:
+    source, tr, recs = _SWEEP_JOB  # type: ignore[misc]
+    rec = recs[i]
+    pts = np.asarray(source.sweep_points(rec), dtype=float)
+    g = sweep_to_global(pts[:, :3], rec["calibrated_sensor"], rec["ego_pose"])
+    xu, yu = tr.transform(g[:, 0], g[:, 1])
+    seg_fn = getattr(source, "sweep_labels", None)
+    lab = seg_fn(rec) if seg_fn else None
+    if lab is None:
+        lab = np.full(len(pts), LIDARSEG_NONE, dtype=np.uint8)
+    elif len(lab) != len(pts):
+        raise ValueError(f"sweep {i}: {len(lab)} lidarseg labels for {len(pts)} points")
+    m = sweep_matrix(rec)
+    info = {
+        "sweep": i,
+        "token": rec["token"],
+        "timestamp_us": int(rec["timestamp"]),
+        "matrix": to_run_pose(m, tr).tolist(),
+    }
+    return (
+        np.asarray(xu, float),
+        np.asarray(yu, float),
+        g[:, 2],
+        pts[:, 3].astype(np.float32),
+        np.full(len(pts), i, dtype=np.uint16),
+        info,
+        m[:2, 3],
+        np.asarray(lab, dtype=np.uint8),
+    )
+
+
+def assemble(
+    source: Any, scene_token: str, tr: Transformer, workers: int | None = None
+) -> LoadedScene:
     """Everything the stage writes, built from `source` (the small interface in DevkitSource)."""
     recs = source.sweep_records(scene_token)
-    xs, ys, zs, ints, sws, sweeps, egos, segs = [], [], [], [], [], [], [], []
-    seg_fn = getattr(source, "sweep_labels", None)
-    for i, rec in enumerate(recs):
-        pts = np.asarray(source.sweep_points(rec), dtype=float)
-        g = sweep_to_global(pts[:, :3], rec["calibrated_sensor"], rec["ego_pose"])
-        xu, yu = tr.transform(g[:, 0], g[:, 1])
-        xs.append(np.asarray(xu, float))
-        ys.append(np.asarray(yu, float))
-        zs.append(g[:, 2])
-        ints.append(pts[:, 3].astype(np.float32))
-        sws.append(np.full(len(pts), i, dtype=np.uint16))
-        lab = seg_fn(rec) if seg_fn else None
-        if lab is None:
-            lab = np.full(len(pts), LIDARSEG_NONE, dtype=np.uint8)
-        elif len(lab) != len(pts):
-            raise ValueError(
-                f"sweep {i}: {len(lab)} lidarseg labels for {len(pts)} points"
-            )
-        segs.append(np.asarray(lab, dtype=np.uint8))
-        m = sweep_matrix(rec)
-        egos.append(m[:2, 3])
-        sweeps.append(
-            {
-                "sweep": i,
-                "token": rec["token"],
-                "timestamp_us": int(rec["timestamp"]),
-                "matrix": to_run_pose(m, tr).tolist(),
-            }
-        )
+    global _SWEEP_JOB
+    _SWEEP_JOB = (source, tr, recs)
+    try:
+        # Sweeps are independent; results come back in sweep order, so any worker count gives the same arrays.
+        done = pmap(_load_sweep, range(len(recs)), workers)
+    finally:
+        _SWEEP_JOB = None
+    xs, ys, zs, ints, sws, sweeps, egos, segs = ([d[k] for d in done] for k in range(8))
 
     ego_xy = np.asarray(egos)
     lo, hi = ego_xy.min(axis=0), ego_xy.max(axis=0)
@@ -469,7 +485,7 @@ def _fc(features: list[dict]) -> dict:
 
 
 def write_outputs(out: Path, scene: LoadedScene, names: list[str]) -> None:
-    np.savez_compressed(
+    savez_fast(
         out / "points.npz",
         # DECISION: x, y, z as float64 (UTM northings near 4.7e6 m lose metres in float32); sweep stored as uint16 (a 20 s scene has about 400 sweeps, more than uint8 holds).
         x=scene.x.astype(np.float64),  # float64: UTM northings near 4.7e6 m need it
@@ -668,8 +684,13 @@ class DevkitSource:
 
 
 def load_scene(dataroot: str, scene_token: str, params: Any = None) -> LoadedScene:
-    """Adapter entry point. `params` is unused: the load stage has no parameters in spec section 4."""
-    return assemble(DevkitSource(dataroot), scene_token, run_crs(MAP_ORIGIN_LATLON))
+    """Adapter entry point. `params` only supplies `workers` (None or absent: the default)."""
+    return assemble(
+        DevkitSource(dataroot),
+        scene_token,
+        run_crs(MAP_ORIGIN_LATLON),
+        getattr(params, "workers", None),
+    )
 
 
 # ------------------------------------------------------------------ stage

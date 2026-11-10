@@ -119,6 +119,20 @@
           "minimum": 0,
           "title": "Min Observed",
           "type": "number"
+        },
+        "workers": {
+          "anyOf": [
+            {
+              "maximum": 64,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workers"
         }
       },
       "title": "FacilitiesParams",
@@ -300,6 +314,20 @@
           "minimum": 0,
           "title": "Box Margin M",
           "type": "number"
+        },
+        "workers": {
+          "anyOf": [
+            {
+              "maximum": 64,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workers"
         }
       },
       "title": "MaskParams",
