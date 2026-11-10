@@ -13,9 +13,27 @@ GOOD = {
         "repeatability": {"markings_p95_m": 0.05, "curbs_p95_m": 0.1},
         "accuracy": {
             "elements": {
-                "markings": {"p95_m": 0.2, "p50_m": 0.1, "coverage": 0.8},
-                "crosswalks": {"p95_m": 0.4, "p50_m": 0.1, "coverage": 0.8},
-                "curbs": {"p95_m": 0.4, "p50_m": 0.1, "coverage": 0.8},
+                "markings": {
+                    "p95_m": 0.2,
+                    "matched_p95_m": 0.2,
+                    "false_positive_rate": 0.05,
+                    "p50_m": 0.1,
+                    "coverage": 0.8,
+                },
+                "crosswalks": {
+                    "p95_m": 0.4,
+                    "matched_p95_m": 0.4,
+                    "false_positive_rate": 0.05,
+                    "p50_m": 0.1,
+                    "coverage": 0.8,
+                },
+                "curbs": {
+                    "p95_m": 0.4,
+                    "matched_p95_m": 0.4,
+                    "false_positive_rate": 0.05,
+                    "p50_m": 0.1,
+                    "coverage": 0.8,
+                },
             }
         },
     },

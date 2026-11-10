@@ -14,9 +14,10 @@ Every threshold lives in one versioned gates file. Changing a threshold needs th
 | G2 | Cross-drive ground agreement after registration | P95 ≤ 0.05 m |
 | G3 | Ground height QA (`z_disagreement_p95_m`) | ≤ 0.10 m (existing) |
 | G4 | Leave-one-drive-out repeatability, P95 | markings ≤ 0.10 m, curbs ≤ 0.15 m |
-| G5 | Accuracy against the HD map, P95 | markings ≤ 0.30 m, crosswalks ≤ 0.50 m, curbs ≤ 0.50 m (map-conditioned); marking coverage ≥ 0.70 |
+| G5 | Accuracy against the HD map, matched precision (P95 of samples within the match radius) | markings ≤ 0.30 m, crosswalks ≤ 0.50 m, curbs ≤ 0.50 m (map-conditioned); false-positive rate ≤ 0.10 and coverage ≥ 0.70 per element |
 | G6 | Runtime | area run ≤ 30 min on the box |
 
+- **2026-11-09 (gates version 2):** G5 now means matched precision. Its P95 counts only samples within the match radius (1 m) of the reference. False positives and coverage are gated separately, so a missed or invented feature no longer hides in the P95 (#158, #159).
 - **Publish gate.** A twin is published only when every gate is go. A gate that can't be computed yet (for example G4 before #143) is reported "not measured". It does not count as go.
 - **Method-change gate.** A pull request that changes measurements is run on the study area and compared with the baseline run. It is a no-go when a gate fails, or when any metric gets worse by more than the noise tolerance (0.02 m on P50 and P95; spec, repeatability). A go still waits for the operator's line-by-line review. Gates do not merge method changes on their own.
 

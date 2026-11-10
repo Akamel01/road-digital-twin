@@ -209,6 +209,8 @@ class IsdParams(_Strict):
 
 class AccuracyParams(_Strict):
     buffer_m: float = Field(1.0, ge=0.1, le=5)
+    # Samples within this distance of the reference count as matched (precision); beyond it, false positives.
+    match_radius_m: float = Field(1.0, ge=0.1, le=5)
 
 
 class FacilitiesParams(_Strict):
