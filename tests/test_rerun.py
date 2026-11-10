@@ -70,7 +70,7 @@ def test_earlier_outputs_are_hard_links_and_parent_recorded(tmp_path, stubs):
 
     # stages from ground on re-ran, earlier ones did not
     assert all(calls[n] == 1 for n in ("load", "mask", "align"))
-    assert all(calls[n] == 2 for n in STAGE_NAMES[3:])
+    assert all(calls[n] == 2 for n in STAGE_NAMES[3:] if n != "semantics")  # off by default
 
     # the parent folder is only read
     assert _snapshot(parent_dir) == before

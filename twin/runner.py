@@ -44,6 +44,7 @@ DEFAULT_STORE = "/data/twin-runs"
 RUN_ID_RE = r"\d{8}-\d{6}-[0-9a-f]{6}"
 MIN_FREE_BYTES = 10 * 1024**3
 LOCK_FILE = ".run.lock"
+RUN_LOCK = ".lock"  # per-run lock, in the run folder: one task at a time per run
 CURRENT_FILE = ".current"
 CANCEL_FILE = ".cancel"
 LOCK_TIMEOUT = 0  # seconds to wait for the run lock; 0 refuses at once
@@ -60,6 +61,7 @@ STAGE_PARAMS: dict[str, str | None] = {
     "isd": "isd",
     "accuracy": "accuracy",
     "outputs": None,
+    "semantics": "semantics",
 }
 
 
@@ -275,9 +277,11 @@ def _begin(
         holder = current.read_text().strip() if current.is_file() else "unknown"
         raise RunBusy(f"another run is in progress ({holder})") from None
     try:
-        return _create_locked(
+        job = _create_locked(
             store, lock, scene_token, pipeline, params, parent_dir, parent, from_stage
         )
+        (store / CURRENT_FILE).write_text(job.manifest.run_id)
+        return job
     except BaseException:
         (store / CURRENT_FILE).unlink(missing_ok=True)
         lock.release()
@@ -286,7 +290,7 @@ def _begin(
 
 def _create_locked(
     store: Path,
-    lock: FileLock,
+    lock: FileLock | None,
     scene_token: str,
     pipeline: Pipeline,
     params: Params,
@@ -295,7 +299,6 @@ def _create_locked(
     from_stage: str | None,
 ) -> _Job:
     run_id, run_dir = _create_run_dir(store)
-    (store / CURRENT_FILE).write_text(run_id)
     (run_dir / "pipeline.yaml").write_text(
         yaml.safe_dump(pipeline.model_dump(mode="json"), sort_keys=False)
     )
@@ -372,76 +375,167 @@ def _osm_names(meta: dict | None) -> OsmNames | None:
 
 
 def _run_stages(job: _Job) -> None:
+    for index in range(len(STAGE_NAMES)):
+        if _run_step(job, index):
+            break
+
+
+def _run_step(job: _Job, index: int) -> bool:
+    """Run (or link, skip, cancel) stage `index` of a job and write the manifest.
+    Returns True when the run is over: a stage failed or the run was cancelled."""
     manifest, ctx = job.manifest, job.ctx
     pipeline, params, run_dir = job.pipeline, job.params, ctx.run_dir
     run_id = manifest.run_id
-    for index, name in enumerate(STAGE_NAMES):
-        stage = getattr(pipeline, name)
-        if (
-            index < job.keep
-        ):  # earlier stage of a re-run: linked from the parent, not run
-            _link_stage(job.parent_dir, run_dir, name)
-            manifest.stages.append(next(s for s in job.parent.stages if s.name == name))
-            if name in job.parent.metrics:
-                manifest.metrics[name] = job.parent.metrics[name]
-            _write_manifest(run_dir, manifest)
-            continue
-        cancel_file = run_dir / CANCEL_FILE
-        if (
-            cancel_file.exists()
-        ):  # cancelled between stages: this and later stages not run
-            cancelled_at = datetime.fromtimestamp(cancel_file.stat().st_mtime, UTC)
-            for rest in STAGE_NAMES[index:]:
-                manifest.stages.append(
-                    ManifestStage(
-                        name=rest,
-                        method=getattr(pipeline, rest).method,
-                        status="cancelled",
-                        started=cancelled_at,
-                        seconds=0,
-                        files=[],
-                    )
-                )
-            _write_manifest(run_dir, manifest)
-            break
-        started = datetime.now(UTC)
-        t0 = time.perf_counter()
-        if stage.enabled:
-            ctx.stage_dir(name).mkdir()
-            # Mark running first, so a restart mid-stage can fail it (recover_interrupted).
+    name = STAGE_NAMES[index]
+    stage = getattr(pipeline, name)
+    if index < job.keep:  # earlier stage of a re-run: linked from the parent, not run
+        _link_stage(job.parent_dir, run_dir, name)
+        manifest.stages.append(next(s for s in job.parent.stages if s.name == name))
+        if name in job.parent.metrics:
+            manifest.metrics[name] = job.parent.metrics[name]
+        _write_manifest(run_dir, manifest)
+        return False
+    cancel_file = run_dir / CANCEL_FILE
+    if cancel_file.exists():  # cancelled between stages: this and later stages not run
+        cancelled_at = datetime.fromtimestamp(cancel_file.stat().st_mtime, UTC)
+        for rest in STAGE_NAMES[index:]:
             manifest.stages.append(
-                ManifestStage(name=name, method=stage.method, status="running",
-                              started=started, seconds=0, files=[])
+                ManifestStage(
+                    name=rest,
+                    method=getattr(pipeline, rest).method,
+                    status="cancelled",
+                    started=cancelled_at,
+                    seconds=0,
+                    files=[],
+                )
             )
-            _write_manifest(run_dir, manifest)
-            manifest.stages.pop()
-            result = _run_stage(ctx, name, stage.method, params)
-        else:
-            result = StageResult(status="skipped", message="disabled in pipeline")
-        if result.status not in ("ok", "skipped"):
-            ctx.log.error(
-                "run %s stage %s %s: %s", run_id, name, result.status, result.message
-            )
-        if result.metrics:
-            manifest.metrics[name] = result.metrics
-        if name == "load":
-            manifest.data.osm_names = _osm_names(result.metrics.get("osm_names"))
+        _write_manifest(run_dir, manifest)
+        return True
+    started = datetime.now(UTC)
+    t0 = time.perf_counter()
+    if stage.enabled:
+        ctx.stage_dir(name).mkdir()
+        # Mark running first, so a restart mid-stage can fail it (recover_interrupted).
         manifest.stages.append(
-            ManifestStage(
-                name=name,
-                method=stage.method,
-                status=result.status,
-                started=started,
-                seconds=time.perf_counter() - t0,
-                files=_list_files(ctx.stage_dir(name)),
-            )
+            ManifestStage(name=name, method=stage.method, status="running",
+                          started=started, seconds=0, files=[])
         )
         _write_manifest(run_dir, manifest)
-        if result.status not in ("ok", "skipped"):
-            break  # later stages stay pending: they are not in the manifest
+        manifest.stages.pop()
+        result = _run_stage(ctx, name, stage.method, params)
+    else:
+        result = StageResult(status="skipped", message="disabled in pipeline")
+    if result.status not in ("ok", "skipped"):
+        ctx.log.error(
+            "run %s stage %s %s: %s", run_id, name, result.status, result.message
+        )
+    if result.metrics:
+        manifest.metrics[name] = result.metrics
+    if name == "load":
+        manifest.data.osm_names = _osm_names(result.metrics.get("osm_names"))
+    manifest.stages.append(
+        ManifestStage(
+            name=name,
+            method=stage.method,
+            status=result.status,
+            started=started,
+            seconds=time.perf_counter() - t0,
+            files=_list_files(ctx.stage_dir(name)),
+        )
+    )
+    _write_manifest(run_dir, manifest)
+    return result.status not in ("ok", "skipped")  # later stages stay pending
+
+
+def _job_from_disk(run_dir: Path) -> _Job:
+    """Rebuild a begun job from its run folder, so one stage can run in any process."""
+    manifest = Manifest.model_validate_json((run_dir / "manifest.json").read_text())
+    pipeline = Pipeline.model_validate(yaml.safe_load((run_dir / "pipeline.yaml").read_text()))
+    params = Params.model_validate(yaml.safe_load((run_dir / "params.yaml").read_text()))
+    store, parent_dir, parent, keep = run_dir.parent, None, None, 0
+    if manifest.parent:
+        parent_dir = store / manifest.parent.run_id
+        parent = Manifest.model_validate_json((parent_dir / "manifest.json").read_text())
+        keep = STAGES[manifest.parent.from_stage].number - 1 if manifest.parent.from_stage else 0
+    ctx = StageContext(
+        run_dir=run_dir,
+        scene_token=manifest.data.scene_token,
+        seed=params.seed,
+        log=logging.getLogger("twin.run"),
+        min_observed=params.facilities.min_observed,
+    )
+    return _Job(store, None, ctx, manifest, pipeline, params, keep, parent_dir, parent)  # type: ignore[arg-type]
+
+
+def run_stage_task(run_dir: Path | str, index: int) -> bool:
+    """One scheduler task: stage `index` of the run in run_dir, under the run's own lock.
+    Returns True when the run is over."""
+    run_dir = Path(run_dir)
+    with FileLock(str(run_dir / RUN_LOCK)):
+        return _run_step(_job_from_disk(run_dir), index)
+
+
+def prepare_run(job: _Job) -> int:
+    """Link a re-run's parent stages. Returns the index of the first stage to run."""
+    for index in range(job.keep):
+        _run_step(job, index)
+    return job.keep
+
+
+def resume_run(run_dir: Path | str) -> int:
+    """After a crash: drop a stage left `running` (and its partial folder). Returns the
+    index of the next stage to run."""
+    run_dir = Path(run_dir)
+    job = _job_from_disk(run_dir)
+    manifest = job.manifest
+    stuck = [s for s in manifest.stages if s.status == "running"]
+    for stage in stuck:
+        manifest.stages.remove(stage)
+        shutil.rmtree(job.ctx.stage_dir(stage.name), ignore_errors=True)
+    if stuck:
+        _write_manifest(run_dir, manifest)
+    return len(manifest.stages)
+
+
+def run_over(run_dir: Path | str) -> bool:
+    """True when the run has stopped: a stage failed or was cancelled, or all stages are in."""
+    manifest = Manifest.model_validate_json((Path(run_dir) / "manifest.json").read_text())
+    return len(manifest.stages) >= len(STAGE_NAMES) or any(
+        s.status not in ("ok", "skipped") for s in manifest.stages
+    )
 
 
 INTERRUPTED = "interrupted by restart"
+
+
+def _run_is_live(folder: Path) -> bool:
+    if not (folder / RUN_LOCK).exists():
+        return False
+    lock = FileLock(str(folder / RUN_LOCK))
+    try:
+        lock.acquire(timeout=0)
+    except Timeout:
+        return True
+    lock.release()
+    return False
+
+
+def fail_running(folder: Path, message: str) -> str | None:
+    """Mark every stage left `running` in a run folder failed. Returns the run id, or None
+    when nothing was running."""
+    manifest = Manifest.model_validate_json((folder / "manifest.json").read_text())
+    stuck = [s for s in manifest.stages if s.status == "running"]
+    for stage in stuck:
+        stage.status = "failed"
+        # ManifestStage has no message field: the message goes in the stage's metrics.
+        manifest.metrics[stage.name] = {
+            **manifest.metrics.get(stage.name, {}),
+            "message": message,
+        }
+    if not stuck:
+        return None
+    _write_manifest(folder, manifest)
+    return manifest.run_id
 
 
 def recover_interrupted(store: Path | str) -> list[str]:
@@ -462,19 +556,11 @@ def recover_interrupted(store: Path | str) -> list[str]:
             path = folder / "manifest.json"
             if not (re.fullmatch(RUN_ID_RE, folder.name) and path.is_file()):
                 continue
-            manifest = Manifest.model_validate_json(path.read_text())
-            stuck = [s for s in manifest.stages if s.status == "running"]
-            if not stuck:
-                continue
-            for stage in stuck:
-                stage.status = "failed"
-                # ManifestStage has no message field: the message goes in the stage's metrics.
-                manifest.metrics[stage.name] = {
-                    **manifest.metrics.get(stage.name, {}),
-                    "message": INTERRUPTED,
-                }
-            _write_manifest(folder, manifest)
-            changed.append(manifest.run_id)
+            if _run_is_live(folder):
+                continue  # a scheduler task holds the run's own lock
+            run_id = fail_running(folder, INTERRUPTED)
+            if run_id:
+                changed.append(run_id)
         (store / CURRENT_FILE).unlink(missing_ok=True)
         (store / LOCK_FILE).unlink(missing_ok=True)
     finally:

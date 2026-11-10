@@ -82,6 +82,13 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path(os.environ.get("NUSCENES_ROOT", "/data/nuscenes")),
     )
+    box = sub.add_parser("box", help="box utilisation telemetry").add_subparsers(dest="box_cmd")
+    box_mon = box.add_parser("monitor", help="sample the box into a daily CSV")
+    box_mon.add_argument("--interval", type=float, default=10.0, help="seconds")
+    box_mon.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
+    box_rep = box.add_parser("report", help="utilisation and idle report")
+    box_rep.add_argument("--hours", type=float, default=24.0)
+    box_rep.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
     area = sub.add_parser("area", help="study areas").add_subparsers(dest="area_cmd")
     define = area.add_parser(
         "define", help="polygon from intersections, and the drives through it"
@@ -143,6 +150,9 @@ def build_parser() -> argparse.ArgumentParser:
     worker.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
     worker.add_argument("--jobs", type=int, default=0, help="stop after N jobs (0: run on)")
     worker.add_argument("--poll", type=float, default=30, help="seconds between checks")
+    worker.add_argument("--stream", action="store_true", help="stage-level scheduler instead of one job at a time")
+    worker.add_argument("--tasks", type=int, default=None, help="with --stream: at most N tasks at once")
+    worker.add_argument("--exit-when-idle", action="store_true", help="with --stream: stop when the queue is empty")
     sweep = sub.add_parser("sweep", help="queue a parameter sweep, or rank a finished one")
     sweep.add_argument("target", nargs="?", help="base run id, or scene token")
     sweep.add_argument("--space", type=Path, help="search space yaml")
@@ -156,6 +166,11 @@ def build_parser() -> argparse.ArgumentParser:
     pg.add_argument("--root", type=Path, default=Path.home() / "rdt-prgate")
     pg.add_argument("--dry-run", action="store_true", help="post nothing, print it")
     pg.add_argument("--store", type=Path, help="main run store (baseline, queue)")
+    ap = sub.add_parser("autopilot", help="keep the queue full: PR gates, area rebuild, sweeps, prefetch")
+    ap.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
+    ap.add_argument("--poll", type=float, default=60, help="seconds between checks")
+    ap.add_argument("--once", action="store_true", help="one pass, then exit")
+    ap.add_argument("--skip", action="append", default=[], metavar="P2|P3|P4", help="leave a source off")
     serve = sub.add_parser("serve", help="run the control API")
     serve.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
     serve.add_argument("--host", default="127.0.0.1")
@@ -199,6 +214,10 @@ def main(argv: list[str] | None = None) -> int:
         from twin.merge import area_merge_command
 
         return area_merge_command(args.name, args.store, args.heights)
+    if args.command == "box":
+        from twin.telemetry import box_command
+
+        return box_command(args)
     if args.command == "eval":
         from twin.gates import eval_command
 
@@ -224,6 +243,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "worker":
         from twin.jobqueue import worker_command
 
+        if args.stream:
+            from twin.scheduler import stream_worker
+
+            return stream_worker(args.store or __import__('twin.runner').runner.default_store(), args.tasks, min(args.poll, 5), args.exit_when_idle)
         return worker_command(args.store, args.jobs, args.poll)
     if args.command == "sweep":
         from twin.sweep import sweep_command
@@ -233,6 +256,10 @@ def main(argv: list[str] | None = None) -> int:
         from twin.prgate import prgate_command
 
         return prgate_command(args)
+    if args.command == "autopilot":
+        from twin.autopilot import autopilot_command
+
+        return autopilot_command(args.store, args.poll, args.once, tuple(args.skip))
     if args.command == "serve":
         from twin.api import serve_command
 
