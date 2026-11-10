@@ -45,6 +45,15 @@
     "ColourParams": {
       "additionalProperties": false,
       "properties": {
+        "device": {
+          "default": "auto",
+          "enum": [
+            "auto",
+            "cpu"
+          ],
+          "title": "Device",
+          "type": "string"
+        },
         "gsd_m": {
           "default": 0.05,
           "maximum": 0.5,
