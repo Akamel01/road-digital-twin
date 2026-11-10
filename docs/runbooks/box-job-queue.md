@@ -44,3 +44,14 @@ Stop: `pkill -f "twin worker"`. A job in flight is put back to `pending` at the 
 - If another run holds the run store lock, the job is put back and tried again later.
 
 Starting at boot (systemd, crontab `@reboot`) is the operator's choice; none is installed.
+
+## Method-PR gate (`twin-gates`, #154)
+
+A PR labelled `method` is run on scene-0757 and compared with the best main run (ADR 0005). `twin prgate poll` lists the open `method` PRs with `gh` and queues one `prgate` job per new head commit (a head that already has a job is skipped, so it reruns only when the head changes). The worker runs the job: it clones the PR into `~/rdt-prgate/<pr>` (never `~/road-digital-twin`), runs scene-0757 there into `~/rdt-prgate/<pr>-runs`, runs `twin eval` with the worker's code against the baseline, then posts one PR comment (edited on later heads) and the commit status `twin-gates`.
+
+- Baseline: the finished scene-0757 run in the worker's store with a go verdict (`gates.json`), else the fewest no-go checks, newest first.
+- Status: `success` for go (and for "not measured", which blocks only publishing), `failure` for no-go, `error` when the gate itself failed, `pending` while it runs.
+- Try without posting: `uv run twin prgate run <pr> <head-sha> --dry-run --store /data/twin-dev` (clones and runs, prints the comment and statuses). `twin prgate poll --dry-run` only lists.
+- The box needs `gh` installed and authenticated (`gh auth login`, a token with `repo` scope: comments and commit statuses). Run the poll from cron, for example every 5 minutes: `*/5 * * * * cd ~/road-digital-twin && ~/.local/bin/uv run twin prgate poll --store /data/twin-dev >> /data/twin-dev/prgate.log 2>&1`. The worker must be restarted onto the code that knows `prgate` jobs.
+- Open PRs without the label get `twin-gates` = success ("n/a: not a method PR") at each poll, so requiring the check does not block them. A new PR waits "Expected" until the next poll (at most the cron interval).
+- Block the merge (operator, repo settings, not done by the agents): Settings > Branches > branch protection rule for `main` > tick "Require status checks to pass before merging" > search and add `twin-gates`. A no-go (`failure`) then blocks the merge button.

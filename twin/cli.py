@@ -139,6 +139,14 @@ def build_parser() -> argparse.ArgumentParser:
     worker.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
     worker.add_argument("--jobs", type=int, default=0, help="stop after N jobs (0: run on)")
     worker.add_argument("--poll", type=float, default=30, help="seconds between checks")
+    pg = sub.add_parser("prgate", help="gate method PRs: poll the open ones, or run one")
+    pg.add_argument("action", choices=("poll", "run"))
+    pg.add_argument("pr", nargs="?", type=int, help="PR number (for run)")
+    pg.add_argument("sha", nargs="?", help="PR head commit (for run)")
+    pg.add_argument("--repo", default="Akamel01/road-digital-twin")
+    pg.add_argument("--root", type=Path, default=Path.home() / "rdt-prgate")
+    pg.add_argument("--dry-run", action="store_true", help="post nothing, print it")
+    pg.add_argument("--store", type=Path, help="main run store (baseline, queue)")
     serve = sub.add_parser("serve", help="run the control API")
     serve.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
     serve.add_argument("--host", default="127.0.0.1")
@@ -204,6 +212,10 @@ def main(argv: list[str] | None = None) -> int:
         from twin.jobqueue import worker_command
 
         return worker_command(args.store, args.jobs, args.poll)
+    if args.command == "prgate":
+        from twin.prgate import prgate_command
+
+        return prgate_command(args)
     if args.command == "serve":
         from twin.api import serve_command
 

@@ -28,7 +28,7 @@ from twin.runner import (
 )
 
 STATES = ("pending", "running", "done", "failed")
-JOB_TYPES = ("run", "rerun", "eval", "publish")
+JOB_TYPES = ("run", "rerun", "eval", "publish", "prgate")
 # (path, minimum free GB): the root disk is shared with production, /data holds the stores.
 DISK_RULES = (("/", 10), ("/data", 50))
 POLL_SECONDS = 30
@@ -55,16 +55,18 @@ def validate(job: dict) -> None:
     kind = job.get("type")
     if kind not in JOB_TYPES:
         raise ValueError(f"job type must be one of {JOB_TYPES}, got {kind!r}")
-    need = {"run": "scene", "rerun": "run_id", "eval": "run_id", "publish": "run_id"}[kind]
+    need = {"run": "scene", "rerun": "run_id", "eval": "run_id", "publish": "run_id", "prgate": "pr"}[kind]
     if not job.get(need):
         raise ValueError(f"{kind} job needs {need!r}")
     if kind == "rerun" and not job.get("from_stage"):
         raise ValueError("rerun job needs 'from_stage'")
+    if kind == "prgate" and not job.get("sha"):
+        raise ValueError("prgate job needs 'sha'")
 
 
 def add(store: Path | str, job: dict) -> str:
     """Queue a job. Job fields: type run (scene, pipeline, params) | rerun (run_id, from_stage,
-    pipeline, params) | eval (run_id, baseline, rerun) | publish (run_id, dry_run); run and rerun accept
+    pipeline, params) | eval (run_id, baseline, rerun) | prgate (pr, sha, repo) | publish (run_id, dry_run); run and rerun accept
     eval: true, and publish: true to publish after a GO eval."""
     validate(job)
     job_id = f"{datetime.now(UTC):%Y%m%d-%H%M%S-%f}-{secrets.token_hex(3)}"
@@ -165,6 +167,10 @@ def execute(store: Path, job: dict) -> dict:
     """Run one job. Returns fields to merge into the job (run_id, eval). Raises on failure;
     RunBusy and LowDisk mean the job was not started."""
     out: dict = {}
+    if job["type"] == "prgate":
+        from twin.prgate import REPO, gate
+
+        return gate(store, job["pr"], job["sha"], job.get("repo", REPO))
     if job["type"] == "run":
         run_id = start_run(
             store,
