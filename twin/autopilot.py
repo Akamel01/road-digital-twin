@@ -23,7 +23,7 @@ from pathlib import Path
 
 from filelock import FileLock, Timeout
 
-from twin import gates, jobqueue, prgate, sweep, telemetry
+from twin import gates, jobqueue, prgate, site, sweep, telemetry
 from twin.contracts import Params
 from twin.runner import dataset_version
 
@@ -162,6 +162,17 @@ def _exit_code(job: dict) -> str:
     return path.read_text().strip() if path.is_file() else "?"
 
 
+def publish_latest(store: Path) -> None:
+    """Update the site's Latest build view after an area eval, whatever the verdict (#192).
+    A failure is logged and never stops the loop."""
+    try:
+        say(f"latest build: {site.publish_latest(store, f'{AREA}-merged')}")
+    except site.SiteStop as exc:
+        say(f"latest build not published: {exc}")
+    except Exception as exc:  # noqa: BLE001 - the autopilot loop must not die on a site problem
+        say(f"latest build publish failed: {exc!r}")
+
+
 def p2_area(store: Path, state: dict) -> int:
     """On a new main commit: area merge (it builds each drive itself), then eval, in one
     detached shell. Then the #143 and #144 hooks. When main is unchanged but a gate changed since
@@ -173,6 +184,8 @@ def p2_area(store: Path, state: dict) -> int:
     if p2.get("building"):  # it ended; the exit file says how
         code = _exit_code(p2)
         say(f"P2 {p2['building'][:7]} finished, exit {code}")
+        if code in ("0", "1"):
+            publish_latest(store)
         if code == "0":
             leave_one_drive_out(store, AREA)
             rain_test(store, AREA)
@@ -182,6 +195,8 @@ def p2_area(store: Path, state: dict) -> int:
     if p2b.get("running"):
         code = _exit_code(p2b)
         say(f"P2b re-eval finished, exit {code}")
+        if code in ("0", "1"):
+            publish_latest(store)
         if code == "0":
             leave_one_drive_out(store, AREA)
             rain_test(store, AREA)
