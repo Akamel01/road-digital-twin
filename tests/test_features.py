@@ -493,3 +493,90 @@ def test_short_fragment_off_angle_keeps_divider_type():
     # the same angle on a 5 m marking is still not a divider
     long = LineString([(5, 0.3), (5 + 5 * c, 0.3 + 5 * sn)])
     assert marking_type(long, REF) == "other_paint"
+
+
+def _label_road(ctx, driveable):
+    """lidarseg labels on a 0.1 m grid over x -10..10, y 0..20: 24 (driveable) where driveable(x, y), else 26."""
+    x, y = np.meshgrid(
+        np.arange(-10.0, 10.0, 0.1), np.arange(0.0, 20.0, 0.1), indexing="ij"
+    )
+    x, y = x.ravel(), y.ravel()
+    load = ctx.stage_dir("load")
+    load.mkdir()
+    (load / "lidarseg.json").write_text(
+        json.dumps({"driveable_index": 24, "sentinel": 255})
+    )
+    np.savez(
+        load / "points.npz",
+        x=x,
+        y=y,
+        z=np.zeros_like(x),
+        lidarseg=np.where(driveable(x, y), 24, 26).astype(np.uint8),
+    )
+
+
+def _labelled_curb_run(tmp_path, ground, driveable):
+    ctx = _ctx(tmp_path, ground)
+    _label_road(ctx, driveable)
+    result = registry.lookup("features", "intensity")(ctx, FeaturesParams())
+    return result.metrics, json.loads(
+        (ctx.stage_dir("features") / "curbs.geojson").read_text()
+    )["features"]
+
+
+def test_curb_with_road_on_its_low_side_and_parallel_edge_is_kept(tmp_path):
+    qa, curbs = _labelled_curb_run(
+        tmp_path, _road_with_curb(np.random.default_rng(0), 0.15), lambda x, y: x < 0
+    )
+
+    assert len(curbs) == 1
+    p = curbs[0]["properties"]
+    assert 0.1 < p["step_m"] < 0.2
+    assert p["road_share"] > 0.9
+    assert p["edge_angle_deg"] < 5
+    assert "lidarseg" in p["evidence"]
+    assert qa["n_curb_candidates"] == 1
+    assert (
+        qa["n_curb_rejected_step"],
+        qa["n_curb_rejected_road"],
+        qa["n_curb_rejected_parallel"],
+    ) == (0, 0, 0)
+
+
+def test_step_with_no_road_beside_it_is_rejected(tmp_path):
+    """A building or sidewalk edge: the same step, but the low side is not driveable surface."""
+    qa, curbs = _labelled_curb_run(
+        tmp_path, _road_with_curb(np.random.default_rng(0), 0.15), lambda x, y: x < -5
+    )
+
+    assert curbs == []
+    assert qa["n_curb_candidates"] == 1
+    assert qa["n_curb_rejected_road"] == 1
+    assert qa["n_curb_rejected_step"] == 0
+    assert qa["n_curbs"] == 0
+
+
+def test_curb_not_parallel_to_the_road_edge_is_rejected(tmp_path):
+    """Road surface is on the low side, but the road's edge runs at 45 degrees to the step."""
+    qa, curbs = _labelled_curb_run(
+        tmp_path, _road_with_curb(np.random.default_rng(0), 0.15), lambda x, y: x < y
+    )
+
+    assert curbs == []
+    assert qa["n_curb_rejected_parallel"] == 1
+    assert qa["n_curb_rejected_road"] == 0
+
+
+def test_steep_ramp_is_not_a_curb(tmp_path):
+    """z rises 0.5 m per metre: every cell has a 0.125 m neighbour step, but across the line it is 0.5 m."""
+    x, y = np.meshgrid(
+        np.arange(0.0, 6.0, 0.05), np.arange(0.0, 20.0, 0.05), indexing="ij"
+    )
+    x, y = x.ravel(), y.ravel()
+    ramp = np.column_stack([x, y, 0.5 * x, np.full(x.size, 10.0)])
+    _, out = _curb_run(tmp_path, ramp)
+
+    qa = json.loads((out / "qa.json").read_text())
+    assert qa["n_curb_candidates"] > 0
+    assert qa["n_curb_rejected_step"] == qa["n_curb_candidates"]
+    assert qa["n_curbs"] == 0

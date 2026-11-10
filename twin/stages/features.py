@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import math
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -72,6 +73,15 @@ CURB_ABOVE_SLACK_M = 0.05
 # DECISION: empty surface cells take the mean of measured neighbours, out to this distance (m), so a
 # straddled tile's non-ground side still has a height reference. Used only for the keep filter.
 SURFACE_FILL_M = 3.0
+# DECISION (issue #160): a curb candidate is checked on samples every CURB_SAMPLE_M along the line. The step is the
+# median height CURB_SIDE_FROM_M to CURB_SIDE_M either side of the line (and 0.5 m along it), measured across the line. The road
+# test counts lidarseg points on the low side in the same strip. Road-edge cells need CURB_EDGE_CELL_POINTS driveable
+# points, and the outline is closed over CURB_EDGE_CLOSE_M so a one-cell hole does not make an edge.
+CURB_SAMPLE_M = 0.5
+CURB_SIDE_FROM_M = 0.25
+CURB_SIDE_M = 0.75
+CURB_EDGE_CELL_POINTS = 2
+CURB_EDGE_CLOSE_M = 0.5
 
 
 def high_intensity(xyz: np.ndarray, intensity: np.ndarray, pct: float) -> np.ndarray:
@@ -153,23 +163,28 @@ def binned_pieces(
     return pieces
 
 
-def curb_top_mask(xyz: np.ndarray, params: CurbsParams) -> np.ndarray:
-    """Points on the high side of a height step: their cell's median z is step_min_m to step_max_m above
-    the median z of a 4-neighbour cell. Lower-side and flat cells are not marked.
-    """
-    tile = np.floor((xyz[:, :2] - xyz[:, :2].min(axis=0)) / CURB_CELL_M).astype(
-        np.int64
-    )
+def _median_grid(xyz: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Median z per CURB_CELL_M cell (NaN where empty), the grid origin and each point's cell index."""
+    origin = xyz[:, :2].min(axis=0)
+    tile = np.floor((xyz[:, :2] - origin) / CURB_CELL_M).astype(np.int64)
     dims = tuple(int(d) for d in tile.max(axis=0) + 1)
     key = np.ravel_multi_index(tile.T, dims)
     order = np.lexsort((xyz[:, 2], key))
     _cells, start, count = np.unique(key[order], return_index=True, return_counts=True)
     med = np.full(int(np.prod(dims)), np.nan)
     med[_cells] = xyz[order, 2][start + (count - 1) // 2]
-    grid = np.pad(med.reshape(dims), 1, constant_values=np.nan)
-    nx, ny = dims
+    return med.reshape(dims), origin, tile
+
+
+def curb_top_mask(xyz: np.ndarray, params: CurbsParams) -> np.ndarray:
+    """Points on the high side of a height step: their cell's median z is step_min_m to step_max_m above
+    the median z of a 4-neighbour cell. Lower-side and flat cells are not marked.
+    """
+    med, _origin, tile = _median_grid(xyz)
+    grid = np.pad(med, 1, constant_values=np.nan)
+    nx, ny = med.shape
     core = grid[1:-1, 1:-1]
-    high = np.zeros(dims, bool)
+    high = np.zeros(med.shape, bool)
     for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
         nb = grid[1 + di : 1 + di + nx, 1 + dj : 1 + dj + ny]
         dz = core - nb  # NaN (no ground in the neighbour cell) compares False
@@ -208,6 +223,177 @@ def extract_curbs(xyz: np.ndarray, params: CurbsParams, min_points: int) -> list
                 )
             )
     return curbs
+
+
+def _cells(grid: np.ndarray, origin: np.ndarray, xy: np.ndarray) -> np.ndarray:
+    """Grid values at plan positions xy (..., 2); NaN outside the grid."""
+    ij = np.floor((xy - origin) / CURB_CELL_M).astype(np.int64)
+    ok = (
+        (ij >= 0).all(axis=-1)
+        & (ij[..., 0] < grid.shape[0])
+        & (ij[..., 1] < grid.shape[1])
+    )
+    out = np.full(ok.shape, np.nan)
+    out[ok] = grid[ij[ok, 0], ij[ok, 1]]
+    return out
+
+
+def _strip(
+    pts: np.ndarray, tan: np.ndarray, nrm: np.ndarray, sign: float, offsets: np.ndarray
+) -> np.ndarray:
+    """Plan positions beside each sample: (n, offsets, 3 along, 2). `sign` picks the side of the line."""
+    along = np.array([-0.5, 0.0, 0.5])
+    return (
+        pts[:, None, None, :]
+        + sign * nrm[:, None, None, :] * offsets[None, :, None, None]
+        + tan[:, None, None, :] * along[None, None, :, None]
+    )
+
+
+def _count_grid(
+    xy: np.ndarray, origin=None, dims=None
+) -> tuple[np.ndarray, np.ndarray]:
+    """Point count per CURB_CELL_M cell. Without origin and dims they come from xy."""
+    origin = xy.min(axis=0) if origin is None else origin
+    ij = np.floor((xy - origin) / CURB_CELL_M).astype(np.int64)
+    dims = tuple(int(d) for d in ij.max(axis=0) + 1) if dims is None else dims
+    grid = np.bincount(np.ravel_multi_index(ij.T, dims), minlength=int(np.prod(dims)))
+    return grid.reshape(dims), origin
+
+
+def _road_edge(drv_xy: np.ndarray) -> list:
+    """Outlines (rings) of the driveable surface seen by lidarseg: cells with CURB_EDGE_CELL_POINTS or more points."""
+    if len(drv_xy) == 0:
+        return []
+    cnt, origin = _count_grid(drv_xy)
+    i, j = np.nonzero(cnt >= CURB_EDGE_CELL_POINTS)
+    if len(i) == 0:
+        return []
+    x0, y0 = origin[0] + i * CURB_CELL_M, origin[1] + j * CURB_CELL_M
+    road = shapely.union_all(shapely.box(x0, y0, x0 + CURB_CELL_M, y0 + CURB_CELL_M))
+    road = (
+        road.buffer(CURB_EDGE_CLOSE_M).buffer(-CURB_EDGE_CLOSE_M).simplify(CURB_CELL_M)
+    )
+    rings = []
+    for poly in getattr(road, "geoms", [road]):
+        if poly.geom_type == "Polygon" and not poly.is_empty:
+            rings.extend([poly.exterior, *poly.interiors])
+    return rings
+
+
+def filter_curbs(
+    curbs: list[dict],
+    xyz: np.ndarray,
+    params: CurbsParams,
+    labelled: tuple[np.ndarray, np.ndarray] | None,
+) -> tuple[list[dict], dict[str, int]]:
+    """Keep a curb only if it passes three rules (issue #160). Every rule is tested on every candidate.
+
+    step: the height step measured across the line (median z CURB_SIDE_FROM_M to CURB_SIDE_M either side) is within
+    step_min_m..step_max_m. road: the low side has lidarseg flat.driveable_surface points (share at least
+    road_share_min of at least road_labels_min labelled points, within road_side_m). parallel: the line runs within
+    edge_max_angle_deg of the nearest road edge. `labelled` is (xy, is_driveable) of the lidarseg-labelled load
+    points; without it only the step rule runs. Returns (kept, counts of candidates and rejections per rule).
+    """
+    counts = {
+        "n_curb_candidates": len(curbs),
+        "n_curb_rejected_step": 0,
+        "n_curb_rejected_road": 0,
+        "n_curb_rejected_parallel": 0,
+    }
+    if not curbs:
+        return [], counts
+    med, origin, _ = _median_grid(xyz)
+    offs = np.arange(CURB_SIDE_FROM_M, CURB_SIDE_M + 1e-9, CURB_CELL_M)
+    rings: list = []
+    if labelled is not None:
+        lxy, drv = labelled
+        all_cnt, lorigin = _count_grid(lxy)
+        drv_cnt, _ = _count_grid(lxy[drv], lorigin, all_cnt.shape)
+        rings = _road_edge(lxy[drv])
+    side_offs = np.arange(CURB_CELL_M, params.road_side_m + 1e-9, CURB_CELL_M)
+    kept = []
+    for c in curbs:
+        line = shapely.LineString(np.asarray(c["geometry"]["coordinates"])[:, :2])
+        pts = shapely.get_coordinates(shapely.segmentize(line, CURB_SAMPLE_M))
+        tan = np.gradient(pts, axis=0)
+        tan /= np.linalg.norm(tan, axis=1, keepdims=True)
+        nrm = np.column_stack([-tan[:, 1], tan[:, 0]])
+        with warnings.catch_warnings():
+            warnings.simplefilter(
+                "ignore", RuntimeWarning
+            )  # all-NaN slices: no ground beside that sample
+            zp = np.nanmedian(
+                _cells(med, origin, _strip(pts, tan, nrm, 1, offs)), axis=(1, 2)
+            )
+            zm = np.nanmedian(
+                _cells(med, origin, _strip(pts, tan, nrm, -1, offs)), axis=(1, 2)
+            )
+        d = (zp - zm)[~np.isnan(zp - zm)]
+        step = float(abs(np.median(d))) if len(d) else 0.0
+        low = -1.0 if len(d) and np.median(d) > 0 else 1.0  # side of the lower surface
+        ok_step = params.step_min_m <= step <= params.step_max_m
+        props = c["properties"]
+        props["step_m"] = round(step, 3)
+        ok_road = ok_parallel = True
+        if labelled is not None:
+            idx = _strip(pts, tan, nrm, low, side_offs).reshape(-1, 2)
+            ij = np.unique(
+                np.floor((idx - lorigin) / CURB_CELL_M).astype(np.int64), axis=0
+            )
+            ij = ij[
+                (ij >= 0).all(axis=1)
+                & (ij[:, 0] < all_cnt.shape[0])
+                & (ij[:, 1] < all_cnt.shape[1])
+            ]
+            n, nd = (
+                int(all_cnt[ij[:, 0], ij[:, 1]].sum()),
+                int(drv_cnt[ij[:, 0], ij[:, 1]].sum()),
+            )
+            share = nd / n if n else 0.0
+            ok_road = n >= params.road_labels_min and share >= params.road_share_min
+            props["road_share"] = round(share, 3)
+            props["n_labelled_low_side"] = n
+            ring = min(rings, key=lambda r: r.distance(line), default=None)
+            ang = None
+            if ring is not None:
+                s0 = ring.project(line.interpolate(0.5, normalized=True))
+                a, b = (
+                    ring.interpolate(max(s0 - 1.5, 0.0)),
+                    ring.interpolate(min(s0 + 1.5, ring.length)),
+                )
+                edge = np.array([b.x - a.x, b.y - a.y])
+                ang = _angle_deg(
+                    _axis(np.asarray(line.coords))[1],
+                    edge / (np.linalg.norm(edge) or 1.0),
+                )
+            ok_parallel = ang is not None and ang <= params.edge_max_angle_deg
+            props["edge_angle_deg"] = None if ang is None else round(ang, 1)
+            props["evidence"] = [*props["evidence"], EVIDENCE_LIDARSEG]
+        counts["n_curb_rejected_step"] += not ok_step
+        counts["n_curb_rejected_road"] += not ok_road
+        counts["n_curb_rejected_parallel"] += not ok_parallel
+        if ok_step and ok_road and ok_parallel:
+            kept.append(c)
+    for n, c in enumerate(kept, 1):
+        c["properties"]["id"] = f"curb-{n:04d}"
+    return kept, counts
+
+
+def _lidarseg_labelled(load_dir: Path | None) -> tuple[np.ndarray, np.ndarray] | None:
+    """(xy, is_driveable) of load's lidarseg-labelled points, or None when there are no labels."""
+    if load_dir is None or not (load_dir / "lidarseg.json").is_file():
+        return None
+    meta = json.loads((load_dir / "lidarseg.json").read_text())
+    with np.load(load_dir / "points.npz") as f:
+        if "lidarseg" not in f.files or meta.get("driveable_index") is None:
+            return None
+        lab = f["lidarseg"] != meta.get("sentinel", 255)
+        if not lab.any():
+            return None
+        return np.column_stack([f["x"][lab], f["y"][lab]]), f["lidarseg"][lab] == meta[
+            "driveable_index"
+        ]
 
 
 def _near_ground_nonground(ground_dir, max_above_m: float) -> np.ndarray:
@@ -573,9 +759,12 @@ def run_intensity(ctx: Any, params: FeaturesParams) -> StageResult:
         near = _near_ground_nonground(
             ground_dir, params.curbs.step_max_m + CURB_ABOVE_SLACK_M
         )
-        curbs = extract_curbs(
-            np.vstack([xyz[:, :3], near]), params.curbs, params.min_points
+        curb_xyz = np.vstack([xyz[:, :3], near])
+        curbs = extract_curbs(curb_xyz, params.curbs, params.min_points)
+        curbs, rejects = filter_curbs(
+            curbs, curb_xyz, params.curbs, _lidarseg_labelled(load_dir)
         )
+        counts.update(rejects)
         files.append(CURB_FILE)
         counts["n_curbs"] = len(curbs)
     # Pose quality of the drive, copied onto every element so an auditor sees it per element.

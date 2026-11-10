@@ -193,7 +193,14 @@ class GroundParams(_Strict):
 class CurbsParams(_Strict):
     enabled: bool = True
     step_min_m: float = Field(0.08, ge=0.02, le=0.3)
-    step_max_m: float = Field(0.25, ge=0.1, le=0.5)
+    step_max_m: float = Field(0.20, ge=0.1, le=0.5)
+    # A curb needs road surface (lidarseg flat.driveable_surface) on its low side, within road_side_m of the line:
+    # at least road_share_min of the labelled points there, and at least road_labels_min labelled points.
+    road_side_m: float = Field(1.5, ge=0.5, le=5)
+    road_share_min: float = Field(0.5, ge=0, le=1)
+    road_labels_min: int = Field(10, ge=1, le=1000)
+    # It must run within edge_max_angle_deg of the nearest road edge (the outline of the driveable surface).
+    edge_max_angle_deg: float = Field(20.0, ge=5, le=45)
 
 
 class FeaturesParams(_Strict):
