@@ -51,7 +51,8 @@ def test_happy_path_manifest_valid_and_all_ok(tmp_path, stubs):
     assert yaml.safe_load((run_dir / "params.yaml").read_text())["seed"] == 0
     manifest = _manifest(run_dir)
     assert [s.name for s in manifest.stages] == list(STAGE_NAMES)
-    assert {s.status for s in manifest.stages} == {"ok"}
+    # semantics is off by default (it needs the GPU extra)
+    assert {s.name for s in manifest.stages if s.status != "ok"} == {"semantics"}
     assert manifest.stages[0].files == ["out.txt"]
     assert manifest.stages[0].seconds >= 0
     assert manifest.metrics["load"] == {"n": 1}

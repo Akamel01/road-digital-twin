@@ -33,6 +33,8 @@ dependencies = [
 [project.optional-dependencies]
 # Colour stage on the GPU (ADR 0005). Without it the stage runs on the CPU. [ctk] brings the CUDA runtime libraries.
 gpu = ["cupy-cuda12x[ctk]==14.2.0; sys_platform == 'linux'"]
+# Camera semantics stage (ADR 0006): Mask2Former on the GPU. CI does not install it; tests use a stub segmenter.
+semantics = ["torch==2.10.0", "transformers==5.22.2"]
 
 [project.scripts]
 twin = "twin.cli:main"

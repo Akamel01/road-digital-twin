@@ -82,6 +82,13 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path(os.environ.get("NUSCENES_ROOT", "/data/nuscenes")),
     )
+    box = sub.add_parser("box", help="box utilisation telemetry").add_subparsers(dest="box_cmd")
+    box_mon = box.add_parser("monitor", help="sample the box into a daily CSV")
+    box_mon.add_argument("--interval", type=float, default=10.0, help="seconds")
+    box_mon.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
+    box_rep = box.add_parser("report", help="utilisation and idle report")
+    box_rep.add_argument("--hours", type=float, default=24.0)
+    box_rep.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
     area = sub.add_parser("area", help="study areas").add_subparsers(dest="area_cmd")
     define = area.add_parser(
         "define", help="polygon from intersections, and the drives through it"
@@ -201,6 +208,10 @@ def main(argv: list[str] | None = None) -> int:
         from twin.merge import area_merge_command
 
         return area_merge_command(args.name, args.store)
+    if args.command == "box":
+        from twin.telemetry import box_command
+
+        return box_command(args)
     if args.command == "eval":
         from twin.gates import eval_command
 

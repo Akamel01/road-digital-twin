@@ -19,6 +19,7 @@ StageName = Literal[
     "isd",
     "accuracy",
     "outputs",
+    "semantics",
 ]
 STAGE_NAMES: tuple[str, ...] = (
     "load",
@@ -31,6 +32,7 @@ STAGE_NAMES: tuple[str, ...] = (
     "isd",
     "accuracy",
     "outputs",
+    "semantics",
 )
 
 
@@ -129,6 +131,26 @@ STAGES: dict[str, StageSpec] = {
         ),
         optional=False,
     ),
+    # ADR 0006 Q2(a), Q4. Runs after outputs so that no stage number changes; off by default (needs the semantics extra).
+    "semantics": StageSpec(
+        number=11,
+        methods=("mapillary-m2f",),
+        requires=("mask", "align", "ground", "features"),
+        outputs=(
+            "prob.npz",
+            "prob.pgw",
+            "paint_prob.png",
+            "curb_prob.png",
+            "qa.json",
+            "variants/camera/markings.geojson",
+            "variants/camera/crosswalks.geojson",
+            "variants/camera/curbs.geojson",
+            "variants/fused/markings.geojson",
+            "variants/fused/crosswalks.geojson",
+            "variants/fused/curbs.geojson",
+        ),
+        optional=True,
+    ),
 }
 
 
@@ -193,6 +215,20 @@ class ColourParams(_Strict):
     device: Literal["auto", "cpu"] = "auto"
 
 
+class SemanticsParams(_Strict):
+    cell_m: float = Field(0.10, ge=0.02, le=0.5)
+    # Longest image side (px) fed to the segmenter. Larger sees thinner paint and needs more GPU memory.
+    long_side_px: int = Field(1600, ge=512, le=3200)
+    # A cell is paint (or curb) when at least this share of its visible ground points were labelled so,
+    # in at least min_images images.
+    min_prob: float = Field(0.5, ge=0.1, le=1)
+    min_images: int = Field(2, ge=1, le=20)
+    # Fusion: a lidar feature is supported when this share of its samples lies within support_radius_m of a
+    # supporting cell.
+    support_share: float = Field(0.5, ge=0.1, le=1)
+    support_radius_m: float = Field(0.3, ge=0.05, le=1)
+
+
 class ProfileParams(_Strict):
     sample_m: float = Field(1.0, ge=0.1, le=10)
 
@@ -229,6 +265,7 @@ class Params(_Strict):
     ground: GroundParams = Field(default_factory=GroundParams)
     features: FeaturesParams = Field(default_factory=FeaturesParams)
     colour: ColourParams = Field(default_factory=ColourParams)
+    semantics: SemanticsParams = Field(default_factory=SemanticsParams)
     profile: ProfileParams = Field(default_factory=ProfileParams)
     isd: IsdParams = Field(default_factory=IsdParams)
     accuracy: AccuracyParams = Field(default_factory=AccuracyParams)
@@ -270,6 +307,9 @@ class Pipeline(_Strict):
     )
     outputs: PipelineStage = Field(
         default_factory=lambda: PipelineStage(method="dxf-pdf")
+    )
+    semantics: PipelineStage = Field(
+        default_factory=lambda: PipelineStage(method="mapillary-m2f", enabled=False)
     )
 
     @model_validator(mode="after")
@@ -398,6 +438,7 @@ PARAM_STAGE: dict[str, str | None] = {
     "ground": "ground",
     "features": "features",
     "colour": "colour",
+    "semantics": "semantics",
     "profile": "profile",
     "isd": "isd",
     "accuracy": "accuracy",

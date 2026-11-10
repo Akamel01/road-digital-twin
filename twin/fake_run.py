@@ -767,6 +767,14 @@ def _outputs(d: Path, c: _Ctx) -> dict:
     return registry.lookup("outputs", "dxf-pdf")(ctx, None).metrics
 
 
+def _semantics(d: Path, c: _Ctx) -> dict:
+    """Placeholder files only: the real stage needs a GPU model, and the fake run is off by default there."""
+    for name in STAGES["semantics"].outputs:
+        (d / name).parent.mkdir(parents=True, exist_ok=True)
+        (d / name).touch()
+    return {}
+
+
 WRITERS = {
     "load": _load,
     "mask": _mask,
@@ -778,6 +786,7 @@ WRITERS = {
     "isd": _isd,
     "accuracy": _accuracy,
     "outputs": _outputs,
+    "semantics": _semantics,
 }
 
 

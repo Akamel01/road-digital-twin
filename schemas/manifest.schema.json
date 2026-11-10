@@ -418,7 +418,8 @@
             "profile",
             "isd",
             "accuracy",
-            "outputs"
+            "outputs",
+            "semantics"
           ],
           "title": "From Stage",
           "type": "string"
@@ -461,7 +462,8 @@
             "profile",
             "isd",
             "accuracy",
-            "outputs"
+            "outputs",
+            "semantics"
           ],
           "title": "Name",
           "type": "string"
@@ -584,6 +586,9 @@
         },
         "select": {
           "$ref": "#/$defs/SelectParams"
+        },
+        "semantics": {
+          "$ref": "#/$defs/SemanticsParams"
         }
       },
       "title": "Params",
@@ -620,6 +625,9 @@
           "$ref": "#/$defs/PipelineStage"
         },
         "profile": {
+          "$ref": "#/$defs/PipelineStage"
+        },
+        "semantics": {
           "$ref": "#/$defs/PipelineStage"
         }
       },
@@ -678,6 +686,55 @@
         }
       },
       "title": "SelectParams",
+      "type": "object"
+    },
+    "SemanticsParams": {
+      "additionalProperties": false,
+      "properties": {
+        "cell_m": {
+          "default": 0.1,
+          "maximum": 0.5,
+          "minimum": 0.02,
+          "title": "Cell M",
+          "type": "number"
+        },
+        "long_side_px": {
+          "default": 1600,
+          "maximum": 3200,
+          "minimum": 512,
+          "title": "Long Side Px",
+          "type": "integer"
+        },
+        "min_images": {
+          "default": 2,
+          "maximum": 20,
+          "minimum": 1,
+          "title": "Min Images",
+          "type": "integer"
+        },
+        "min_prob": {
+          "default": 0.5,
+          "maximum": 1,
+          "minimum": 0.1,
+          "title": "Min Prob",
+          "type": "number"
+        },
+        "support_radius_m": {
+          "default": 0.3,
+          "maximum": 1,
+          "minimum": 0.05,
+          "title": "Support Radius M",
+          "type": "number"
+        },
+        "support_share": {
+          "default": 0.5,
+          "maximum": 1,
+          "minimum": 0.1,
+          "title": "Support Share",
+          "type": "number"
+        }
+      },
+      "title": "SemanticsParams",
       "type": "object"
     }
   },
