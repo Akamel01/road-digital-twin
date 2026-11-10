@@ -81,6 +81,20 @@ def _child(conn, fn: Callable, args: tuple) -> None:
     conn.send((*msg, _peak_gb()))
 
 
+def _create_run(store: Path, job: dict) -> tuple[str, int]:
+    """Check the job, make its run folder, link a re-run's parent stages. Returns (folder, first stage)."""
+    if job["type"] == "run":
+        args = (store, job["scene"], *runner._checked(
+            job["scene"], jobqueue._load(job.get("pipeline")) or {},
+            jobqueue._load(job.get("params")) or {}), None, None, None)
+    else:
+        args = runner._rerun_args(store, job["run_id"], job["from_stage"],
+                                  jobqueue._load(job.get("pipeline")),
+                                  jobqueue._load(job.get("params")))
+    begun = runner._create_locked(args[0], None, *args[1:])
+    return str(begun.ctx.run_dir), runner.prepare_run(begun)
+
+
 @dataclass
 class Task:
     job: "Active"
@@ -192,16 +206,24 @@ class Scheduler:
         free = runner.free_bytes(self.store)
         if free < runner.MIN_FREE_BYTES:
             raise runner.LowDisk(f"{free / 1024**3:.1f} GB free in {self.store}")
-        if job["type"] == "run":
-            args = (self.store, job["scene"], *runner._checked(
-                job["scene"], jobqueue._load(job.get("pipeline")) or {},
-                jobqueue._load(job.get("params")) or {}), None, None, None)
-        else:
-            args = runner._rerun_args(self.store, job["run_id"], job["from_stage"],
-                                      jobqueue._load(job.get("pipeline")),
-                                      jobqueue._load(job.get("params")))
-        begun = runner._create_locked(args[0], None, *args[1:])
-        return Active(job, begun.ctx.run_dir, begun.pipeline, runner.prepare_run(begun))
+        # In a child: validating the pipeline imports the stage modules, and open3d loads the
+        # CUDA driver, after which no forked child can use the GPU. This process must stay clean.
+        run_dir, first = self._in_child(_create_run, self.store, job)
+        return Active(job, Path(run_dir), self._pipeline(Path(run_dir)), first)
+
+    def _in_child(self, fn: Callable, *args: Any) -> Any:
+        parent, child = self.ctx.Pipe(duplex=False)
+        proc = self.ctx.Process(target=_child, args=(child, fn, args))
+        proc.start()
+        child.close()
+        try:
+            msg = parent.recv()
+        except EOFError:
+            msg = ("err", f"child died (exit {proc.exitcode})", 0.0)
+        proc.join()
+        if msg[0] == "err":
+            raise ValueError(msg[1])
+        return msg[1]
 
     def _finish(self, job: dict, error: str | None, extra: dict | None = None) -> None:
         job = {k: v for k, v in job.items() if k != "new_run"}
