@@ -17,6 +17,7 @@ from pathlib import Path
 import yaml
 from filelock import FileLock, Timeout
 
+from twin import gpulease
 from twin.runner import (
     LowDisk,
     RunBusy,
@@ -220,14 +221,22 @@ def process_one(store: Path | str, hold=disk_hold) -> str | None:
     job = take(store)
     if job is None:
         return None
+    held: dict = {}
     try:
-        extra = execute(store, job)
+        if gpulease.needs_gpu(job, _load):
+            with gpulease.lease(held):
+                extra = execute(store, job)
+        else:
+            extra = execute(store, job)
     except (RunBusy, LowDisk) as exc:
         release(store, job)
         return f"held {job['id']}: {exc}"
     except Exception as exc:  # noqa: BLE001 - any failure is recorded on the job
-        finish(store, {**job}, f"{type(exc).__name__}: {exc}")
+        finish(store, {**job, **({"gpu_lease": held} if held else {})}, f"{type(exc).__name__}: {exc}")
         return f"failed {job['id']}: {exc}"
+    if held:
+        extra = {**extra, "gpu_lease": held}
+        print(f"gpu lease {job['id']}: {held}", flush=True)
     finish(store, {**job, **extra})
     return f"done {job['id']} {extra}"
 
