@@ -33,6 +33,7 @@ JOB_TYPES = ("run", "rerun", "eval", "publish", "prgate")
 # (path, minimum free GB): the root disk is shared with production, /data holds the stores.
 DISK_RULES = (("/", 10), ("/data", 50))
 POLL_SECONDS = 30
+PUBLISH_LOCK = ".publish.lock"
 
 
 def _dir(store: Path, state: str) -> Path:
@@ -93,10 +94,19 @@ def _move(store: Path, name: str, src: str, dst: str, job: dict | None = None) -
     return dst_path
 
 
+def priority(job: dict) -> int:
+    """0 PR gate, 1 operator (default), 2 area pipeline, 3 sweep, 4 prefetch. A job may set it."""
+    if "priority" in job:
+        return int(job["priority"])
+    return 0 if job["type"] == "prgate" else 3 if job.get("sweep") else 1
+
+
 def take(store: Path | str) -> dict | None:
-    """Move the oldest pending job to running and return it, or None when there is none."""
+    """Move the highest-priority pending job (oldest first within a level) to running and
+    return it, or None when there is none."""
     store = Path(store)
-    for path in sorted(_dir(store, "pending").glob("*.json")):
+    pending = {p: json.loads(p.read_text()) for p in _dir(store, "pending").glob("*.json")}
+    for path in sorted(pending, key=lambda p: (priority(pending[p]), p.name)):
         try:
             os.rename(path, _dir(store, "running") / path.name)
         except FileNotFoundError:
@@ -164,6 +174,26 @@ def run_eval(store: Path, job: dict, run_id: str) -> tuple[str, str | None]:
     return "error", f"twin eval exited {code}"
 
 
+def post_run(store: Path, job: dict, run_id: str) -> dict:
+    """The eval and publish steps of a job, after its run (if any) finished."""
+    out: dict = {}
+    if job["type"] == "eval" or job.get("eval"):
+        out["eval_result"], err = run_eval(store, job, run_id)
+        if err:
+            raise RuntimeError(err)
+    if job["type"] == "publish" or (
+        job.get("publish") and out.get("eval_result") == "go"
+    ):
+        from twin.site import SiteStop, publish_run
+
+        try:
+            with FileLock(str(Path(store) / PUBLISH_LOCK)):  # publish writes the shared site folder
+                out["publish_result"] = publish_run(store, run_id, job.get("dry_run", False))
+        except SiteStop as exc:
+            raise RuntimeError(str(exc)) from exc
+    return out
+
+
 def execute(store: Path, job: dict) -> dict:
     """Run one job. Returns fields to merge into the job (run_id, eval). Raises on failure;
     RunBusy and LowDisk mean the job was not started."""
@@ -193,19 +223,7 @@ def execute(store: Path, job: dict) -> dict:
         out["run_id"] = run_id
         if _exit_code(store, run_id):
             raise RuntimeError(f"run {run_id} has a failed stage")
-    if job["type"] == "eval" or job.get("eval"):
-        out["eval_result"], err = run_eval(store, job, run_id)
-        if err:
-            raise RuntimeError(err)
-    if job["type"] == "publish" or (
-        job.get("publish") and out.get("eval_result") == "go"
-    ):
-        from twin.site import SiteStop, publish_run
-
-        try:
-            out["publish_result"] = publish_run(store, run_id, job.get("dry_run", False))
-        except SiteStop as exc:
-            raise RuntimeError(str(exc)) from exc
+    out.update(post_run(store, job, run_id))
     return out
 
 
