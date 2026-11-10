@@ -110,6 +110,9 @@ def build_parser() -> argparse.ArgumentParser:
     define.add_argument(
         "--store", type=Path, help="run store (default: $TWIN_RUNS or /data/twin-runs)"
     )
+    merge = area.add_parser("merge", help="register the drives of an area into one cloud")
+    merge.add_argument("name")
+    merge.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
     ev = sub.add_parser("eval", help="go/no-go report for a run against the gates")
     ev.add_argument("run", help="run id (or run folder)")
     ev.add_argument("--baseline", help="run to compare every metric with")
@@ -191,6 +194,10 @@ def main(argv: list[str] | None = None) -> int:
             args.store,
             args.include_rain,
         )
+    if args.command == "area" and args.area_cmd == "merge":
+        from twin.merge import area_merge_command
+
+        return area_merge_command(args.name, args.store)
     if args.command == "eval":
         from twin.gates import eval_command
 

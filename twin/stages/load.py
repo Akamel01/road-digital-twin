@@ -536,12 +536,12 @@ class DevkitSource:
         from nuscenes.nuscenes import NuScenes
 
         self.root = dataroot
-        self.nusc = NuScenes(VERSION, dataroot=dataroot, verbose=False)
+        self.nusc = NuScenes(os.environ.get("NUSCENES_VERSION", VERSION), dataroot=dataroot, verbose=False)
         self._map: Any = None
         # sample_data token -> .bin path; empty when lidarseg is not installed.
         # DECISION: lidarseg.json sits in the version tables folder; the .bin paths in it are relative to the dataroot.
         self._seg: dict[str, str] = {}
-        table = Path(dataroot) / VERSION / "lidarseg.json"
+        table = Path(dataroot) / os.environ.get("NUSCENES_VERSION", VERSION) / "lidarseg.json"
         if table.is_file():
             self._seg = {
                 r["sample_data_token"]: os.path.join(dataroot, r["filename"])
