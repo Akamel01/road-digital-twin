@@ -40,7 +40,7 @@ def test_change_found_only_where_dates_differ():
 
 
 def test_same_dates_have_no_change():
-    (lo, hi), shape_yx = _cells(bump=0.5)
+    (lo, hi), _shape_yx = _cells(bump=0.5)
     dates = ["d1"] * 3
     det = at.detect_change(lo, hi, dates, at.noise_levels(lo, hi, dates))
     assert not det["changed"].any()
