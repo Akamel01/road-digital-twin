@@ -7,6 +7,7 @@ the next time Librarian calls it, so nothing is restored. The outcome goes in th
 import json
 import os
 import subprocess
+import sys
 import threading
 import time
 import urllib.request
@@ -42,12 +43,14 @@ def endpoints() -> list[str]:
         return [u.strip() for u in env.split(",") if u.strip()]
     try:
         names = subprocess.run(
-            ["docker", "ps", "--filter", "name=ollama", "--format", "{{.Names}}"],
+            ["docker", "ps", "--filter", "name=ollama", "--format", "{{.Names}} {{.Image}}"],
             capture_output=True,
             text=True,
             timeout=10,
             check=True,
-        ).stdout.split()
+        ).stdout.splitlines()
+        # The sme_ollama_gen* containers are nginx auth fronts (401, no models); skip them.
+        names = [ln.split()[0] for ln in names if ln.split() and not ln.split()[-1].startswith("nginx")]
         if not names:
             return []
         fmt = "{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}"
@@ -117,6 +120,13 @@ def lease(
         unload_all(urls, record)
     except Exception as exc:  # noqa: BLE001
         record["errors"].append(f"{type(exc).__name__}: {exc}")
+    # Loud, not silent: a lease that reached no ollama frees nothing, and a big job may OOM.
+    record["ok"] = any(u not in record["skipped"] for u in urls)
+    if not record["ok"]:
+        print(
+            f"gpulease WARNING: reached no ollama endpoint (found {len(urls)}); VRAM not freed: {record['skipped']}",
+            file=sys.stderr,
+        )
     before = record["free_mib_before"]
     for _ in range(
         20

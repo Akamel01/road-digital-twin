@@ -97,6 +97,21 @@ def test_dead_endpoint_does_not_fail(monkeypatch):
     with gpulease.lease(rec, ["http://127.0.0.1:1"]):
         pass
     assert "http://127.0.0.1:1" in rec["skipped"] and rec["unloaded"] == []
+    assert rec["ok"] is False
+
+
+def test_endpoints_skip_nginx_fronts(monkeypatch):
+    monkeypatch.delenv("TWIN_OLLAMA_URLS", raising=False)
+    calls = []
+
+    def run(cmd, **kw):
+        calls.append(cmd)
+        out = "sme_ollama_gen1 nginx:1.27-alpine\nsme_ollama e23e64998903\n" if cmd[1] == "ps" else "172.18.0.35 "
+        return type("R", (), {"stdout": out})()
+
+    monkeypatch.setattr(gpulease.subprocess, "run", run)
+    assert gpulease.endpoints() == ["http://172.18.0.35:11434"]
+    assert calls[1][-1:] == ["sme_ollama"]
 
 
 def test_job_record_has_lease(tmp_path, fake, monkeypatch):
