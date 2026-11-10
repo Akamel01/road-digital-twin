@@ -23,7 +23,7 @@ uv run twin queue add job.json --store /data/twin-dev
 uv run twin queue ls --store /data/twin-dev
 ```
 
-`ls` prints state, job id, type, run id and the error or eval verdict. The full record (times, run id, error) is the job file.
+`ls` prints state, job id, type, run id and the error or eval result (`eval_result`). The full record (times, run id, error) is the job file.
 
 ## Start and stop the worker (box)
 
@@ -40,7 +40,7 @@ Stop: `pkill -f "twin worker"`. A job in flight is put back to `pending` at the 
 ## Rules the worker follows
 
 - Before each job it checks free disk. It holds the job (leaves it `pending`, logs "held") when `/` has less than 10 GB or `/data` less than 50 GB free. The thresholds are `DISK_RULES` in `twin/jobqueue.py`.
-- A job whose run has a failed stage, or that raises, goes to `failed` with the error. An eval no-go is a result: the job is `done` with `eval: no-go`.
+- A job whose run has a failed stage, or that raises, goes to `failed` with the error. An eval no-go is a result: the job is `done` with `eval_result: no-go`.
 - If another run holds the run store lock, the job is put back and tried again later.
 
 Starting at boot (systemd, crontab `@reboot`) is the operator's choice; none is installed.

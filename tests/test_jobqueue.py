@@ -86,7 +86,7 @@ def test_eval_skipped_without_gates(tmp_path, stubs, monkeypatch):
     monkeypatch.setattr(jobqueue.importlib.util, "find_spec", lambda name: None)
     jobqueue.add(tmp_path, {"type": "run", "scene": "s1", "eval": True})
     jobqueue.process_one(tmp_path, no_hold)
-    assert jobqueue.list_jobs(tmp_path)[0]["eval"].startswith("skipped")
+    assert jobqueue.list_jobs(tmp_path)[0]["eval_result"].startswith("skipped")
 
 
 def test_eval_exit_codes(tmp_path, monkeypatch):

@@ -186,7 +186,7 @@ def execute(store: Path, job: dict) -> dict:
         if _exit_code(store, run_id):
             raise RuntimeError(f"run {run_id} has a failed stage")
     if job["type"] == "eval" or job.get("eval"):
-        out["eval"], err = run_eval(store, job, run_id)
+        out["eval_result"], err = run_eval(store, job, run_id)
         if err:
             raise RuntimeError(err)
     return out
@@ -272,7 +272,7 @@ def queue_command(action: str, job_file: Path | None, store: Path | None) -> int
             job["id"],
             job["type"],
             detail,
-            job.get("error") or job.get("eval") or "",
+            job.get("error") or job.get("eval_result") or "",
         )
     return 0
 
