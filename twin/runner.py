@@ -105,6 +105,16 @@ def _git(*args: str) -> str | None:
     return out.stdout
 
 
+def repo_head() -> str | None:
+    """Git HEAD of this package's repo (None when not a git checkout). Monkeypatchable."""
+    out = _git("rev-parse", "HEAD")
+    return out.strip() if out else None
+
+
+git_head = repo_head
+current_head = repo_head
+
+
 def _code_info() -> ManifestCode:
     sha = (_git("rev-parse", "HEAD") or "").strip() or "unknown"
     dirty = bool((_git("status", "--porcelain") or "").strip())

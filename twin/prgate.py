@@ -76,7 +76,10 @@ def poll(store: Path, repo: str = REPO, dry_run: bool = False, gh=gh, extra: dic
         if j["type"] == "prgate"
     }
     lines = []
-    # Post the n/a status once per head commit: GitHub caps statuses per SHA and context (1000).
+    # Post each (SHA, context, state, description) at most once: GitHub caps statuses per SHA
+    # and context (1000). Remember posted keys in <store>/queue/prgate-statuses.json.
+    status_file = Path(store) / "queue" / "prgate-statuses.json"
+    posted = set(json.loads(status_file.read_text())) if status_file.exists() else set()
     na_file = Path(store) / "queue" / "prgate-na.json"
     na = set(json.loads(na_file.read_text())) if na_file.exists() else set()
     for p in open_prs(repo, gh):
@@ -84,9 +87,13 @@ def poll(store: Path, repo: str = REPO, dry_run: bool = False, gh=gh, extra: dic
         if p["method"] and (p["pr"], p["sha"]) not in seen and not touches_single_drive(repo, p["pr"], gh):
             why = "n/a: no single-drive stage changed"  # e.g. a merge-only PR: the scene-0757 run would not differ
         if why != "n/a: not a method PR" or not p["method"]:
-            if p["sha"] not in na:
+            key = f"{p['sha']}\x1f{CONTEXT}\x1fsuccess\x1f{why}"
+            if key not in posted:
                 set_status(repo, p["sha"], "success", why, dry_run, gh)
                 if not dry_run:
+                    posted.add(key)
+                    status_file.parent.mkdir(parents=True, exist_ok=True)
+                    status_file.write_text(json.dumps(sorted(posted)))
                     na.add(p["sha"])
                     na_file.parent.mkdir(parents=True, exist_ok=True)
                     na_file.write_text(json.dumps(sorted(na)))

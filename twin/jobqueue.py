@@ -28,6 +28,12 @@ from twin.runner import (
     start_run,
 )
 
+
+def repo_head() -> str | None:
+    from twin import runner
+    return runner.repo_head()
+
+
 STATES = ("pending", "running", "done", "failed")
 JOB_TYPES = ("run", "rerun", "eval", "publish", "prgate")
 # (path, minimum free GB): the root disk is shared with production, /data holds the stores.
@@ -282,8 +288,13 @@ def worker(
             ValueError
         ) as exc:  # a run from another code version has an unreadable manifest
             print(f"run recovery skipped: {exc}", flush=True)
+        start_head = repo_head()
         count = 0
         while not jobs or count < jobs:
+            new_head = repo_head()
+            if start_head and new_head and new_head != start_head:
+                print(f"code changed {start_head}..{new_head}: restarting", flush=True)
+                os.execv(sys.argv[0], sys.argv)
             status = process_one(store, hold)
             if status is None or status.startswith("held"):
                 if status:

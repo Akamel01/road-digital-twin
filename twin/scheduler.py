@@ -25,6 +25,11 @@ from twin import gpulease, jobqueue, runner
 from twin.contracts import STAGE_NAMES, Pipeline
 from twin.gpulease import GPU_STAGES
 
+
+def repo_head() -> str | None:
+    return runner.repo_head()
+
+
 RESERVE_CORES = 2  # left for the box itself
 RESERVE_GB = 8  # left for Librarian
 MARGIN = 1.2  # observed peak RSS is padded by this before it is used as the estimate
@@ -148,6 +153,7 @@ class Scheduler:
         self.log: list[str] = []
         self.gpu_record: dict = {}
         self._lease = None
+        self._start_head = repo_head()
 
     # --- costs -------------------------------------------------------------------------
     def cost(self, name: str, enabled: bool = True) -> Cost:
@@ -370,6 +376,11 @@ class Scheduler:
 
     def _loop(self, poll: float, exit_when_idle: bool) -> None:
         while True:
+            if not self.running:
+                new_head = repo_head()
+                if self._start_head and new_head and new_head != self._start_head:
+                    self._say(f"code changed {self._start_head}..{new_head}: restarting")
+                    os.execv(sys.argv[0], sys.argv)
             self.fill()
             for a in list(self.active):
                 if a.phase == "post" and a.run_dir and not a.busy and not a.checked:
