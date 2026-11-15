@@ -811,3 +811,159 @@ def test_suggest_drives_mixed_ground_source_writes_coverage_and_applies(
     assert doc["store"] == str(store.resolve())
     after = json.loads(area_path.read_text())
     assert after["drives"][-1]["scene_token"] == "cand_tok"
+
+
+def test_lidarseg_label_resolution_falls_back_to_lidarseg_json(tmp_path):
+    # direct devkit lookup unavailable; resolve via <dataroot>/<version>/lidarseg.json mapping
+    root = tmp_path / "data"
+    version = "v1.0-trainval"
+    vdir = root / version
+    vdir.mkdir(parents=True)
+    sd_token = "sd_tok_1"
+    labels = np.array([3, 7, 3, 1], dtype=np.uint8)
+    rel = "lidarseg/v1.0-trainval/sd_tok_1_lidarseg.bin"
+    bin_path = root / rel
+    bin_path.parent.mkdir(parents=True, exist_ok=True)
+    labels.tofile(bin_path)
+    (vdir / "lidarseg.json").write_text(
+        json.dumps([{"sample_data_token": sd_token, "filename": rel}])
+    )
+
+    class NoDirectLidarsegNusc:
+        def __init__(self):
+            self.dataroot = str(root)
+            self.version = version
+            self.lidarseg_name2idx_mapping = {"flat.driveable_surface": 3}
+
+        def get(self, table, token):
+            if table == "lidarseg":
+                raise KeyError(token)
+            raise KeyError((table, token))
+
+    nusc = NoDirectLidarsegNusc()
+    inside_idx = np.array([0, 1, 2], dtype=int)
+    mask = area_mod._lidarseg_driveable_labels(nusc, sd_token, 4, inside_idx, 3)
+    assert mask is not None
+    assert mask.tolist() == [True, False, True]
+    # index is cached on nusc for reuse
+    assert getattr(nusc, "_suggest_lidarseg_path_index", None) == {
+        sd_token: str(bin_path)
+    }
+
+
+def test_suggest_drives_apply_writes_coverage_consistent_with_appended_drives(
+    tmp_path, monkeypatch, capsys
+):
+    store, root, version, poly, drivable, area_path, _area_def, fake = _setup_suggest_env(
+        tmp_path, monkeypatch, candidate_scene=True
+    )
+    baseline_sparse = np.array([[1.0, 1.0, 0.0]], dtype=float)
+    candidate_dense = np.array(
+        [
+            [x, y, 0.0]
+            for x in np.linspace(0.5, 9.5, 60)
+            for y in np.linspace(0.5, 4.5, 30)
+        ]
+    )
+
+    def fake_obs(acc, nusc, scene_token, polygon, drivable_union, step, ox, oy):
+        if scene_token == "base_tok":
+            return ac.accumulate_drive(
+                acc,
+                baseline_sparse,
+                polygon,
+                drivable_union,
+                labels_flat_driveable=np.ones(len(baseline_sparse), bool),
+                ox=ox,
+                oy=oy,
+            )
+        if scene_token == "cand_tok":
+            return ac.accumulate_drive(
+                acc,
+                candidate_dense,
+                polygon,
+                drivable_union,
+                labels_flat_driveable=np.ones(len(candidate_dense), bool),
+                ox=ox,
+                oy=oy,
+            )
+        return "geometric_road_mask_fallback"
+
+    monkeypatch.setattr(area_mod, "_accumulate_drive_observations", fake_obs)
+    rc = area_mod.suggest_drives_command(
+        "areas/seaport.json",
+        5,
+        50.0,
+        False,
+        root,
+        store,
+        version=version,
+        _nusc_factory=lambda **kw: fake,
+        _nusc_map_factory=lambda **kw: FakeMap(
+            {tuple(round(x, 6) for x in poly.bounds): [drivable]}
+        ),
+    )
+    assert rc == 0
+    capsys.readouterr()
+    cov_path = store / "areas" / "seaport.coverage.json"
+    pre = json.loads(cov_path.read_text())
+    assert pre["baseline_scene_tokens"] == ["base_tok"]
+    assert any(c["low_coverage"] and c["road_eligible"] for c in pre["cells"])
+
+    rc_apply = area_mod.suggest_drives_command(
+        "areas/seaport.json",
+        5,
+        50.0,
+        True,
+        root,
+        store,
+        version=version,
+        _nusc_factory=lambda **kw: fake,
+        _nusc_map_factory=lambda **kw: FakeMap(
+            {tuple(round(x, 6) for x in poly.bounds): [drivable]}
+        ),
+    )
+    assert rc_apply == 0
+    capsys.readouterr()
+    after = json.loads(cov_path.read_text())
+    assert after["baseline_scene_tokens"] == ["base_tok", "cand_tok"]
+    eligible = [c for c in after["cells"] if c["road_eligible"]]
+    assert eligible, "expected eligible cells in synthetic setup"
+    assert all(c["drive_count"] >= 2 for c in eligible)
+    assert all(c["density_pts_m2"] > 50.0 for c in eligible)
+    assert all(c["low_coverage"] is False for c in eligible)
+    assert "lidarseg_flat.driveable_surface" in after["ground_sources"]
+    after_area = json.loads(area_path.read_text())
+    assert [d["scene_token"] for d in after_area["drives"]] == ["base_tok", "cand_tok"]
+
+
+def test_suggest_drives_empty_drivable_union_warns_and_marks_coverage(
+    tmp_path, monkeypatch, capsys
+):
+    store, root, version, poly, _drivable, _area_path, _area_def, fake = _setup_suggest_env(
+        tmp_path, monkeypatch, candidate_scene=True
+    )
+    monkeypatch.setattr(area_mod, "_drivable_union", lambda nusc_map, bounds: shapely.Polygon())
+
+    def fake_obs(acc, nusc, scene_token, polygon, drivable_union, step, ox, oy):
+        return "geometric_road_mask_fallback"
+
+    monkeypatch.setattr(area_mod, "_accumulate_drive_observations", fake_obs)
+    rc = area_mod.suggest_drives_command(
+        "areas/seaport.json",
+        5,
+        50.0,
+        False,
+        root,
+        store,
+        version=version,
+        _nusc_factory=lambda **kw: fake,
+        _nusc_map_factory=lambda **kw: FakeMap({}),
+    )
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert "drivable_area union is empty" in err
+    cov = json.loads((store / "areas" / "seaport.coverage.json").read_text())
+    assert cov.get("drivable_union_empty") is True
+    assert cov["cells"], "coverage grid should still be written"
+    assert all(c["road_eligible"] is False for c in cov["cells"])

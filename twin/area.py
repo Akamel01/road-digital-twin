@@ -325,20 +325,54 @@ def _driveable_surface_index(nusc) -> int | None:
     return None
 
 
-def _lidarseg_driveable_labels(nusc, sd_token: str, n_points: int, inside_idx, drive_idx: int | None):
+def _lidarseg_token_path_index(nusc):
+    """Cache sample_data_token -> lidarseg bin path from <dataroot>/<version>/lidarseg.json."""
+    cached = getattr(nusc, "_suggest_lidarseg_path_index", None)
+    if cached is not None:
+        return cached
+    index: dict[str, str] = {}
+    dataroot = getattr(nusc, "dataroot", None)
+    version = getattr(nusc, "version", None)
+    if dataroot and version:
+        table = Path(dataroot) / str(version) / "lidarseg.json"
+        if table.is_file():
+            try:
+                rows = json.loads(table.read_text())
+            except (OSError, json.JSONDecodeError, TypeError, ValueError):
+                rows = []
+            if isinstance(rows, list):
+                for row in rows:
+                    if not isinstance(row, dict):
+                        continue
+                    token = row.get("sample_data_token")
+                    filename = row.get("filename")
+                    if not token or not filename:
+                        continue
+                    index[str(token)] = os.path.join(str(dataroot), str(filename))
+    try:
+        setattr(nusc, "_suggest_lidarseg_path_index", index)
+    except (AttributeError, TypeError):
+        pass
+    return index
+
+
+def _lidarseg_driveable_labels(
+    nusc, sd_token: str, n_points: int, inside_idx, drive_idx: int | None
+):
     if drive_idx is None:
         return None
+    path = None
     try:
         rec = nusc.get("lidarseg", sd_token)
     except (KeyError, AttributeError, TypeError):
-        return None
-    if not isinstance(rec, dict):
-        return None
-    filename = rec.get("filename")
-    if not filename:
-        return None
-    path = os.path.join(nusc.dataroot, filename)
-    if not os.path.isfile(path):
+        rec = None
+    if isinstance(rec, dict):
+        filename = rec.get("filename")
+        if filename:
+            path = os.path.join(getattr(nusc, "dataroot", ""), str(filename))
+    if not path:
+        path = _lidarseg_token_path_index(nusc).get(str(sd_token))
+    if not path or not os.path.isfile(path):
         return None
     try:
         labels = np.fromfile(path, dtype=np.uint8)
@@ -538,6 +572,7 @@ def suggest_drives_command(
         print("area definition missing location", file=sys.stderr)
         return 2
 
+    drivable_union_empty = False
     try:
         from twin.devkit_compat import nuscenes_map_class
 
@@ -549,6 +584,13 @@ def suggest_drives_command(
         )
         rebuilt = rebuilt_map_frame_polygon_from_area(area_def, root, location)
         drivable_union = _drivable_union(nusc_map, rebuilt.bounds)
+        if drivable_union is None or drivable_union.is_empty:
+            drivable_union_empty = True
+            print(
+                "warning: drivable_area union is empty for area bounds; "
+                "no road-eligible coverage/suggestions expected",
+                file=sys.stderr,
+            )
     except FileNotFoundError as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -607,6 +649,10 @@ def suggest_drives_command(
             return 2
 
     baseline_records = ac_mod.cell_records(baseline_acc, density_threshold_f)
+    baseline_snapshot = {
+        k: (int(v.get("road_surface_points", 0)), int(v.get("drive_count", 0)))
+        for k, v in baseline_acc.items()
+    }
 
     # candidate discovery: trainval/version, same location, overlaps rebuilt polygon, exclude existing
     try:
@@ -639,11 +685,19 @@ def suggest_drives_command(
                 origin[1],
             )
             candidate_records = ac_mod.cell_records(cand_acc, density_threshold_f)
+            delta: dict[tuple[int, int], tuple[int, int]] = {}
+            for key, base_vals in baseline_snapshot.items():
+                cv = cand_acc.get(key, {})
+                pts = int(cv.get("road_surface_points", 0)) - base_vals[0]
+                drv = int(cv.get("drive_count", 0)) - base_vals[1]
+                if pts or drv:
+                    delta[key] = (pts, drv)
             candidate_rows.append(
                 {
                     **row,
                     "candidate_records": candidate_records,
                     "ground_source": src,
+                    "coverage_delta": delta,
                 }
             )
     except FileNotFoundError as e:
@@ -660,15 +714,11 @@ def suggest_drives_command(
         candidate_rows, baseline_records, existing_drives, top_n_i
     )
 
-    # write coverage.json next to resolved area (always, even empty candidates)
-    cov_path = ac_mod.coverage_path_for_area(resolved)
     baseline_scene_tokens = [
         d.get("scene_token") for d in existing_drives if isinstance(d, dict) and d.get("scene_token")
     ]
-    gs = _flatten_source_list(
-        list(baseline_sources) + [r.get("ground_source") for r in candidate_rows]
-    )
-    extra = {
+    cov_path = ac_mod.coverage_path_for_area(resolved)
+    extra_base = {
         "epsg_persisted_polygon": area_def.get("epsg"),
         "dataset_version_area": area_def.get("dataset_version"),
         "suggest_version": version,
@@ -677,42 +727,92 @@ def suggest_drives_command(
         "generated_with": "twin.area_coverage",
         "area_resolved_path": str(resolved),
     }
-    try:
-        doc = ac_mod.coverage_document(
-            area_def.get("name") or resolved.stem,
-            str(resolved),
-            location,
-            origin,
-            baseline_records,
-            density_threshold_pts_m2=density_threshold_f,
-            ground_sources=gs,
-            baseline_scene_tokens=baseline_scene_tokens,
-            extra_metadata=extra,
-        )
-        ac_mod.atomic_write_json(cov_path, doc)
-    except (OSError, TypeError, ValueError) as e:
-        print(f"failed to write coverage output {cov_path}: {e}", file=sys.stderr)
-        return 2
+    if drivable_union_empty:
+        extra_base["drivable_union_empty"] = True
 
     # print table
     print(_format_suggest_table(ranked))
 
+    applied_rows = []
+    applied_drives_for_area = list(area_def.get("drives") or [])
     if apply_changes and ranked:
-        # append top-N ranked in ranked order, dedupe by scene_token, preserve keys/order of existing entries
-        existing = list(area_def.get("drives") or [])
-        seen = {d.get("scene_token") for d in existing if isinstance(d, dict) and d.get("scene_token")}
+        seen_apply = {
+            d.get("scene_token")
+            for d in applied_drives_for_area
+            if isinstance(d, dict) and d.get("scene_token")
+        }
         for r in ranked:
             tok = r.get("scene_token")
-            if tok in seen:
+            if tok in seen_apply:
                 continue
-            existing.append(_drive_entry_from_row(r))
-            seen.add(tok)
+            applied_drives_for_area.append(_drive_entry_from_row(r))
+            seen_apply.add(tok)
+            applied_rows.append(r)
         new_def = dict(area_def)
-        new_def["drives"] = existing
+        new_def["drives"] = applied_drives_for_area
         try:
             ac_mod.atomic_write_json(resolved, new_def)
         except (OSError, TypeError, ValueError) as e:
             print(f"failed to write area file {resolved}: {e}", file=sys.stderr)
+            return 2
+
+    if applied_rows:
+        final_acc = {k: dict(v) for k, v in baseline_acc.items()}
+        final_scene_tokens = list(baseline_scene_tokens)
+        final_sources = list(baseline_sources)
+        for r in applied_rows:
+            delta = r.get("coverage_delta") or {}
+            for key, (d_pts, d_drv) in delta.items():
+                if key not in final_acc:
+                    continue
+                final_acc[key]["road_surface_points"] = int(
+                    final_acc[key].get("road_surface_points", 0)
+                ) + int(d_pts)
+                final_acc[key]["drive_count"] = int(
+                    final_acc[key].get("drive_count", 0)
+                ) + int(d_drv)
+            tok = r.get("scene_token")
+            if tok:
+                final_scene_tokens.append(tok)
+            if r.get("ground_source") is not None:
+                final_sources.append(r.get("ground_source"))
+        final_records = ac_mod.cell_records(final_acc, density_threshold_f)
+        gs = _flatten_source_list(final_sources)
+        try:
+            doc = ac_mod.coverage_document(
+                new_def.get("name") or resolved.stem,
+                str(resolved),
+                location,
+                origin,
+                final_records,
+                density_threshold_pts_m2=density_threshold_f,
+                ground_sources=gs,
+                baseline_scene_tokens=final_scene_tokens,
+                extra_metadata=extra_base,
+            )
+            ac_mod.atomic_write_json(cov_path, doc)
+        except (OSError, TypeError, ValueError) as e:
+            print(f"failed to write coverage output {cov_path}: {e}", file=sys.stderr)
+            return 2
+    else:
+        gs = _flatten_source_list(
+            list(baseline_sources) + [r.get("ground_source") for r in candidate_rows]
+        )
+        try:
+            doc = ac_mod.coverage_document(
+                area_def.get("name") or resolved.stem,
+                str(resolved),
+                location,
+                origin,
+                baseline_records,
+                density_threshold_pts_m2=density_threshold_f,
+                ground_sources=gs,
+                baseline_scene_tokens=baseline_scene_tokens,
+                extra_metadata=extra_base,
+            )
+            ac_mod.atomic_write_json(cov_path, doc)
+        except (OSError, TypeError, ValueError) as e:
+            print(f"failed to write coverage output {cov_path}: {e}", file=sys.stderr)
             return 2
 
     return 0
