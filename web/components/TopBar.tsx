@@ -33,14 +33,13 @@ export function Crown() {
 export function BrandLockup() {
   return (
     <span className="lockup">
-      <a className="lockup-home" href="https://papyrus-ai.net">
+      <a className="lockup-home" href="https://papyrus-ai.net" aria-label="Papyrus AI home">
         <Crown />
         <span className="lockup-wm">
           Papyrus <span className="lockup-ai">AI</span>
         </span>
       </a>
       <span className="lockup-sep" aria-hidden="true">
-        ·
       </span>
       <a className="lockup-product" href="./">
         Digital Twin

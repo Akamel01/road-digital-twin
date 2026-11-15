@@ -134,7 +134,7 @@ export default function Shell() {
           {error === SHOWCASE_MISSING ? (
             <section className="vp-empty" style={{ padding: 24 }}>
               <h1>No gate-passed twin yet</h1>
-              <p>This area has no published twin. Open the latest build to see the newest run.</p>
+              <p>The reconstruction pipeline publishes here once a build passes every evaluation gate. The newest build, with its gate results, is on the Latest build page.</p>
               <Link href="/latest" className="btn">
                 Latest build
               </Link>
