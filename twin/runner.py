@@ -41,10 +41,10 @@ from twin.contracts import (
     stage_dir,
 )
 from twin.dataset import DatasetConfig
+from twin.runstore import RUN_ID_RE, RunStore
 
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_STORE = "/data/twin-runs"
-RUN_ID_RE = r"\d{8}-\d{6}-[0-9a-f]{6}"
 MIN_FREE_BYTES = 10 * 1024**3
 LOCK_FILE = ".run.lock"
 RUN_LOCK = ".lock"  # per-run lock, in the run folder: one task at a time per run
@@ -504,10 +504,10 @@ def resume_run(run_dir: Path | str) -> int:
 
 def run_over(run_dir: Path | str) -> bool:
     """True when the run has stopped: a stage failed or was cancelled, or all stages are in."""
-    manifest = Manifest.model_validate_json((Path(run_dir) / "manifest.json").read_text())
-    return len(manifest.stages) >= len(STAGE_NAMES) or any(
-        s.status not in ("ok", "skipped") for s in manifest.stages
-    )
+    run_dir = Path(run_dir)
+    runs = RunStore(run_dir.parent)
+    run = runs.get(run_dir.name)
+    return runs.complete(run) or bool(runs.failed(run))
 
 
 INTERRUPTED = "interrupted by restart"
@@ -557,10 +557,8 @@ def recover_interrupted(store: Path | str) -> list[str]:
         return []  # a live run holds the lock
     changed = []
     try:
-        for folder in sorted(store.iterdir()):
-            path = folder / "manifest.json"
-            if not (re.fullmatch(RUN_ID_RE, folder.name) and path.is_file()):
-                continue
+        for run in reversed(RunStore(store).runs()):
+            folder = run.path
             if _run_is_live(folder):
                 continue  # a scheduler task holds the run's own lock
             run_id = fail_running(folder, INTERRUPTED)
@@ -696,17 +694,17 @@ def rerun_async(
 def _exit_code(store: Path, run_id: str) -> int:
     """1 when a stage of the run failed (message on stderr), else 0."""
     run_dir = store / run_id
-    manifest = Manifest.model_validate_json((run_dir / "manifest.json").read_text())
-    failed = [s for s in manifest.stages if s.status not in ("ok", "skipped")]
-    if failed and failed[0].status == "cancelled":
+    runs = RunStore(store)
+    failed = runs.failed(runs.get(run_id))
+    if failed and failed[0]["status"] == "cancelled":
         print(
-            f"twin: run cancelled before stage {failed[0].name}; see {run_dir / 'manifest.json'}",
+            f"twin: run cancelled before stage {failed[0]['name']}; see {run_dir / 'manifest.json'}",
             file=sys.stderr,
         )
         return 1
     if failed:
         print(
-            f"twin: stage {failed[0].name} {failed[0].status}; see {run_dir / 'manifest.json'}",
+            f"twin: stage {failed[0]['name']} {failed[0]['status']}; see {run_dir / 'manifest.json'}",
             file=sys.stderr,
         )
         return 1

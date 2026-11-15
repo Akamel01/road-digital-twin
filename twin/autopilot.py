@@ -29,6 +29,7 @@ from twin.contracts import Params
 from twin.reload import CodeWatch
 from twin.runner import REPO as REPO_ROOT
 from twin.runner import dataset_version
+from twin.runstore import RunStore
 
 TAGS = {"tags": ["autopilot"]}
 LOW_WATER = 6  # active jobs below this: refill
@@ -338,7 +339,7 @@ def _usable(store: Path, folder: Path) -> bool:
     """A rerun sweep needs the base run built from the worker's dataset version."""
     try:
         target = json.loads((folder / "sweep.json").read_text())["target"]
-        made = json.loads((store / target / "manifest.json").read_text())["data"]["nuscenes_version"]
+        made = RunStore(store).get(target).dataset_version
     except (OSError, ValueError, KeyError):
         return False
     return made == dataset_version()
@@ -356,17 +357,8 @@ def _latest_scored(store: Path) -> str | None:
 
 def base_runs(store: Path) -> list[str]:
     """Dry drives: full runs of this dataset version whose accuracy stage passed, oldest first."""
-    out = []
-    for path in sorted(store.glob("*/manifest.json")):
-        try:
-            m = json.loads(path.read_text())
-            ok = m["data"]["nuscenes_version"] == dataset_version() and not m.get("parent")
-            ok = ok and any(st["name"] == "accuracy" and st["status"] == "ok" for st in m["stages"])
-        except (OSError, ValueError, KeyError):
-            continue
-        if ok:
-            out.append(path.parent.name)
-    return out
+    runs = RunStore(store).runs(no_parent=True, dataset_version=dataset_version())
+    return [r.id for r in reversed(runs) if any(s.get("name") == "accuracy" and s.get("status") == "ok" for s in r.stages)]
 
 
 def _bounds(path: str) -> tuple[float | None, float | None]:

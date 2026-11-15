@@ -6,7 +6,6 @@ job queue folders under <store>/queue. Stdlib only.
 """
 
 import csv
-import json
 import math
 import re
 import shutil
@@ -17,6 +16,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from twin.runner import STAGE_NAMES, default_store
+from twin.runstore import RunStore
 
 COLUMNS = (
     "ts",
@@ -251,8 +251,8 @@ def stage_hours(
     mean busy share of the samples taken during it. Stages shorter than one sample are not counted.
     Linked stages of a rerun (before its from_stage) ran in the parent run, so they are skipped."""
     totals: dict[str, dict] = {}
-    for manifest in sorted(Path(store).glob("*/manifest.json")):
-        data = json.loads(manifest.read_text())
+    for run in reversed(RunStore(store).runs()):
+        data = run.data
         parent = data.get("parent")
         first_new = STAGE_NAMES.index(parent["from_stage"]) if parent else 0
         for stage in data.get("stages", []):

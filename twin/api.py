@@ -28,6 +28,7 @@ from twin.runner import (
     rerun_async,
     start_run_async,
 )
+from twin.runstore import RunStore
 
 ALLOWED_ORIGIN = "https://twin.papyrus-ai.net"
 RUN_ID = re.compile(r"\d{8}-\d{6}-[0-9a-f]{6}")
@@ -45,14 +46,6 @@ def _load(store: Path, run_id: str) -> Manifest:
     if not path.is_file():
         raise HTTPException(404, "run not found")
     return Manifest.model_validate_json(path.read_text())
-
-
-def _status(m: Manifest) -> str:
-    statuses = {s.status for s in m.stages}
-    for name in ("failed", "cancelled", "running", "pending"):
-        if name in statuses:
-            return name
-    return "ok" if statuses else "pending"
 
 
 def _flat(node: Any, path: str = "") -> dict[str, Any]:
@@ -145,20 +138,14 @@ def create_app(store: Path, verifier: Verifier | None = None) -> FastAPI:
         if not store.is_dir():
             return []
         rows = []
-        for folder in store.iterdir():
-            if not (RUN_ID.fullmatch(folder.name) and folder.is_dir()):
-                continue
-            try:
-                m = Manifest.model_validate_json((folder / "manifest.json").read_text())
-            except (OSError, ValueError):
-                continue  # no readable manifest yet: not a run to list
+        for run in RunStore(store).runs():
             rows.append(
                 {
-                    "run_id": m.run_id,
-                    "scene_token": m.data.scene_token,
-                    "parent": m.parent.run_id if m.parent else None,
-                    "status": _status(m),
-                    "started": f"{m.run_id[:8]}T{m.run_id[9:15]}Z",
+                    "run_id": run.id,
+                    "scene_token": run.scene,
+                    "parent": (run.data.get("parent") or {}).get("run_id"),
+                    "status": run.status,
+                    "started": f"{run.id[:8]}T{run.id[9:15]}Z",
                 }
             )
         return sorted(rows, key=lambda r: r["run_id"], reverse=True)
