@@ -493,6 +493,7 @@ PARAM_STAGE: dict[str, str | None] = {
     "profile": "profile",
     "isd": "isd",
     "accuracy": "accuracy",
+    "merge": None,
 }
 
 
