@@ -64,16 +64,12 @@ def mem_total_gb() -> float:
 
 def budgets() -> tuple[int, float]:
     """(cores, GB) the scheduler may hand out."""
-    return max(1, (os.cpu_count() or 1) - RESERVE_CORES), max(
-        1.0, mem_total_gb() - RESERVE_GB
-    )
+    return max(1, (os.cpu_count() or 1) - RESERVE_CORES), max(1.0, mem_total_gb() - RESERVE_GB)
 
 
 def _peak_gb() -> float:
-    rss = max(
-        resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
-        resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss,
-    )
+    rss = max(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+              resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss)
     return rss / (1024**3 if sys.platform == "darwin" else 1024**2)
 
 
@@ -89,26 +85,13 @@ def _child(conn, fn: Callable, args: tuple) -> None:
 def _create_run(store: Path, job: dict) -> tuple[str, int]:
     """Check the job, make its run folder, link a re-run's parent stages. Returns (folder, first stage)."""
     if job["type"] == "run":
-        args = (
-            store,
-            job["scene"],
-            *runner._checked(
-                job["scene"],
-                jobqueue._load(job.get("pipeline")) or {},
-                jobqueue._load(job.get("params")) or {},
-            ),
-            None,
-            None,
-            None,
-        )
+        args = (store, job["scene"], *runner._checked(
+            job["scene"], jobqueue._load(job.get("pipeline")) or {},
+            jobqueue._load(job.get("params")) or {}), None, None, None)
     else:
-        args = runner._rerun_args(
-            store,
-            job["run_id"],
-            job["from_stage"],
-            jobqueue._load(job.get("pipeline")),
-            jobqueue._load(job.get("params")),
-        )
+        args = runner._rerun_args(store, job["run_id"], job["from_stage"],
+                                  jobqueue._load(job.get("pipeline")),
+                                  jobqueue._load(job.get("params")))
     begun = runner._create_locked(args[0], None, *args[1:])
     return str(begun.ctx.run_dir), runner.prepare_run(begun)
 
@@ -149,25 +132,14 @@ class Running:
 
 
 class Scheduler:
-    DRAIN_TIMEOUT = 3600
+    DRAIN_TIMEOUT = 3600  # seconds a code-change drain may wait for running tasks
 
-    def __init__(
-        self,
-        store,
-        max_tasks: int | None = None,
-        max_active: int = 24,
-        hold=jobqueue.disk_hold,
-        cores: int | None = None,
-        gb: float | None = None,
-    ):
+    def __init__(self, store, max_tasks: int | None = None, max_active: int = 24,
+                 hold=jobqueue.disk_hold, cores: int | None = None, gb: float | None = None):
         self.store = Path(store)
         bc, bg = budgets()
         self.cores, self.gb = cores or bc, gb or bg
-        self.max_tasks, self.max_active, self.hold = (
-            max_tasks or 10**6,
-            max_active,
-            hold,
-        )
+        self.max_tasks, self.max_active, self.hold = max_tasks or 10**6, max_active, hold
         self.active: list[Active] = []
         self.running: list[Running] = []
         self.ctx = multiprocessing.get_context("fork")
@@ -180,7 +152,7 @@ class Scheduler:
         self.gpu_record: dict = {}
         self._lease = None
         self._watch = CodeWatch()
-        self._drain_until: float | None = None
+        self._drain_until: float | None = None  # set when code changed: admit nothing new
 
     # --- costs -------------------------------------------------------------------------
     def cost(self, name: str, enabled: bool = True) -> Cost:
@@ -198,9 +170,7 @@ class Scheduler:
     def fill(self) -> None:
         """Take pending jobs (best priority first) while there is room and the disk allows."""
         while len(self.active) < self.max_active:
-            if any(jobqueue._dir(self.store, "pending").iterdir()) and (
-                reason := self.hold()
-            ):
+            if any(jobqueue._dir(self.store, "pending").iterdir()) and (reason := self.hold()):
                 self._say(f"held: {reason}")
                 return
             job = jobqueue.take(self.store)
@@ -223,15 +193,11 @@ class Scheduler:
             return Active(job, phase="post")
         if new := job.get("new_run"):  # restart: the run folder exists, carry on
             run_dir = self.store / new
-            a = Active(
-                job, run_dir, self._pipeline(run_dir), runner.resume_run(run_dir)
-            )
+            a = Active(job, run_dir, self._pipeline(run_dir), runner.resume_run(run_dir))
         else:
             a = self._create(job)
-            jobqueue._write(
-                jobqueue._dir(self.store, "running") / f"{job['id']}.json",
-                {**job, "new_run": a.run_dir.name},
-            )
+            jobqueue._write(jobqueue._dir(self.store, "running") / f"{job['id']}.json",
+                            {**job, "new_run": a.run_dir.name})
         if runner.run_over(a.run_dir):
             a.phase = "post"
         return a
@@ -239,10 +205,7 @@ class Scheduler:
     @staticmethod
     def _pipeline(run_dir: Path) -> Pipeline:
         import yaml
-
-        return Pipeline.model_validate(
-            yaml.safe_load((run_dir / "pipeline.yaml").read_text())
-        )
+        return Pipeline.model_validate(yaml.safe_load((run_dir / "pipeline.yaml").read_text()))
 
     def _create(self, job: dict) -> Active:
         free = runner.free_bytes(self.store)
@@ -282,42 +245,18 @@ class Scheduler:
             if a.phase == "stages":
                 name = STAGE_NAMES[a.next]
                 enabled = getattr(a.pipeline, name).enabled
-                tasks.append(
-                    Task(
-                        a,
-                        name,
-                        runner.run_stage_task,
-                        (a.run_dir, a.next),
-                        self.cost(name, enabled),
-                        stage=True,
-                    )
-                )
+                tasks.append(Task(a, name, runner.run_stage_task, (a.run_dir, a.next),
+                                  self.cost(name, enabled), stage=True))
             elif a.phase == "post":
                 run_id = a.run_dir.name if a.run_dir else job["run_id"]
                 publishes = job["type"] == "publish" or job.get("publish")
                 name = "publish" if publishes else "eval"
-                tasks.append(
-                    Task(
-                        a,
-                        name,
-                        jobqueue.post_run,
-                        (store, job, run_id),
-                        self.cost(name),
-                        "publish" if publishes else None,
-                    )
-                )
+                tasks.append(Task(a, name, jobqueue.post_run, (store, job, run_id),
+                                  self.cost(name), "publish" if publishes else None))
             else:
                 from twin.prgate import REPO, gate
-
-                tasks.append(
-                    Task(
-                        a,
-                        "prgate",
-                        gate,
-                        (store, job["pr"], job["sha"], job.get("repo", REPO)),
-                        self.cost("prgate"),
-                    )
-                )
+                tasks.append(Task(a, "prgate", gate, (store, job["pr"], job["sha"],
+                                  job.get("repo", REPO)), self.cost("prgate")))
         return sorted(tasks, key=lambda t: t.key)
 
     def admit(self) -> None:
@@ -363,10 +302,8 @@ class Scheduler:
     def _gpu_wanted(self) -> bool:
         """True while a GPU task runs or any active run still has an enabled GPU stage ahead."""
         return any(
-            a.phase == "stages"
-            and any(
-                n in GPU_STAGES and getattr(a.pipeline, n).enabled
-                for n in STAGE_NAMES[a.next :]
+            a.phase == "stages" and any(
+                n in GPU_STAGES and getattr(a.pipeline, n).enabled for n in STAGE_NAMES[a.next:]
             )
             for a in self.active
         )
@@ -412,24 +349,14 @@ class Scheduler:
         if not t.stage:
             return self._end(a, None, out)
         a.next += 1
-        if (
-            out
-            or a.next >= len(STAGE_NAMES)
-            or STAGE_NAMES[a.next - 1] == a.job.get("stop_after")
-        ):
+        if out or a.next >= len(STAGE_NAMES) or STAGE_NAMES[a.next - 1] == a.job.get("stop_after"):
             a.phase = "post"
 
     def _after_stages(self, a: Active) -> None:
         job = a.job
         if runner._exit_code(self.store, a.run_dir.name):
-            return self._end(
-                a,
-                f"run {a.run_dir.name} has a failed stage",
-                {"run_id": a.run_dir.name},
-            )
-        if job["type"] in ("run", "rerun") and not (
-            job.get("eval") or job.get("publish")
-        ):
+            return self._end(a, f"run {a.run_dir.name} has a failed stage", {"run_id": a.run_dir.name})
+        if job["type"] in ("run", "rerun") and not (job.get("eval") or job.get("publish")):
             self._end(a, None, {"run_id": a.run_dir.name})
 
     def _end(self, a: Active, error: str | None, out: dict | None = None) -> None:
@@ -450,14 +377,10 @@ class Scheduler:
         while True:
             if self._drain_until is None and (changed := self._watch.changed()):
                 old, new = changed
-                self._say(
-                    f"code changed {old}..{new}: draining {len(self.running)} tasks"
-                )
+                self._say(f"code changed {old}..{new}: draining {len(self.running)} tasks")
                 self._drain_until = time.time() + self.DRAIN_TIMEOUT
-            if self._drain_until is not None and (
-                not self.running or time.time() >= self._drain_until
-            ):
-                self._say("drain timeout: exiting anyway")
+            if self._drain_until is not None and (not self.running or time.time() >= self._drain_until):
+                self._say("drained: exiting for restart" if not self.running else "drain timeout: exiting for restart")
                 sys.exit(75)
             if self._drain_until is None:
                 self.fill()
@@ -480,28 +403,19 @@ class Scheduler:
         return any(jobqueue._dir(self.store, "pending").iterdir())
 
 
-def stream_worker(
-    store: Path | str,
-    max_tasks: int | None = None,
-    poll: float = 5,
-    exit_when_idle: bool = False,
-    hold=jobqueue.disk_hold,
-) -> int:
+def stream_worker(store: Path | str, max_tasks: int | None = None, poll: float = 5,
+                  exit_when_idle: bool = False, hold=jobqueue.disk_hold) -> int:
     """`twin worker --stream`: the scheduler as the queue worker. 3 when another worker runs."""
     store = Path(store)
     store.mkdir(parents=True, exist_ok=True)
-    lock = FileLock(
-        str(jobqueue._dir(store, "pending").parent / ".worker.lock"), thread_local=False
-    )
+    lock = FileLock(str(jobqueue._dir(store, "pending").parent / ".worker.lock"), thread_local=False)
     try:
         lock.acquire(timeout=0)
     except Timeout:
         print("twin worker: another worker is running", file=sys.stderr)
         return 3
     try:
-        print(
-            f"scheduler: store {store}; requeued {jobqueue.recover(store)}", flush=True
-        )
+        print(f"scheduler: store {store}; requeued {jobqueue.recover(store)}", flush=True)
         Scheduler(store, max_tasks, hold=hold).run(poll, exit_when_idle)
     finally:
         lock.release()

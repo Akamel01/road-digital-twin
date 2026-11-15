@@ -58,13 +58,7 @@ def validate(job: dict) -> None:
     kind = job.get("type")
     if kind not in JOB_TYPES:
         raise ValueError(f"job type must be one of {JOB_TYPES}, got {kind!r}")
-    need = {
-        "run": "scene",
-        "rerun": "run_id",
-        "eval": "run_id",
-        "publish": "run_id",
-        "prgate": "pr",
-    }[kind]
+    need = {"run": "scene", "rerun": "run_id", "eval": "run_id", "publish": "run_id", "prgate": "pr"}[kind]
     if not job.get(need):
         raise ValueError(f"{kind} job needs {need!r}")
     if kind == "rerun" and not job.get("from_stage"):
@@ -112,9 +106,7 @@ def take(store: Path | str) -> dict | None:
     """Move the highest-priority pending job (oldest first within a level) to running and
     return it, or None when there is none."""
     store = Path(store)
-    pending = {
-        p: json.loads(p.read_text()) for p in _dir(store, "pending").glob("*.json")
-    }
+    pending = {p: json.loads(p.read_text()) for p in _dir(store, "pending").glob("*.json")}
     for path in sorted(pending, key=lambda p: (priority(pending[p]), p.name)):
         try:
             os.rename(path, _dir(store, "running") / path.name)
@@ -196,12 +188,8 @@ def post_run(store: Path, job: dict, run_id: str) -> dict:
         from twin.site import SiteStop, publish_run
 
         try:
-            with FileLock(
-                str(Path(store) / PUBLISH_LOCK)
-            ):  # publish writes the shared site folder
-                out["publish_result"] = publish_run(
-                    store, run_id, job.get("dry_run", False)
-                )
+            with FileLock(str(Path(store) / PUBLISH_LOCK)):  # publish writes the shared site folder
+                out["publish_result"] = publish_run(store, run_id, job.get("dry_run", False))
         except SiteStop as exc:
             raise RuntimeError(str(exc)) from exc
     return out
@@ -263,11 +251,7 @@ def process_one(store: Path | str, hold=disk_hold) -> str | None:
         release(store, job)
         return f"held {job['id']}: {exc}"
     except Exception as exc:  # noqa: BLE001 - any failure is recorded on the job
-        finish(
-            store,
-            {**job, **({"gpu_lease": held} if held else {})},
-            f"{type(exc).__name__}: {exc}",
-        )
+        finish(store, {**job, **({"gpu_lease": held} if held else {})}, f"{type(exc).__name__}: {exc}")
         return f"failed {job['id']}: {exc}"
     if held:
         extra = {**extra, "gpu_lease": held}

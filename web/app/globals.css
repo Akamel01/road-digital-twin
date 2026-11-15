@@ -192,6 +192,18 @@ a:focus-visible {
   white-space: nowrap;
 }
 
+.stamp-nogo {
+  padding: 4px 10px;
+  border: 1px solid rgb(226 169 59 / 0.45);
+  border-radius: 999px;
+  color: #e2a93b;
+  text-decoration: none;
+}
+
+.stamp-nogo:hover {
+  background: rgb(226 169 59 / 0.12);
+}
+
 @media (max-width: 700px) {
   .stamp {
     display: none;

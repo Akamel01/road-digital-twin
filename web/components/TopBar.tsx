@@ -86,12 +86,18 @@ export default function TopBar({ areaName, status, facility, element, onUp, rail
           <b aria-current="location">{areaName}</b>
         )}
       </nav>
-      {status && (
-        <span className="stamp" title={`Run ${status.run_id}`}>
-          Gates: {status.verdict === "go" ? "GO" : status.verdict.toUpperCase()} · updated{" "}
-          {status.published_at.slice(0, 10)}
-        </span>
-      )}
+      {status &&
+        (status.verdict === "go" ? (
+          <span className="stamp" title={`Run ${status.run_id}`}>
+            Gates: GO · updated {status.published_at.slice(0, 10)}
+          </span>
+        ) : (
+          // Not gate-passed yet (#222): / shows the newest improving build; the gate results are on /latest.
+          <Link className="stamp stamp-nogo" href="/latest" title="Gate results on the Latest build page">
+            Not gate-passed yet: {status.checks_passed ?? 0} of {status.checks_total ?? 0} checks · updated{" "}
+            {status.published_at.slice(0, 10)}
+          </Link>
+        ))}
       <button
         type="button"
         className="railbtn glass"

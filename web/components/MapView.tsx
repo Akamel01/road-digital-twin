@@ -18,7 +18,7 @@ import {
   type RasterMeta,
 } from "@/lib/mapdata";
 import { sightsOf, type Sight } from "@/lib/sight";
-import { typeLabel, type AreaFacility, type AreaIndex } from "@/lib/showcase";
+import { typeLabel, type AreaFacility, type AreaIndex, type FacilityType } from "@/lib/showcase";
 import { PHONE, useMedia } from "@/lib/media";
 import {
   fitView,
@@ -34,6 +34,8 @@ import {
 } from "@/lib/tiles";
 
 const MAX_K = 40; // screen px per metre
+const LABEL_ZOOM_THRESHOLD = 4;
+const TYPE_RANK: Record<FacilityType, number> = { intersection: 0, segment: 1, access_point: 2 };
 const DEFAULT_LAYERS: Layers = { lidar: true, ortho: false, markings: true, crosswalks: true, curbs: true };
 
 interface LoadedDrive {
@@ -388,12 +390,46 @@ export default function MapView({ area, facility, element, line, onFacility, onE
     return { ...l, pts, at: entryOf(pts, facRect) };
   });
 
-  const areaFacilities = frame
-    ? area.facilities.flatMap((f) => {
-        const entry = geoIndex.get(f.id);
-        return entry ? [{ f, ring: entry.geo.ring.map((p) => toLocal(frame, p)) }] : [];
-      })
-    : [];
+  const areaFacilities = useMemo(
+    () =>
+      frame
+        ? area.facilities.flatMap((f) => {
+            const entry = geoIndex.get(f.id);
+            return entry ? [{ f, ring: entry.geo.ring.map((p) => toLocal(frame, p)) }] : [];
+          })
+        : [],
+    [frame, area, geoIndex],
+  );
+
+  const visibleLabels = useMemo(() => {
+    if (!frame) return [];
+    const zoom = cur?.k ?? 1;
+    const tx = cur?.tx ?? 0;
+    const ty = cur?.ty ?? 0;
+    const sorted = [...areaFacilities].sort((a, b) => {
+      const ra = TYPE_RANK[a.f.type] ?? 9;
+      const rb = TYPE_RANK[b.f.type] ?? 9;
+      if (ra !== rb) return ra - rb;
+      return a.f.id < b.f.id ? -1 : a.f.id > b.f.id ? 1 : 0;
+    });
+    const emitted: { x0: number; y0: number; x1: number; y1: number }[] = [];
+    const out: typeof areaFacilities = [];
+    for (const item of sorted) {
+      if (item.f.type !== "intersection" && zoom < LABEL_ZOOM_THRESHOLD) continue;
+      const r = rectOf(item.ring);
+      const label = phone ? item.f.id : `${item.f.id} · ${typeLabel(item.f.type)}`;
+      const sx = tx + zoom * r.x0;
+      const sy = ty + zoom * r.y0 - 2;
+      const box = { x0: sx, y0: sy - 12, x1: sx + label.length * 7, y1: sy };
+      const overlaps = emitted.some(
+        (b) => !(box.x1 < b.x0 || box.x0 > b.x1 || box.y1 < b.y0 || box.y0 > b.y1),
+      );
+      if (overlaps) continue;
+      emitted.push(box);
+      out.push(item);
+    }
+    return out;
+  }, [areaFacilities, cur, phone, frame]);
 
   return (
     <>
@@ -441,7 +477,7 @@ export default function MapView({ area, facility, element, line, onFacility, onE
                   />
                 ))}
               {!facility &&
-                areaFacilities.map(({ f, ring }) => {
+                visibleLabels.map(({ f, ring }) => {
                   const r = rectOf(ring);
                   return (
                     <text

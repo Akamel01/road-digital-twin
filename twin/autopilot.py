@@ -24,6 +24,7 @@ from pathlib import Path
 from filelock import FileLock, Timeout
 
 from twin import gates, jobqueue, prgate, site, sweep, telemetry
+from twin.area import drive_tokens
 from twin.contracts import Params
 from twin.reload import CodeWatch
 from twin.runner import REPO as REPO_ROOT
@@ -177,6 +178,33 @@ def publish_latest(store: Path) -> None:
         say(f"latest build publish failed: {exc!r}")
 
 
+def area_scenes(store: Path) -> list[str]:
+    """Scene tokens of the area twin's drives; [] before the first area build. Run jobs take tokens."""
+    return drive_tokens(Path(store) / "areas" / TWIN)
+
+
+def publish_showcase(store: Path) -> bool:
+    """Publish the newest area twin to / when it improves on the published one (#222). Logged, never fatal.
+
+    Returns True when it actually tried to publish (runs finished), False when it had
+    to wait for area drive runs to finish first."""
+    store = Path(store)
+    scenes = set(area_scenes(store))
+    if scenes:
+        waiting = [j for j in jobqueue.list_jobs(store)
+                   if j.get("state") in ("pending", "running") and j.get("scene") in scenes]
+        if waiting:
+            say(f"showcase waits for {len(waiting)} drive runs")
+            return False
+    try:
+        say(f"showcase: {site.publish_run(store, TWIN)}")
+    except site.SiteStop as exc:
+        say(f"showcase not published: {exc}")
+    except Exception as exc:  # noqa: BLE001
+        say(f"showcase publish failed: {exc!r}")
+    return True
+
+
 def p2_area(store: Path, state: dict) -> int:
     """On a new main commit: area merge (it builds each drive itself), area twin (#142), then eval, in one
     detached shell. Then the #143 and #144 hooks. When main is unchanged but a gate changed since
@@ -185,11 +213,14 @@ def p2_area(store: Path, state: dict) -> int:
     p2, p2b = state.setdefault("p2", {}), state.setdefault("p2b", {})
     if any(j.get("pid") and _alive(j["pid"]) for j in (p2, p2b)):
         return 0  # still building
+    if p2.get("showcase_pending") and publish_showcase(store):
+        p2["showcase_pending"] = False
     if p2.get("building"):  # it ended; the exit file says how
         code = _exit_code(p2)
         say(f"P2 {p2['building'][:7]} finished, exit {code}")
         if code in ("0", "1"):
             publish_latest(store)
+            p2["showcase_pending"] = not publish_showcase(store)
         if code == "0":
             leave_one_drive_out(store, AREA)
             rain_test(store, AREA)
@@ -201,6 +232,7 @@ def p2_area(store: Path, state: dict) -> int:
         say(f"P2b re-eval finished, exit {code}")
         if code in ("0", "1"):
             publish_latest(store)
+            p2["showcase_pending"] = not publish_showcase(store)
         if code == "0":
             leave_one_drive_out(store, AREA)
             rain_test(store, AREA)
@@ -227,6 +259,17 @@ def p2_area(store: Path, state: dict) -> int:
         say(f"P2 new main {commit[:7]}: area {AREA} merge + twin + eval, pid {pid}")
         # operator 2026-11-14 pipeline automation: a scene-0757 run of current main, so prgate.pick_baseline compares with it
         jobqueue.add(store, {"type": "run", "scene": prgate.SCENE, "eval": True, "tags": [*TAGS["tags"], "baseline"]})
+        # per-scene full runs for the showcase: skip drives whose newest full run is already on this commit
+        for scene in area_scenes(store):
+            newest = prgate.pick_baseline(store, scene=scene)
+            if newest is not None:
+                try:
+                    m = json.loads((newest / "manifest.json").read_text())
+                    if m.get("code", {}).get("git_sha") == commit:
+                        continue
+                except (OSError, ValueError):
+                    pass
+            jobqueue.add(store, {"type": "run", "scene": scene, "eval": True})
     elif p2.get("built") and p2b.get("gates") != (now := gates_hash()):
         pid, exit_file = _detached(store, "p2b", eval_cmd)
         p2b.update(running=True, pid=pid, exit_file=exit_file, gates=now)
