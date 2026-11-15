@@ -32,6 +32,7 @@ LOW_WATER = 6  # active jobs below this: refill
 TARGET = 12  # ... up to this
 PAUSE_FILE = "autopilot.pause"
 AREA = "seaport"
+TWIN = f"{AREA}-twin"  # what `twin area twin` writes: the area build that eval and the latest view use (#142)
 REPO_URL = "https://github.com/Akamel01/road-digital-twin.git"
 ROUND_N = 8  # variants per sweep round
 TOP = 5  # leaderboard rows that seed a round
@@ -122,7 +123,7 @@ def record_g2(store: Path) -> None:
     """Append the latest area build's G2 value and verdict to autopilot/g2_history.json, and say
     when G2_RUN builds in a row passed at the current threshold. gates.yaml is never edited."""
     try:
-        report = json.loads((store / "areas" / f"{AREA}-merged" / "gates.json").read_text())
+        report = json.loads((store / "areas" / TWIN / "gates.json").read_text())
         check = report["gates"]["G2"]["checks"][0]
         entry = {"run_id": report["run_id"], "value": check["value"], "threshold": check["threshold"],
                  "status": check["status"]}  # fmt: skip
@@ -167,7 +168,7 @@ def publish_latest(store: Path) -> None:
     """Update the site's Latest build view after an area eval, whatever the verdict (#192).
     A failure is logged and never stops the loop."""
     try:
-        say(f"latest build: {site.publish_latest(store, f'{AREA}-merged')}")
+        say(f"latest build: {site.publish_latest(store, TWIN)}")
     except site.SiteStop as exc:
         say(f"latest build not published: {exc}")
     except Exception as exc:  # noqa: BLE001 - the autopilot loop must not die on a site problem
@@ -175,7 +176,7 @@ def publish_latest(store: Path) -> None:
 
 
 def p2_area(store: Path, state: dict) -> int:
-    """On a new main commit: area merge (it builds each drive itself), then eval, in one
+    """On a new main commit: area merge (it builds each drive itself), area twin (#142), then eval, in one
     detached shell. Then the #143 and #144 hooks. When main is unchanged but a gate changed since
     the last eval (P2b), re-run eval and the hooks on the latest area build. Returns 0: these
     are not queue jobs."""
@@ -205,12 +206,12 @@ def p2_area(store: Path, state: dict) -> int:
         p2b.update(running=False, pid=None, exit=code)
     twin = f"{sys.executable} -m twin.cli"
     # eval exit 1 is a no-go verdict, not a failure
-    eval_cmd = f"({twin} eval areas/{AREA}-merged --store {store}; [ $? -le 1 ])"
+    eval_cmd = f"({twin} eval areas/{TWIN} --store {store}; [ $? -le 1 ])"
     commit = main_commit()
     if commit is not None and commit != p2.get("built"):
-        pid, exit_file = _detached(store, f"p2-{commit[:7]}", f"{twin} area merge {AREA} --store {store} && {eval_cmd}")
+        pid, exit_file = _detached(store, f"p2-{commit[:7]}", f"{twin} area merge {AREA} --store {store} && {twin} area twin {AREA} --store {store} && {eval_cmd}")
         p2.update(building=commit, pid=pid, exit_file=exit_file)
-        say(f"P2 new main {commit[:7]}: area {AREA} merge + eval, pid {pid}")
+        say(f"P2 new main {commit[:7]}: area {AREA} merge + twin + eval, pid {pid}")
         # operator 2026-11-14 pipeline automation: a scene-0757 run of current main, so prgate.pick_baseline compares with it
         jobqueue.add(store, {"type": "run", "scene": prgate.SCENE, "eval": True, "tags": [*TAGS["tags"], "baseline"]})
     elif p2.get("built") and p2b.get("gates") != (now := gates_hash()):

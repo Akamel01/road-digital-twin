@@ -90,10 +90,14 @@ def _reference(
 
 
 def _observed(features: list[dict]) -> tuple[list[BaseGeometry], int]:
-    """Geometries of observed features, and how many were left out as not observed."""
+    """Geometries of observed features, and how many were left out as not observed or changed.
+
+    A feature the area twin marked properties.changed (its cells differ between drive dates, #142) is left out.
+    """
     kept, excluded = [], 0
     for f in features:
-        if f["properties"].get("reliability") == "observed":
+        props = f["properties"]
+        if props.get("reliability") == "observed" and not props.get("changed"):
             kept.append(_geom(f))
         else:
             excluded += 1
