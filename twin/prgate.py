@@ -76,10 +76,6 @@ def poll(store: Path, repo: str = REPO, dry_run: bool = False, gh=gh, extra: dic
         if j["type"] == "prgate"
     }
     lines = []
-    # Post each (SHA, context, state, description) at most once: GitHub caps statuses per SHA
-    # and context (1000). Remember posted keys in <store>/queue/prgate-statuses.json.
-    status_file = Path(store) / "queue" / "prgate-statuses.json"
-    posted = set(json.loads(status_file.read_text())) if status_file.exists() else set()
     na_file = Path(store) / "queue" / "prgate-na.json"
     na = set(json.loads(na_file.read_text())) if na_file.exists() else set()
     for p in open_prs(repo, gh):
@@ -87,16 +83,24 @@ def poll(store: Path, repo: str = REPO, dry_run: bool = False, gh=gh, extra: dic
         if p["method"] and (p["pr"], p["sha"]) not in seen and not touches_single_drive(repo, p["pr"], gh):
             why = "n/a: no single-drive stage changed"  # e.g. a merge-only PR: the scene-0757 run would not differ
         if why != "n/a: not a method PR" or not p["method"]:
-            key = f"{p['sha']}\x1f{CONTEXT}\x1fsuccess\x1f{why}"
-            if key not in posted:
+            if p["sha"] in na:
+                continue
+            try:
                 set_status(repo, p["sha"], "success", why, dry_run, gh)
-                if not dry_run:
-                    posted.add(key)
-                    status_file.parent.mkdir(parents=True, exist_ok=True)
-                    status_file.write_text(json.dumps(sorted(posted)))
-                    na.add(p["sha"])
-                    na_file.parent.mkdir(parents=True, exist_ok=True)
-                    na_file.write_text(json.dumps(sorted(na)))
+            except Exception as exc:  # noqa: BLE001 - posting must not kill the poll
+                msg = str(exc)
+                if "reached the maximum number of statuses" in msg:
+                    if not dry_run:
+                        na.add(p["sha"])
+                        na_file.parent.mkdir(parents=True, exist_ok=True)
+                        na_file.write_text(json.dumps(sorted(na)))
+                else:
+                    print(f"prgate: set_status failed for {p['sha'][:7]}: {msg}", file=sys.stderr)
+                continue
+            if not dry_run:
+                na.add(p["sha"])
+                na_file.parent.mkdir(parents=True, exist_ok=True)
+                na_file.write_text(json.dumps(sorted(na)))
             continue
         if (p["pr"], p["sha"]) in seen:
             continue
@@ -186,7 +190,11 @@ def post_comment(repo: str, pr: int, body: str, dry_run: bool, gh=gh) -> None:
 def gate(store, pr, sha, repo=REPO, root=ROOT, dry_run=False, gh=gh) -> dict:
     """Run the gate for one PR head. Posts a result; on failure posts an error status."""
     store, root = Path(store), Path(root)
-    set_status(repo, sha, "pending", "twin gates running on scene-0757", dry_run, gh)
+    try:
+        set_status(repo, sha, "pending", "twin gates running on scene-0757", dry_run, gh)
+    except Exception as exc:  # noqa: BLE001
+        if "reached the maximum number of statuses" not in str(exc):
+            print(f"prgate: set_status failed for {sha[:7]}: {exc}", file=sys.stderr)
     try:
         clone = checkout(repo, pr, sha, root)
         runs = root / f"{pr}-runs"  # this PR's run store, replaced on every head
@@ -204,7 +212,11 @@ def gate(store, pr, sha, repo=REPO, root=ROOT, dry_run=False, gh=gh) -> dict:
         report = json.loads((runs / run_id / "gates.json").read_text())
         text = (runs / run_id / "gates.md").read_text()
     except Exception as exc:
-        set_status(repo, sha, "error", f"{type(exc).__name__}: {exc}", dry_run, gh)
+        try:
+            set_status(repo, sha, "error", f"{type(exc).__name__}: {exc}", dry_run, gh)
+        except Exception as exc2:  # noqa: BLE001
+            if "reached the maximum number of statuses" not in str(exc2):
+                print(f"prgate: set_status failed for {sha[:7]}: {exc2}", file=sys.stderr)
         raise
     verdict = report["verdict"]
     head = f"{MARKER}\n**twin-gates** for `{sha[:7]}` on scene-0757. Baseline "
@@ -220,7 +232,11 @@ def gate(store, pr, sha, repo=REPO, root=ROOT, dry_run=False, gh=gh) -> dict:
     else:
         ok = verdict != NO_GO
         desc = f"{verdict}: run {run_id}, baseline {base.name if base else 'none'}"
-    set_status(repo, sha, "success" if ok else "failure", desc, dry_run, gh)
+    try:
+        set_status(repo, sha, "success" if ok else "failure", desc, dry_run, gh)
+    except Exception as exc:  # noqa: BLE001
+        if "reached the maximum number of statuses" not in str(exc):
+            print(f"prgate: set_status failed for {sha[:7]}: {exc}", file=sys.stderr)
     return {"eval_result": verdict, "run_id": run_id, "pr": pr}
 
 

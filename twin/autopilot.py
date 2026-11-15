@@ -25,15 +25,9 @@ from filelock import FileLock, Timeout
 
 from twin import gates, jobqueue, prgate, site, sweep, telemetry
 from twin.contracts import Params
+from twin.reload import CodeWatch
 from twin.runner import REPO as REPO_ROOT
 from twin.runner import dataset_version
-from twin.runner import repo_head as _runner_repo_head
-
-
-def repo_head() -> str | None:
-    """Git HEAD of this package's repo (monkeypatchable)."""
-    return _runner_repo_head()
-
 
 TAGS = {"tags": ["autopilot"]}
 LOW_WATER = 6  # active jobs below this: refill
@@ -586,17 +580,18 @@ def autopilot_command(store: Path | None, poll: float, once: bool, skip: tuple =
     except Timeout:
         print("twin autopilot: another autopilot is running", file=sys.stderr)
         return 3
-    start_head = repo_head()
+    watch = CodeWatch()
     try:
         while True:
             try:
                 say(step(store, skip=skip))
             except Exception as exc:  # noqa: BLE001 - one bad pass must not end the loop
                 say(f"pass failed: {type(exc).__name__}: {exc}")
-            new_head = repo_head()
-            if start_head and new_head and new_head != start_head:
-                say(f"code changed {start_head}..{new_head}: restarting")
-                os.execv(sys.argv[0], sys.argv)
+            changed = watch.changed()
+            if changed:
+                old, new = changed
+                say(f"code changed {old}..{new}: exiting for restart")
+                sys.exit(75)
             if once:
                 return 0
             time.sleep(poll)

@@ -18,6 +18,7 @@ import yaml
 from filelock import FileLock, Timeout
 
 from twin import gpulease
+from twin.reload import CodeWatch
 from twin.runner import (
     LowDisk,
     RunBusy,
@@ -27,12 +28,6 @@ from twin.runner import (
     rerun,
     start_run,
 )
-
-
-def repo_head() -> str | None:
-    from twin import runner
-    return runner.repo_head()
-
 
 STATES = ("pending", "running", "done", "failed")
 JOB_TYPES = ("run", "rerun", "eval", "publish", "prgate")
@@ -288,13 +283,14 @@ def worker(
             ValueError
         ) as exc:  # a run from another code version has an unreadable manifest
             print(f"run recovery skipped: {exc}", flush=True)
-        start_head = repo_head()
+        watch = CodeWatch()
         count = 0
         while not jobs or count < jobs:
-            new_head = repo_head()
-            if start_head and new_head and new_head != start_head:
-                print(f"code changed {start_head}..{new_head}: restarting", flush=True)
-                os.execv(sys.argv[0], sys.argv)
+            changed = watch.changed()
+            if changed:
+                old, new = changed
+                print(f"code changed {old}..{new}: exiting for restart", flush=True)
+                sys.exit(75)
             status = process_one(store, hold)
             if status is None or status.startswith("held"):
                 if status:

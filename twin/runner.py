@@ -111,8 +111,6 @@ def repo_head() -> str | None:
     return out.strip() if out else None
 
 
-git_head = repo_head
-current_head = repo_head
 
 
 def _code_info() -> ManifestCode:
