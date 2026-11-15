@@ -61,7 +61,7 @@ def _run(store, name, verdict, nogo=0, scene=prgate.SCENE, status="ok"):
     d = store / name
     d.mkdir()
     (d / "manifest.json").write_text(
-        json.dumps({"data": {"scene_token": scene}, "stages": [{"status": status}]})
+        json.dumps({"data": {"scene_token": scene, "nuscenes_version": "v1.0-mini"}, "stages": [{"status": status}]})
     )
     if verdict:
         checks = [{"status": "no-go"}] * nogo
