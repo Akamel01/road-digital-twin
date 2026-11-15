@@ -175,14 +175,37 @@ def publish_latest(store: Path) -> None:
         say(f"latest build publish failed: {exc!r}")
 
 
-def publish_showcase(store: Path) -> None:
-    """Publish the GO showcase after an area eval, if it improves. Logged, never fatal."""
+def publish_showcase(store: Path) -> bool:
+    """Publish the GO showcase after an area eval, if it improves. Logged, never fatal.
+
+    Returns True when it actually tried to publish (runs finished), False when it had
+    to wait for area drive runs to finish first."""
+    store = Path(store)
+    scenes: set = set()
+    drives_file = store / "areas" / TWIN / "drives.json"
+    if drives_file.is_file():
+        try:
+            for d in json.loads(drives_file.read_text()):
+                scene = d.get("scene") if isinstance(d, dict) else None
+                if scene is None and isinstance(d, dict):
+                    scene = d.get("scene_token")
+                if scene is not None:
+                    scenes.add(scene)
+        except (OSError, ValueError):
+            scenes = set()
+    if scenes:
+        waiting = [j for j in jobqueue.list_jobs(store)
+                   if j.get("state") in ("pending", "running") and j.get("scene") in scenes]
+        if waiting:
+            say(f"showcase waits for {len(waiting)} drive runs")
+            return False
     try:
         say(f"showcase: {site.publish_run(store, TWIN)}")
     except site.SiteStop as exc:
         say(f"showcase not published: {exc}")
     except Exception as exc:  # noqa: BLE001
         say(f"showcase publish failed: {exc!r}")
+    return True
 
 
 def p2_area(store: Path, state: dict) -> int:
@@ -193,12 +216,17 @@ def p2_area(store: Path, state: dict) -> int:
     p2, p2b = state.setdefault("p2", {}), state.setdefault("p2b", {})
     if any(j.get("pid") and _alive(j["pid"]) for j in (p2, p2b)):
         return 0  # still building
+    if p2.get("showcase_pending") and publish_showcase(store):
+        p2["showcase_pending"] = False
     if p2.get("building"):  # it ended; the exit file says how
         code = _exit_code(p2)
         say(f"P2 {p2['building'][:7]} finished, exit {code}")
         if code in ("0", "1"):
             publish_latest(store)
-            publish_showcase(store)
+            if publish_showcase(store):
+                p2["showcase_pending"] = False
+            else:
+                p2["showcase_pending"] = True
         if code == "0":
             leave_one_drive_out(store, AREA)
             rain_test(store, AREA)
@@ -210,7 +238,10 @@ def p2_area(store: Path, state: dict) -> int:
         say(f"P2b re-eval finished, exit {code}")
         if code in ("0", "1"):
             publish_latest(store)
-            publish_showcase(store)
+            if publish_showcase(store):
+                p2["showcase_pending"] = False
+            else:
+                p2["showcase_pending"] = True
         if code == "0":
             leave_one_drive_out(store, AREA)
             rain_test(store, AREA)
@@ -226,6 +257,27 @@ def p2_area(store: Path, state: dict) -> int:
         say(f"P2 new main {commit[:7]}: area {AREA} merge + twin + eval, pid {pid}")
         # operator 2026-11-14 pipeline automation: a scene-0757 run of current main, so prgate.pick_baseline compares with it
         jobqueue.add(store, {"type": "run", "scene": prgate.SCENE, "eval": True, "tags": [*TAGS["tags"], "baseline"]})
+        # per-scene full runs for the showcase: skip drives whose newest full run is already on this commit
+        drives_file = store / "areas" / TWIN / "drives.json"
+        try:
+            drives = json.loads(drives_file.read_text()) if drives_file.is_file() else []
+        except (OSError, ValueError):
+            drives = []
+        for d in drives:
+            scene = d.get("scene") if isinstance(d, dict) else None
+            if scene is None and isinstance(d, dict):
+                scene = d.get("scene_token")
+            if scene is None:
+                continue
+            newest = prgate.pick_baseline(store, scene=scene)
+            if newest is not None:
+                try:
+                    m = json.loads((newest / "manifest.json").read_text())
+                    if m.get("code", {}).get("git_sha") == commit:
+                        continue
+                except (OSError, ValueError):
+                    pass
+            jobqueue.add(store, {"type": "run", "scene": scene, "eval": True})
     elif p2.get("built") and p2b.get("gates") != (now := gates_hash()):
         pid, exit_file = _detached(store, "p2b", eval_cmd)
         p2b.update(running=True, pid=pid, exit_file=exit_file, gates=now)
