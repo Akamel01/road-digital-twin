@@ -57,16 +57,16 @@ def _json(path: Path, default):
 
 # --- collection ---------------------------------------------------------------------------
 def processes(ps_text: str | None = None) -> dict:
-    """{name: {"alive": bool, "uptime_s": int | None}} from `ps` (python processes only, so a
+    """{name: {"alive": bool, "uptime_s": int | None}} from `ps` (commands run by a python interpreter only, so a
     shell or ssh command that merely mentions a name never counts)."""
     if ps_text is None:
-        out = subprocess.run(["ps", "-eo", "etimes=,comm=,args="], capture_output=True, text=True, check=False)
+        out = subprocess.run(["ps", "-eo", "etimes=,args="], capture_output=True, text=True, check=False)
         ps_text = out.stdout
     found: dict[str, int] = {}
     for line in ps_text.splitlines():
         parts = line.split(None, 2)
-        if len(parts) < 3 or not parts[0].isdigit() or not parts[1].startswith("python"):
-            continue
+        if len(parts) < 3 or not parts[0].isdigit() or not parts[1].rsplit("/", 1)[-1].startswith("python"):
+            continue  # the command must be a python interpreter; a shell or ssh line is not a process
         for name, marker in PROCESSES.items():
             if marker in parts[2]:
                 found[name] = max(found.get(name, 0), int(parts[0]))
