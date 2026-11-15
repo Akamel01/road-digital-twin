@@ -74,13 +74,11 @@ def test_pick_baseline(tmp_path):
     _run(tmp_path, "20261102-000000-bbbbbb", "no-go", 3)
     _run(tmp_path, "20261103-000000-cccccc", "go", status="running")
     _run(tmp_path, "20261104-000000-dddddd", "go", scene="other")
-    assert prgate.pick_baseline(tmp_path).name == "20261101-000000-aaaaaa"
-    # no go anywhere: fewest no-go checks wins
-    only = tmp_path / "x"
-    only.mkdir()
-    _run(only, "20261101-000000-aaaaaa", "no-go", 3)
-    _run(only, "20261102-000000-bbbbbb", "no-go", 1)
-    assert prgate.pick_baseline(only).name == "20261102-000000-bbbbbb"
+    # the newest finished run is current main, whatever its verdict
+    assert prgate.pick_baseline(tmp_path).name == "20261102-000000-bbbbbb"
+    # a stage that is off by default (skipped) does not disqualify a run
+    _run(tmp_path, "20261105-000000-eeeeee", "no-go", 1, status="skipped")
+    assert prgate.pick_baseline(tmp_path).name == "20261105-000000-eeeeee"
     assert prgate.pick_baseline(tmp_path / "none") is None
 
 
