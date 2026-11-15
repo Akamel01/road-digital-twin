@@ -50,6 +50,14 @@ GROUND_PCT = 10
 # per-pair robust fit (layer mix-ups and car tops are outliers).
 PLANE_SCALE_M = 0.15
 PLANE_ITER = 10
+SURFACE_DEGREE = 2
+SURFACE_SCALE_M = 50.0
+SURFACE_RIDGE = 5.0
+# DECISION (#207): a ground cell is an overhead layer, not ground, when it sits more than LAYER_K robust sigmas and
+# LAYER_MIN_M from the median of the other drives (cells seen by more than LAYER_MIN_DRIVES drives).
+LAYER_K = 5.0
+LAYER_MIN_M = 0.5
+LAYER_MIN_DRIVES = 2
 MIN_CELL_POINTS = 5
 MIN_CELLS = 200
 
@@ -146,9 +154,18 @@ def ground_disagreement(ca: dict, cb: dict) -> dict | None:
     }
 
 
-def plane_fit(xy: np.ndarray, dz: np.ndarray) -> np.ndarray:
-    """Robust (IRLS, weight 1 within PLANE_SCALE_M then falling as 1/r^2) fit of dz = a + bx*x + by*y. Returns (a, bx, by). xy is centred on the polygon."""
-    A = np.column_stack([np.ones(len(dz)), xy])
+def surface_basis(xy: np.ndarray, degree: int) -> np.ndarray:
+    """Columns 1, x, y (and x^2, xy, y^2 for degree 2), x and y in SURFACE_SCALE_M units from the polygon centre."""
+    x, y = xy[:, 0] / SURFACE_SCALE_M, xy[:, 1] / SURFACE_SCALE_M
+    cols = [np.ones_like(x), x, y]
+    if degree >= 2:
+        cols += [x * x, x * y, y * y]
+    return np.column_stack(cols)
+
+
+def surface_fit(xy: np.ndarray, dz: np.ndarray, degree: int = 1) -> np.ndarray:
+    """Robust (IRLS, weight 1 within PLANE_SCALE_M then falling as 1/r^2) fit of dz on surface_basis."""
+    A = surface_basis(xy, degree)
     w = np.ones(len(dz))
     for _ in range(PLANE_ITER):
         sw = np.sqrt(w)
@@ -158,44 +175,108 @@ def plane_fit(xy: np.ndarray, dz: np.ndarray) -> np.ndarray:
     return coef
 
 
-def fit_zplanes(cells: dict[str, dict], ref: str) -> dict[str, np.ndarray]:
-    """Per-drive height plane z += a + bx*x + by*y (x, y from the polygon centre) that makes all drives' ground agree.
+def fit_surfaces(
+    cells: dict[str, dict],
+    ref: str,
+    degree: int = 1,
+    ridge: float = SURFACE_RIDGE,
+    skip: frozenset = frozenset(),
+) -> dict[str, np.ndarray]:
+    """Per-drive height surface z += surface_basis @ coef that makes all drives' ground agree (degree 1: a plane).
 
-    Every pair with enough shared cells gives a robust plane difference; one linear least squares over all pairs
+    Every pair with enough shared cells gives a robust surface difference; one linear least squares over all pairs
     (weighted by cells shared, ref held at zero) then spreads the disagreement over the drives instead of
-    pinning everything to the reference. Drives with no pair stay at zero.
+    pinning everything to the reference. The curvature terms (degree 2) carry a ridge penalty so they stay at zero
+    unless the pairs ask for them. Drives with no pair stay at zero. `skip` is a set of (a, b) pairs left out of the
+    fit (held-out pairs in validation).
     """
     ids = sorted(cells)
+    nb = 3 if degree == 1 else 6
     col = {k: i for i, k in enumerate(k for k in ids if k != ref)}
     rows, rhs = [], []
     for i, a in enumerate(ids):
         for b in ids[i + 1 :]:
             keys = sorted(cells[a].keys() & cells[b].keys())
-            if len(keys) < MIN_CELLS:
+            if len(keys) < MIN_CELLS or (a, b) in skip:
                 continue
             xy = np.array(keys, float) * CELL_M
-            d = plane_fit(xy, np.array([cells[a][k] - cells[b][k] for k in keys]))
+            d = surface_fit(
+                xy, np.array([cells[a][k] - cells[b][k] for k in keys]), degree
+            )
             w = np.sqrt(len(keys))
-            for j in range(3):
-                row = np.zeros(3 * len(col))
+            for j in range(nb):
+                row = np.zeros(nb * len(col))
                 for k, sign in ((a, 1.0), (b, -1.0)):
                     if k in col:
-                        row[3 * col[k] + j] = sign * w
+                        row[nb * col[k] + j] = sign * w
                 rows.append(row)
                 rhs.append(d[j] * w)
-    out = {k: np.zeros(3) for k in ids}
+    out = {k: np.zeros(nb) for k in ids}
     if rows:
+        for k in col.values():
+            for j in range(3, nb):
+                row = np.zeros(nb * len(col))
+                row[nb * k + j] = ridge
+                rows.append(row)
+                rhs.append(0.0)
         sol = np.linalg.lstsq(np.array(rows), np.array(rhs), rcond=None)[0]
         for k, i in col.items():
-            out[k] = -sol[3 * i : 3 * i + 3]
+            out[k] = -sol[nb * i : nb * i + nb]
     return out
 
 
-def apply_zplane(xyz: np.ndarray, plane: np.ndarray) -> np.ndarray:
-    """xyz centred on the polygon; adds the drive's height plane to z."""
+def surface_z(xy: np.ndarray, coef: np.ndarray) -> np.ndarray:
+    """Height the surface adds at xy (centred on the polygon)."""
+    return surface_basis(xy, 1 if len(coef) == 3 else 2) @ coef
+
+
+def apply_surface(xyz: np.ndarray, coef: np.ndarray) -> np.ndarray:
+    """xyz centred on the polygon; adds the drive's height surface to z."""
     out = xyz.copy()
-    out[:, 2] += plane[0] + xyz[:, :2] @ plane[1:]
+    out[:, 2] += surface_z(xyz[:, :2], coef)
     return out
+
+
+def apply_cells(cells: dict, coef: np.ndarray) -> dict:
+    """The same correction on a ground_cells dict."""
+    if not cells:
+        return {}
+    keys = list(cells)
+    z = np.array([cells[k] for k in keys]) + surface_z(
+        np.array(keys, float) * CELL_M, coef
+    )
+    return dict(zip(keys, map(float, z), strict=True))
+
+
+def reject_layers(cells: dict[str, dict]) -> tuple[dict[str, dict], dict[str, int]]:
+    """Drop ground cells that sit far from the other drives' consensus (an overhead layer is not ground).
+
+    For each cell seen by at least LAYER_MIN_DRIVES drives, a drive's height is compared with the median of the
+    others'. A cell is dropped when the difference exceeds LAYER_K robust sigmas (MAD of all differences) and at
+    least LAYER_MIN_M. Returns the kept cells and the number dropped per drive.
+    """
+    seen: dict[tuple, list] = {}
+    for k in sorted(cells):
+        for c, z in cells[k].items():
+            seen.setdefault(c, []).append((k, z))
+    diff = {}
+    for c, v in seen.items():
+        if len(v) > LAYER_MIN_DRIVES:
+            for i, (k, z) in enumerate(v):
+                diff[(k, c)] = z - float(
+                    np.median([u for j, (_, u) in enumerate(v) if j != i])
+                )
+    if not diff:
+        return cells, {k: 0 for k in cells}
+    d = np.array(list(diff.values()))
+    cut = max(
+        LAYER_K * 1.4826 * float(np.median(np.abs(d - np.median(d)))), LAYER_MIN_M
+    )
+    bad = {key for key, v in diff.items() if abs(v) > cut}
+    kept = {
+        k: {c: z for c, z in v.items() if (k, c) not in bad} for k, v in cells.items()
+    }
+    return kept, {k: len(cells[k]) - len(kept[k]) for k in cells}
 
 
 def thin(xyz: np.ndarray, voxel: float) -> np.ndarray:
@@ -212,7 +293,7 @@ def register_drives(
 
     The reference is the drive with the most points. Then, repeatedly, the unregistered drive with
     the most overlap with the registered cloud is aligned to it. Returns per-drive corrections
-    (4x4, in the frame centred on `centre`), a height plane per drive (zplanes: a, bx, by), a note per drive, and the
+    (4x4, in the frame centred on `centre`), a height surface per drive (surfaces, coefficients of surface_basis), the overhead-layer cells dropped per drive, a note per drive, and the
     ground disagreement per pair before, after ICP (registered) and after the planes (after). `ground` (drive id -> (N, 3), same frame) are the drives' ground-class points; the
     ground disagreement is measured on them (2026-11-10 amendment to ADR 0005), or on `clouds` when absent.
     """
@@ -245,17 +326,19 @@ def register_drives(
     eye = np.eye(4)
     before = {k: ground_cells(gnd[k]) for k in ids}
     registered = {k: ground_cells(apply(corr.get(k, eye), gnd[k])) for k in ids}
-    # DECISION (#190): ICP leaves each drive with a height offset and tilt; fit one plane per drive over all pairs.
+    # DECISION (#190): ICP leaves each drive with a height offset and tilt; fit one surface per drive over all pairs.
     # Only registered drives take part (an unregistered drive's overlap is unknown); the reference stays at zero.
-    zplane = {k: np.zeros(3) for k in ids}
-    zplane.update(fit_zplanes({k: registered[k] for k in corr}, ref))
-    after = {
-        k: {
-            c: z + zplane[k][0] + CELL_M * (c[0] * zplane[k][1] + c[1] * zplane[k][2])
-            for c, z in registered[k].items()
-        }
-        for k in ids
-    }
+    # DECISION (#207): overhead-layer cells are dropped first. The consensus they are compared with needs the drives'
+    # heights aligned, so a plane fit (robust to the layer cells) comes first, then rejection, then the final fit
+    # (SURFACE_DEGREE) on the kept cells.
+    reg = {k: registered[k] for k in corr}
+    plane = fit_surfaces(reg, ref, 1)
+    kept, n_layer = reject_layers({k: apply_cells(reg[k], plane[k]) for k in reg})
+    kept_reg = {k: {c: reg[k][c] for c in kept[k]} for k in reg}
+    coef = {k: np.zeros(3 if SURFACE_DEGREE == 1 else 6) for k in ids}
+    coef.update(fit_surfaces(kept_reg, ref, SURFACE_DEGREE))
+    layer = {k: n_layer.get(k, 0) for k in ids}
+    after = {k: apply_cells(kept_reg.get(k, registered[k]), coef[k]) for k in ids}
     pairs = []
     for i, a in enumerate(ids):
         for b in ids[i + 1 :]:
@@ -271,7 +354,8 @@ def register_drives(
     return {
         "reference": ref,
         "corrections": corr,
-        "zplanes": zplane,
+        "surfaces": coef,
+        "layer_cells": layer,
         "info": info,
         "pairs": pairs,
     }
@@ -466,7 +550,7 @@ def merge_area(area: dict, out: Path, params: Params, log) -> dict:
     for i, k in enumerate(names):
         p = clouds[k]
         xyz = apply(res["corrections"].get(k, np.eye(4)), p[:, :3] - centre)
-        xyz = apply_zplane(xyz, res["zplanes"][k]) + centre
+        xyz = apply_surface(xyz, res["surfaces"][k]) + centre
         if k in deltas:
             xyz = move_sweeps(np.column_stack([xyz, p[:, 3:]]), deltas[k])
         parts.append(np.column_stack([xyz, p[:, 3], np.full(len(p), i)]))
@@ -484,7 +568,7 @@ def merge_area(area: dict, out: Path, params: Params, log) -> dict:
         cells = {}
         for k in names:
             g = apply(res["corrections"].get(k, np.eye(4)), ground_pts[k] - centre)
-            g = apply_zplane(g, res["zplanes"][k]) + centre
+            g = apply_surface(g, res["surfaces"][k]) + centre
             if k in deltas and k in gworld:
                 g = move_sweeps(
                     np.column_stack([g, g[:, 0], gworld[k][:, 3]]), deltas[k]
@@ -502,9 +586,8 @@ def merge_area(area: dict, out: Path, params: Params, log) -> dict:
             "correction": correction_summary(res["corrections"][k])
             if k in res["corrections"]
             else None,
-            "z_plane": dict(
-                zip(("a_m", "bx", "by"), map(float, res["zplanes"][k]), strict=True)
-            ),
+            "z_surface": [float(v) for v in res["surfaces"][k]],
+            "layer_cells_dropped": res["layer_cells"][k],
         }
         for i, k in enumerate(names)
     ]
