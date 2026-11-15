@@ -25,6 +25,22 @@ Splats are a rendering and a viewing layer (ADR 0006 Q2c). Nothing measured from
 - Orthophoto: gsplat renders an orthographic camera, so the 2-3 cm orthophoto is a top-down render of the ground-layer splats.
 - Install note: gsplat 1.5.3 on PyPI is a source wheel; its CUDA kernels compile on first use and need `nvcc` and `g++`. The box has neither, so for this work they were installed in user space from conda-forge and the NVIDIA conda channel (CUDA 12.8) under `/data`. The first call takes about 2.5 minutes to compile, later calls use the cache. Prebuilt gsplat wheels exist only for Python 3.10 and torch up to 2.4, not our Python 3.11 and torch 2.10.
 
+## Prototype result (scene-0757, run 20261115-040953-c8a6ff on the box, 2026-11-15)
+
+Settings: 1200 px long side, 12000 iterations, depth weight 1.0, 481897 start splats (all ground thinned to 10 cm as flat discs, plus non-ground), cap 1.5 M splats (reached), 240 images, 210 for training and 30 held out (every 8th).
+
+| Measure | Value |
+|---|---|
+| Held-out PSNR / SSIM (pixels under annotated boxes excluded, dataset pose) | 21.73 dB / 0.769 |
+| Held-out median depth error against the lidar | 2.1 m (poor: the splat depth is still weak, see below) |
+| Splat centres against lidar ground, 0.5 m cells, 10th percentile of z (coverage 0.81 of the observed lidar-ground cells) | median 1.8 cm, **P95 0.36 m**, mean -5.6 cm |
+| Pose corrections (210 training cameras) | rotation P95 0.43 deg, translation P95 2.8 cm, 5 cameras flagged, drive not flagged |
+| Training time (GPU) | 3.7 min; the stage in all 4.5 min including image preparation |
+| Peak VRAM | 2.27 GB allocated, 2.59 GB reserved (budget 10 GB) |
+| Output | 50 MB (splats.npz 46 MB, 6750 x 3934 px orthophoto at 3 cm) |
+
+Reading the numbers: the median ground agreement is within a few centimetres, but the P95 is dominated by cells at the kerb and at the edge of coverage, where splats of walls, kerbs and floaters sit inside the 2 m window, so the splats are not a measurement surface. The orthophoto shows the crosswalk and lane paint but is streaky (elongated splats left by densification) and has floaters outside the lidar's road. A 7000-iteration run at 800 px scored 21.1 dB / 0.749, 20000 iterations at 1200 px scored 22.0 dB / 0.774: more training gives small gains. Next steps that would matter more: exclude sky and ego-car pixels, use anisotropy and opacity regularisation, add sweep-time (not only keyframe) cameras, and score with a per-camera test-time pose.
+
 ## Known limits of this prototype
 
 - One drive (scene-0757), not the merged area. The stage takes a single run's folders; the area merge produces its own cloud and is not wired to the stage (not in this ticket).
