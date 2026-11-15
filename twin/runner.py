@@ -25,6 +25,7 @@ from pydantic import BaseModel
 
 from twin import registry
 from twin.contracts import (
+    PARAM_STAGE,
     STAGE_NAMES,
     STAGES,
     Manifest,
@@ -49,21 +50,14 @@ CURRENT_FILE = ".current"
 CANCEL_FILE = ".cancel"
 LOCK_TIMEOUT = 0  # seconds to wait for the run lock; 0 refuses at once
 
-# The Params field each stage reads. outputs takes no parameters.
-STAGE_PARAMS: dict[str, str | None] = {
-    "load": "facilities",
-    "mask": "mask",
-    "align": "align",
-    "ground": "ground",
-    "features": "features",
-    "colour": "colour",
-    "profile": "profile",
-    "isd": "isd",
-    "accuracy": "accuracy",
-    "outputs": None,
-    "semantics": "semantics",
-    "splats": "splats",
-}
+# The Params field each stage reads. Derived from PARAM_STAGE (first key per stage);
+# outputs takes no parameters.
+STAGE_PARAMS: dict[str, str | None] = {}
+for _key, _stage in PARAM_STAGE.items():
+    if _stage is not None and _stage not in STAGE_PARAMS:
+        STAGE_PARAMS[_stage] = _key
+for _name in STAGE_NAMES:
+    STAGE_PARAMS.setdefault(_name, None)
 
 
 @dataclass
