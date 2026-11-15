@@ -65,7 +65,7 @@ def processes(ps_text: str | None = None) -> dict:
     found: dict[str, int] = {}
     for line in ps_text.splitlines():
         parts = line.split(None, 2)
-        if len(parts) < 3 or not parts[0].isdigit() or not parts[1].rsplit("/", 1)[-1].startswith("python"):
+        if len(parts) < 3 or not parts[0].isdigit() or int(parts[0]) > 10**9 or not parts[1].rsplit("/", 1)[-1].startswith("python"):
             continue  # the command must be a python interpreter; a shell or ssh line is not a process
         for name, marker in PROCESSES.items():
             if marker in parts[2]:
