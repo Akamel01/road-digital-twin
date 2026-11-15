@@ -359,8 +359,11 @@ def construction_check(regions: list[dict], drives: list[dict], work: Path, cent
 
     sel = [d for d in drives if d["date"] == date]
     cats = ("vehicle.construction", "human.pedestrian.construction_worker")
-    pts = []
+    pts, track = [], []
     for d in sel:
+        base = work / "drives" / d["scene"]
+        ego = np.array([r["matrix"] for r in json.loads((base / "3_align" / "poses.json").read_text())["poses"]])
+        track.append(apply(_correction(d.get("correction")), ego.reshape(-1, 4, 4)[:, :3, 3] - centre) + centre)
         boxes = json.loads((work / "drives" / d["scene"] / "1_load" / "boxes.json").read_text())["sweeps"]
         c = np.array([b["center"] for sw in boxes for b in sw["boxes"] if b["category"] in cats])
         if len(c):
@@ -382,6 +385,9 @@ def construction_check(regions: list[dict], drives: list[dict], work: Path, cent
         out["construction_cells"] = len(p)
         out["within_2m_of_change"] = float(np.mean(shapely.distance(pts2, cut) <= 2.0))
         out["within_2m_of_change_with_date"] = float(np.mean(shapely.distance(pts2, cut_date) <= 2.0))
+        # for scale: the same share for the drives' own driving path, which is not construction
+        tr = shapely.points(np.vstack(track)[:, :2])
+        out["path_within_2m_of_change"] = float(np.mean(shapely.distance(tr, cut) <= 2.0))
     return out
 
 
