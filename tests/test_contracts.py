@@ -6,7 +6,14 @@ from pydantic import ValidationError
 
 from twin import contracts
 from twin.cli import render_schema, write_schemas
-from twin.contracts import PARAM_STAGE, STAGES, Params, Pipeline, PipelineStage, check_rerun
+from twin.contracts import (
+    PARAM_STAGE,
+    STAGES,
+    Params,
+    Pipeline,
+    PipelineStage,
+    check_rerun,
+)
 
 REPO = Path(__file__).resolve().parents[1]
 

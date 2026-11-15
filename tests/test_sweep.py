@@ -7,7 +7,7 @@ from twin import jobqueue, registry
 from twin.cli import main
 from twin.contracts import STAGE_NAMES, STAGES, Params, StageResult
 from twin.gates import evaluate, load_gates, margin_score
-from twin.sweep import build_variants, leaderboard, queue_sweep
+from twin.sweep import build_variants, earliest_stage, leaderboard, queue_sweep
 
 BASE = Params().model_dump(mode="json")
 
@@ -59,6 +59,13 @@ def test_grid_and_earliest_stage():
     )
     assert {v["from_stage"] for v in only} == {"features"}
     assert all(isinstance(v["overrides"]["features.min_points"], int) for v in only)
+
+
+def test_earliest_stage_merge_only_does_not_raise():
+    base = Params().model_dump(mode="json")
+    params = json.loads(json.dumps(base))
+    params["merge"]["heights"] = True
+    assert earliest_stage(base, params) is None
 
 
 def test_out_of_range_and_unknown_refused():

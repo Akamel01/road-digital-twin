@@ -112,11 +112,20 @@ def build_variants(space: dict, base: dict) -> list[dict]:
     return out
 
 
-def earliest_stage(base: dict, params: dict) -> str:
-    """Earliest stage whose parameters differ (the existing PARAM_STAGE mapping)."""
+def earliest_stage(base: dict, params: dict) -> str | None:
+    """Earliest stage whose parameters differ (the existing PARAM_STAGE mapping).
+
+    A merge-only override (stage None) does not count as a stage change; if no stage
+    changes, return None.
+    """
     stages = {
-        PARAM_STAGE[k] for k in params if params[k] != base.get(k) and PARAM_STAGE[k]
+        PARAM_STAGE[k]
+        for k in params
+        if params[k] != base.get(k) and PARAM_STAGE.get(k) is not None
     }
+    stages.discard(None)
+    if not stages:
+        return None
     return min(stages, key=STAGE_NAMES.index)
 
 
@@ -135,8 +144,11 @@ def queue_sweep(store: Path, target: str, space: dict, extra: dict | None = None
         raise ValueError("every variant equals the base parameters")
     sweep_id = f"{datetime.now(UTC):%Y%m%d-%H%M%S}-{secrets.token_hex(3)}"
     for n, var in enumerate(variants):
+        from_stage = var["from_stage"]
+        if from_stage is None:
+            from_stage = STAGE_NAMES[0]
         job = (
-            {"type": "rerun", "run_id": target, "from_stage": var["from_stage"]}
+            {"type": "rerun", "run_id": target, "from_stage": from_stage}
             if is_run
             else {"type": "run", "scene": target}
         )
