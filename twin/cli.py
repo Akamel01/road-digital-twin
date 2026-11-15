@@ -172,6 +172,9 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--poll", type=float, default=60, help="seconds between checks")
     ap.add_argument("--once", action="store_true", help="one pass, then exit")
     ap.add_argument("--skip", action="append", default=[], metavar="P2|P3|P4", help="leave a source off")
+    hl = sub.add_parser("health", help="write <store>/health.json and raise or clear box-alarm issues")
+    hl.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
+    hl.add_argument("--no-alert", action="store_true", help="write health.json only, touch no issues")
     serve = sub.add_parser("serve", help="run the control API")
     serve.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
     serve.add_argument("--host", default="127.0.0.1")
@@ -261,6 +264,10 @@ def main(argv: list[str] | None = None) -> int:
         from twin.autopilot import autopilot_command
 
         return autopilot_command(args.store, args.poll, args.once, tuple(args.skip))
+    if args.command == "health":
+        from twin.health import health_command
+
+        return health_command(args.store, args.no_alert)
     if args.command == "serve":
         from twin.api import serve_command
 

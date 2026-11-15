@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Crown } from "@/components/TopBar";
-import { type Cloud, fmt, loadCloud, loadScorecard, loadTrend, type Scorecard, type TrendPoint } from "@/lib/latest";
+import { type Cloud, fmt, type Health, loadCloud, loadHealth, loadScorecard, loadTrend, type Scorecard, type TrendPoint } from "@/lib/latest";
 import CloudView from "./CloudView";
 import LivingMark from "./LivingMark";
+import PipelineStatus from "./PipelineStatus";
 import Trend from "./Trend";
 import styles from "./latest.module.css";
 
@@ -25,6 +26,7 @@ export default function LatestBuild() {
   const [card, setCard] = useState<Scorecard | null>(null);
   const [trend, setTrend] = useState<TrendPoint[]>([]);
   const [cloud, setCloud] = useState<Cloud | null>(null);
+  const [health, setHealth] = useState<Health | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -34,6 +36,7 @@ export default function LatestBuild() {
         loadCloud(c.cloud, c.published_at).then(setCloud, (e: unknown) => setError(e instanceof Error ? e.message : String(e)));
       }, (e: unknown) => setError(e instanceof Error ? e.message : String(e)));
     loadTrend().then(setTrend);
+    loadHealth().then(setHealth, () => setHealth(null));
   }, []);
 
   return (
@@ -172,6 +175,7 @@ export default function LatestBuild() {
               </table>
             </div>
           </section>
+          {health && <PipelineStatus health={health} />}
           <footer className={styles.legal}>{LEGAL}</footer>
         </main>
       )}

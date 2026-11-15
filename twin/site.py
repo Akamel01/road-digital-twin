@@ -340,6 +340,11 @@ def latest_payload(store: Path, area: str, now: datetime | None = None) -> dict:
         "trend.json": json.dumps(trend, indent=1).encode(),
         "cloud.bin": cloud,
     }
+    health_file = store / "health.json"
+    if health_file.is_file():  # pipeline status card (#200): the public copy, no errors or paths
+        from twin import health
+
+        files["health.json"] = json.dumps(health.public(json.loads(health_file.read_text())), indent=1).encode()
     size = sum(map(len, files.values()))
     if size > MAX_BUNDLE_BYTES:
         raise SiteStop(
@@ -367,8 +372,9 @@ def stage_latest_into(store: Path, web: Path = WEB) -> bool:
     if not (src / "scorecard.json").exists():
         return False
     dst.mkdir(parents=True)
-    for name in ("scorecard.json", "trend.json", "cloud.bin"):
-        shutil.copy(src / name, dst / name)
+    for name in ("scorecard.json", "trend.json", "cloud.bin", "health.json"):
+        if (src / name).is_file():
+            shutil.copy(src / name, dst / name)
     return True
 
 

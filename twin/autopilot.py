@@ -50,6 +50,7 @@ FAIL_WINDOW = 10  # last jobs per source looked at by the fail-streak alarm
 IDLE_MIN = 30  # minutes of idle telemetry before the idle alarm
 IDLE_CPU_PCT = 25.0
 ALARM_FILE = "alarm.txt"
+RETRY_H = 6  # a paused source is tried again after this many hours
 
 
 def _state_path(store: Path) -> Path:
@@ -431,23 +432,55 @@ def fail_streaks(store: Path, state: dict) -> None:
         say(f"{ALARM_FILE} removed: resuming {sorted(paused)}")
         paused.clear()
         state["resumed"] = datetime.now(UTC).isoformat(timespec="seconds")
+    retry_paused(store, state)
     jobs = [j for j in jobqueue.list_jobs(store)
             if j["state"] in ("done", "failed") and "autopilot" in j.get("tags", [])
             and j.get("finished", "") > state.get("resumed", "")]  # fmt: skip
     for src in ("P0", "P3", "P4"):
-        if src in paused:
+        if src in paused or src in state["retrying"]:
             continue
-        last = sorted((j for j in jobs if _source(j) == src), key=lambda j: j["finished"])[-FAIL_WINDOW:]
+        since = state.get("since", {}).get(src, "")  # a retry restarts the count
+        last = sorted((j for j in jobs if _source(j) == src and j["finished"] > since), key=lambda j: j["finished"])[-FAIL_WINDOW:]
         if len(last) < FAIL_WINDOW:
             continue
         errors = Counter(_short(j["error"]) for j in last if j["state"] == "failed")
         if errors and (top := errors.most_common(1)[0])[1] > FAIL_WINDOW / 2:
             paused[src] = top[0]
+            state.setdefault("paused_at", {})[src] = datetime.now(UTC).isoformat(timespec="seconds")
             alarm.parent.mkdir(parents=True, exist_ok=True)
             with alarm.open("a") as f:
                 f.write(f"{datetime.now(UTC):%Y-%m-%d %H:%M} UTC {src} paused: {top[1]} of the last "
                         f"{FAIL_WINDOW} jobs failed with: {top[0]}\n")  # fmt: skip
             say(f"ALARM {src} paused, {top[1]}/{FAIL_WINDOW} jobs failed: {top[0]} (see {alarm})")
+
+
+def retry_paused(store: Path, state: dict, now: datetime | None = None) -> None:
+    """Self-heal: a paused source is retried once every RETRY_H hours. If its first job after the
+    retry fails it is paused again (and `twin health` keeps the alarm issue open); if one passes,
+    the source is back."""
+    now = now or datetime.now(UTC)
+    paused, retrying = state.setdefault("paused", {}), state.setdefault("retrying", {})
+    paused_at = state.setdefault("paused_at", {})
+    for src in list(retrying):  # a retry in flight: the first finished job decides
+        done = sorted((j for j in jobqueue.list_jobs(store) if _source(j) == src and "autopilot" in j.get("tags", [])
+                       and j["state"] in ("done", "failed") and j.get("finished", "") > retrying[src]),
+                      key=lambda j: j["finished"])  # fmt: skip
+        if not done:
+            continue
+        del retrying[src]
+        if done[0]["state"] == "failed":
+            paused[src], paused_at[src] = _short(done[0]["error"]), now.isoformat(timespec="seconds")
+            say(f"ALARM {src} failed again after its retry: stays paused ({paused[src]})")
+        else:
+            paused_at.pop(src, None)
+            say(f"{src} retry passed: back on")
+    for src in list(paused):
+        paused_at.setdefault(src, now.isoformat(timespec="seconds"))
+        if now - datetime.fromisoformat(paused_at[src]) >= timedelta(hours=RETRY_H):
+            retrying[src] = state.setdefault("since", {})[src] = now.isoformat(timespec="seconds")
+            paused_at.pop(src)
+            del paused[src]
+            say(f"{src} paused for {RETRY_H} h: retrying once")
 
 
 def idle_alarm(store: Path, state: dict, now: datetime | None = None) -> bool:
