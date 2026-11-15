@@ -23,7 +23,7 @@ import shapely
 from shapely.geometry import shape
 
 from twin import heights, runner
-from twin.contracts import Params
+from twin.contracts import Params, stage_dir
 from twin.stages import align, ground, load, mask
 
 # DECISION: registration works on points thinned to one per 0.3 m voxel.
@@ -432,10 +432,10 @@ def build_drive(scene: dict, work: Path, polygon, params: Params, log) -> np.nda
 def drive_ground(work: Path, polygon) -> tuple[np.ndarray, list[np.ndarray]] | None:
     """A drive's align poses (S, 4, 4) and its ground points per sweep in the ego frame (saved by align), clipped
     to the polygon (by their position at the align poses). None when the drive has no ground file."""
-    f = work / "3_align" / "ground_ego.npz"
+    f = stage_dir(work, "align") / "ground_ego.npz"
     if not f.is_file():
         return None
-    poses = _poses(work / "3_align")
+    poses = _poses(stage_dir(work, "align"))
     with np.load(f) as z:
         xyz = np.column_stack([z["x"], z["y"], z["z"]])
         sweep = z["sweep"].astype(np.int64)

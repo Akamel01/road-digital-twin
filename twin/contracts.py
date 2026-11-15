@@ -4,9 +4,12 @@ Source of truth: docs/design/twin-v1-spec.md, section 4.
 """
 
 from datetime import date, datetime
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from twin.dataset import DEFAULT_VERSION
 
 StageName = Literal[
     "load",
@@ -36,6 +39,11 @@ STAGE_NAMES: tuple[str, ...] = (
     "semantics",
     "splats",
 )
+
+
+def stage_dir(run_dir: Path, name: str) -> Path:
+    """The folder stage `name` writes into inside a run: '{number}_{name}'."""
+    return run_dir / f"{STAGES[name].number}_{name}"
 
 
 class StageSpec(BaseModel):
@@ -416,7 +424,7 @@ class OsmNames(_Strict):
 
 
 class ManifestData(_Strict):
-    nuscenes_version: str = "v1.0-mini"
+    nuscenes_version: str = DEFAULT_VERSION
     map_version: str = "1.3"
     scene_token: str
     osm_names: OsmNames | None = None  # null when the load stage got no Overpass query

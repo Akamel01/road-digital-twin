@@ -2,9 +2,9 @@
 
 import argparse
 import json
-import os
 from pathlib import Path
 
+from twin import REPO
 from twin.contracts import (
     STAGE_NAMES,
     AreaIndex,
@@ -13,6 +13,7 @@ from twin.contracts import (
     Pipeline,
     StageResult,
 )
+from twin.dataset import DatasetConfig
 from twin.runner import cancel_command, rerun_command, run_command
 
 SCHEMA_MODELS = {
@@ -80,7 +81,7 @@ def build_parser() -> argparse.ArgumentParser:
     select.add_argument(
         "--dataroot",
         type=Path,
-        default=Path(os.environ.get("NUSCENES_ROOT", "/data/nuscenes")),
+        default=Path(DatasetConfig.from_env().root),
     )
     box = sub.add_parser("box", help="box utilisation telemetry").add_subparsers(dest="box_cmd")
     box_mon = box.add_parser("monitor", help="sample the box into a daily CSV")
@@ -112,7 +113,7 @@ def build_parser() -> argparse.ArgumentParser:
     define.add_argument(
         "--dataroot",
         type=Path,
-        default=Path(os.environ.get("NUSCENES_ROOT", "/data/nuscenes")),
+        default=Path(DatasetConfig.from_env().root),
     )
     define.add_argument(
         "--store", type=Path, help="run store (default: $TWIN_RUNS or /data/twin-runs)"
@@ -167,7 +168,7 @@ def build_parser() -> argparse.ArgumentParser:
     pg.add_argument("action", choices=("poll", "run"))
     pg.add_argument("pr", nargs="?", type=int, help="PR number (for run)")
     pg.add_argument("sha", nargs="?", help="PR head commit (for run)")
-    pg.add_argument("--repo", default="Akamel01/road-digital-twin")
+    pg.add_argument("--repo", default=REPO)
     pg.add_argument("--root", type=Path, default=Path.home() / "rdt-prgate")
     pg.add_argument("--dry-run", action="store_true", help="post nothing, print it")
     pg.add_argument("--store", type=Path, help="main run store (baseline, queue)")

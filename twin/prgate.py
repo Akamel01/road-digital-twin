@@ -7,17 +7,16 @@ as a PR comment and set the commit status `twin-gates`.
 """
 
 import json
-import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
-from twin import jobqueue
+from twin import REPO, jobqueue
 from twin.contracts import STAGE_NAMES
+from twin.dataset import DatasetConfig
 from twin.gates import NO_GO
 
-REPO = "Akamel01/road-digital-twin"
 LABEL = "method"
 CONTEXT = "twin-gates"
 MARKER = "<!-- twin-gates -->"
@@ -112,9 +111,7 @@ def pick_baseline(store: Path, scene: str = SCENE) -> Path | None:
             continue
         if m.get("parent") is not None:
             continue  # reruns are not baselines
-        if m.get("data", {}).get("nuscenes_version") != os.environ.get(
-            "NUSCENES_VERSION", "v1.0-mini"
-        ):
+        if m.get("data", {}).get("nuscenes_version") != DatasetConfig.from_env().version:
             continue  # different dataset version
         stages = m.get("stages", [])
         if m.get("data", {}).get("scene_token") != scene or not stages or any(

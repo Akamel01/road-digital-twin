@@ -21,7 +21,6 @@ from __future__ import annotations
 import json
 import logging
 import math
-import os
 import time
 from pathlib import Path
 from typing import Any
@@ -31,9 +30,9 @@ import numpy as np
 from PIL import Image
 
 from twin.contracts import SplatsParams, StageResult
+from twin.dataset import DatasetConfig
 from twin.registry import register
 from twin.stages import colour, zbuffer
-from twin.stages.load import DATAROOT_DEFAULT
 
 log = logging.getLogger(__name__)
 OUTPUT_FILES = ("splats.npz", "ortho.png", "ortho.pgw", "qa.json")
@@ -271,7 +270,7 @@ def _load_views(ctx: Any, p: SplatsParams, origin: np.ndarray, points: np.ndarra
     times = np.array([r["timestamp_us"] for r in rows], np.int64)
     cams = json.loads((ldir / "cameras.json").read_text())["cameras"]
     sweep_boxes = json.loads((ldir / "boxes.json").read_text())["sweeps"]
-    root = Path(os.environ.get("NUSCENES_ROOT", DATAROOT_DEFAULT))
+    root = Path(DatasetConfig.from_env().root)
     shifted = points - origin
     views = []
     for cam in sorted(cams, key=lambda c: (c["timestamp_us"], c["channel"])):

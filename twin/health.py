@@ -14,9 +14,8 @@ from pathlib import Path
 
 import yaml
 
-from twin import gates, jobqueue, telemetry
+from twin import REPO, gates, jobqueue, telemetry
 
-REPO = "Akamel01/road-digital-twin"
 LABEL = "box-alarm"
 IDLE_MIN = 30
 ROOT_MIN_GB = 15.0

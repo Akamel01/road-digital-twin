@@ -17,7 +17,6 @@ import bisect
 import itertools
 import json
 import logging
-import os
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -27,9 +26,9 @@ import numpy as np
 from PIL import Image
 
 from twin.contracts import ColourParams, StageResult
+from twin.dataset import DatasetConfig
 from twin.registry import register
 from twin.stages import zbuffer
-from twin.stages.load import DATAROOT_DEFAULT
 
 log = logging.getLogger(__name__)
 OUTPUT_FILES = ("ortho.png", "ortho.pgw", "rgb.npz", "qa.json")
@@ -326,7 +325,7 @@ def run(ctx: Any, params: ColourParams) -> StageResult:
     sweep_boxes = json.loads((ldir / "boxes.json").read_text())["sweeps"]
     # DECISION: a camera outside the sweep span has no refined pose, so it is skipped (counted in qa.json).
     usable = [c for c in cams if times[0] <= c["timestamp_us"] <= times[-1]]
-    root = Path(os.environ.get("NUSCENES_ROOT", DATAROOT_DEFAULT))
+    root = Path(DatasetConfig.from_env().root)
 
     def views():
         for cam in usable:

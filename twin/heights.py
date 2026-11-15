@@ -14,11 +14,11 @@ drive) and the area merge (the sweeps of every registered drive at once).
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 import numpy as np
 
+from twin.dataset import DatasetConfig
 from twin.parallel import pmap
 from twin.stages.load import LIDARSEG_NONE
 
@@ -406,8 +406,9 @@ def imu_check(
     when the files are missing the result says why.
     """
     try:
-        root = Path(os.environ.get("NUSCENES_ROOT", "/data/nuscenes"))
-        version = os.environ.get("NUSCENES_VERSION", "v1.0-mini")
+        cfg = DatasetConfig.from_env()
+        root = Path(cfg.root)
+        version = cfg.version
         scenes = json.loads((root / version / "scene.json").read_text())
         name = next(s["name"] for s in scenes if s["token"] == scene_token)
         imu = json.loads((root / "can_bus" / f"{name}_ms_imu.json").read_text())

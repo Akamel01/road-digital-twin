@@ -23,7 +23,7 @@ from pathlib import Path
 
 from filelock import FileLock, Timeout
 
-from twin import gates, jobqueue, prgate, site, sweep, telemetry
+from twin import REPO, gates, jobqueue, prgate, site, sweep, telemetry
 from twin.area import drive_tokens
 from twin.contracts import Params
 from twin.reload import CodeWatch
@@ -36,7 +36,7 @@ TARGET = 12  # ... up to this
 PAUSE_FILE = "autopilot.pause"
 AREA = "seaport"
 TWIN = f"{AREA}-twin"  # what `twin area twin` writes: the area build that eval and the latest view use (#142)
-REPO_URL = "https://github.com/Akamel01/road-digital-twin.git"
+REPO_URL = f"https://github.com/{REPO}.git"
 ROUND_N = 8  # variants per sweep round
 TOP = 5  # leaderboard rows that seed a round
 STALL_LIMIT = 3  # rounds without a better score end a sweep line
