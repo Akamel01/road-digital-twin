@@ -89,6 +89,7 @@ export default function DevPanel() {
           ← Map
         </Link>
         <BrandLockup />
+        <b className={styles.brand}>Developer panel</b>
       </header>
       <div className={styles.banner} role="status">
         {auth.kind === "in" ? (

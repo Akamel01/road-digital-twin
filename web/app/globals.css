@@ -158,6 +158,34 @@ a:focus-visible {
   opacity: 0.85;
 }
 
+.vp-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 14px;
+  padding: 24px;
+  text-align: center;
+}
+
+.vp-empty h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.vp-empty p {
+  max-width: 46ch;
+  margin: 0;
+  color: var(--on-glass-2);
+  line-height: 1.5;
+}
+
+.vp-empty-dev {
+  font-size: 11px;
+}
+
 .stamp {
   font-size: 11px;
   color: var(--on-glass-2);
@@ -1279,7 +1307,7 @@ a:focus-visible {
   .crumbs i,
   .lockup-wm,
   .lockup-sep,
-  .lockup-product {
+  .top .lockup-product {
     display: none;
   }
 

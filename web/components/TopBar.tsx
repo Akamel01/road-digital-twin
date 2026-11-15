@@ -1,3 +1,4 @@
+import Link from "next/link";
 import DevLink from "@/components/dev/DevLink";
 import LatestLink from "@/components/latest/LatestLink";
 import type { AreaFacility, SiteStatus } from "@/lib/showcase";
@@ -39,11 +40,10 @@ export function BrandLockup() {
           Papyrus <span className="lockup-ai">AI</span>
         </span>
       </a>
-      <span className="lockup-sep" aria-hidden="true">
-      </span>
-      <a className="lockup-product" href="./">
+      <span className="lockup-sep" aria-hidden="true" />
+      <Link className="lockup-product" href="/">
         Digital Twin
-      </a>
+      </Link>
     </span>
   );
 }
