@@ -45,7 +45,8 @@ def test_stops_at_target(tmp_path, monkeypatch):
 
 def test_source_order_and_tags(tmp_path, monkeypatch):
     monkeypatch.setattr(autopilot.shutil, "which", lambda _: "/bin/gh")
-    gh = lambda *a: json.dumps([{"number": 7, "headRefOid": "a" * 40, "labels": [{"name": "method"}]}])
+    prs = json.dumps([{"number": 7, "headRefOid": "a" * 40, "labels": [{"name": "method"}]}])
+    gh = lambda *a: "twin/stages/ground.py" if a[:2] == ("pr", "diff") else prs
     real = prgate.poll
     monkeypatch.setattr(prgate, "poll", lambda store, extra=None: real(store, gh=gh, extra=extra))
     monkeypatch.setattr(autopilot, "main_commit", lambda: None)

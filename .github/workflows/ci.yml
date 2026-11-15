@@ -31,6 +31,27 @@ jobs:
       - name: Tests
         run: uv run pytest -q
 
+  smoke:
+    # Required check: the whole pipeline on fake data (queue, scheduler, merge, eval, publish dry run, autopilot).
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --frozen --python 3.11
+
+      - name: Install system libraries for Open3D
+        run: sudo apt-get update && sudo apt-get install -y libegl1
+
+      - name: Pipeline smoke test
+        run: uv run twin pipeline smoke
+
   web:
     runs-on: ubuntu-latest
     steps:

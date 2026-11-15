@@ -8,6 +8,8 @@ from twin import jobqueue, prgate
 def fake_gh(prs, calls):
     def gh(*args):
         calls.append(args)
+        if args[:2] == ("pr", "diff"):
+            return "twin/stages/ground.py\ntests/test_ground.py\n"
         if args[0] == "pr":
             return json.dumps(
                 [
@@ -122,3 +124,33 @@ def test_gate_error_sets_error_status(tmp_path, monkeypatch):
     with pytest.raises(prgate.PrGateError):
         prgate.gate(tmp_path, 5, "d" * 40, "o/r", tmp_path, gh=fake_gh([], calls))
     assert "state=error" in calls[-1]
+
+
+def test_method_pr_without_single_drive_change_is_n_a(tmp_path):
+    files = {5: "twin/merge.py\ntests/test_merge.py\n", 6: "twin/params.py\n", 7: "twin/stages/ground.py\n"}
+    calls = []
+
+    def gh(*args):
+        calls.append(args)
+        if args[:2] == ("pr", "diff"):
+            return files[int(args[2])]
+        if args[0] == "pr":
+            return json.dumps([{"number": n, "headRefOid": str(n) * 40, "labels": [{"name": "method"}]} for n in files])
+        return ""
+
+    lines = prgate.poll(tmp_path, gh=gh)
+    assert [j["pr"] for j in jobqueue.list_jobs(tmp_path)] == [6, 7]  # merge-only PR 5 is not gated
+    assert len(lines) == 2
+    posts = [c for c in calls if "state=success" in c]
+    assert len(posts) == 1 and "n/a: no single-drive stage changed" in " ".join(posts[0]) and "5" * 40 in " ".join(posts[0])
+    prgate.poll(tmp_path, gh=gh)
+    assert len([c for c in calls if "state=success" in c]) == 1  # once per head
+
+
+def test_unreadable_diff_still_gates(tmp_path):
+    def gh(*args):
+        if args[:2] == ("pr", "diff"):
+            raise prgate.PrGateError("boom")
+        return json.dumps([{"number": 5, "headRefOid": "a" * 40, "labels": [{"name": "method"}]}])
+
+    assert len(prgate.poll(tmp_path, gh=gh)) == 1
