@@ -137,6 +137,7 @@ def build_parser() -> argparse.ArgumentParser:
     site = sub.add_parser("site", help="publish a run to the public site, or roll back")
     site.add_argument("action", choices=("publish", "rollback", "history"))
     site.add_argument("run_id", nargs="?", help="run to publish (for publish)")
+    site.add_argument("--latest", metavar="AREA", help="publish the area's latest build (any verdict)")
     site.add_argument("--dry-run", action="store_true", help="build, do not deploy")
     site.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
     fake = sub.add_parser("fake-run", help="write synthetic runs and a showcase bundle")
@@ -229,7 +230,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "site":
         from twin.site import site_command
 
-        return site_command(args.action, args.run_id, args.dry_run, args.store)
+        return site_command(args.action, args.run_id, args.dry_run, args.store, args.latest)
     if args.command == "fake-run":
         from twin.fake_run import write_fake_runs
 

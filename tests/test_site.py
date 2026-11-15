@@ -132,3 +132,77 @@ def test_publish_job_and_eval_chain(env, monkeypatch):
     jobqueue.add(store, {"type": "eval", "run_id": run("r2"), "publish": True})
     jobqueue.process_one(store, lambda: None)
     assert "publish_result" not in jobqueue.list_jobs(store)[-1]
+
+
+def _area(store, verdict="no-go", g2=4.3):
+    import numpy as np
+
+    d = store / "areas" / "a1"
+    d.mkdir(parents=True)
+    rng = np.random.default_rng(0)
+    n = 5000
+    np.savez_compressed(
+        d / "merged.npz",
+        x=rng.uniform(0, 100, n) + 3e5,
+        y=rng.uniform(0, 80, n) + 4e6,
+        z=rng.uniform(0, 3, n),
+        intensity=rng.uniform(0, 1, n),
+        drive=rng.integers(0, 3, n).astype("u2"),
+    )
+    rep = report(verdict)
+    rep["run_id"] = "area-a1"
+    rep["gates"]["G2"] = {
+        "name": "x",
+        "status": verdict,
+        "checks": [{"metric": "align.p95", "op": "<=", "threshold": 0.05, "value": g2}],
+    }
+    (d / "gates.json").write_text(json.dumps(rep))
+    (d / "drives.json").write_text(
+        json.dumps([{"index": 0, "scene": "s1", "date": "2018-08-01"}])
+    )
+    return d
+
+
+def test_latest_payload_is_staged_for_any_verdict(tmp_path):
+    store = tmp_path
+    _area(store)
+    info = site.latest_payload(store, "areas/a1")
+    assert info["verdict"] == "no-go" and info["bytes"] < site.MAX_BUNDLE_BYTES
+    assert info["files"]["cloud.bin"] == 7 * info["n_points"]
+    out = site.latest_dir(store)
+    card = json.loads((out / "scorecard.json").read_text())
+    assert card["gate_passed"] is False and "G2" in card["gates"]
+    assert card["cloud"]["n_points"] == info["n_points"]
+    site.latest_payload(store, "a1")  # same build again: trend replaces, not repeats
+    assert len(json.loads((out / "trend.json").read_text())) == 1
+
+
+def test_latest_cloud_is_thinned_to_target():
+    import io
+
+    import numpy as np
+
+    pts = np.random.default_rng(1).uniform(0, 50, (20000, 3))
+    buf = io.BytesIO()
+    np.savez(buf, x=pts[:, 0], y=pts[:, 1], z=pts[:, 2], drive=np.zeros(20000, "u2"))
+    buf.seek(0)
+    data, meta = site.decimate_cloud(buf, target=2000)
+    assert meta["n_points"] <= 2000 and len(data) == 7 * meta["n_points"]
+
+
+def test_publish_latest_dry_run_needs_no_token(tmp_path, monkeypatch):
+    _area(tmp_path)
+    calls = []
+    monkeypatch.setattr(
+        site, "build_latest", lambda store, web=None: calls.append("build")
+    )
+    monkeypatch.setattr(site, "deploy", lambda token, web=None: calls.append("deploy"))
+    monkeypatch.setenv("TWIN_CF_TOKEN_FILE", str(tmp_path / "none"))
+    assert site.publish_latest(tmp_path, "a1", dry_run=True).startswith("dry run")
+    assert calls == ["build"]
+    assert (
+        main(
+            ["site", "publish", "--latest", "a1", "--dry-run", "--store", str(tmp_path)]
+        )
+        == 0
+    )
