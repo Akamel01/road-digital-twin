@@ -41,11 +41,13 @@ MIN_CELL_POINTS = 10
 # DECISION: the registration noise is read off the data. Two drives of the same date saw the same road, so every cell
 # difference between them is noise (registration, sampling, passing objects). A date pair is "changed" in a cell when it
 # differs by more than the NOISE_PCT-th percentile of the same-date differences, but never by less than the floor.
-NOISE_PCT = 99.0
+NOISE_PCT = 95.0
 MIN_GROUND_DZ_M = 0.15
 MIN_STRUCTURE_DH_M = 0.30
-# DECISION: a region of fewer than MIN_REGION_CELLS changed cells (1 m2) is speckle and is dropped.
-MIN_REGION_CELLS = 4
+# DECISION: only cells of the HD map's drivable area are compared (walls, trees and parked vehicles seen from another
+# side differ by metres between same-date drives, which sets the noise far above a road change). A region of fewer
+# than MIN_REGION_CELLS changed cells (2 m2) is speckle and is dropped.
+MIN_REGION_CELLS = 8
 # DECISION: registration leaves each drive pair with a smooth height error (metres on the seaport area at the time of
 # writing, ADR 0005 G2) that is not a change. A pair's cell differences are taken relative to their median over
 # RESID_TILE_CELLS x RESID_TILE_CELLS cells (10 m), so a change smaller than a tile stands out and a smooth offset does not.
@@ -438,6 +440,12 @@ def twin_area(base: Path, name: str, log: logging.Logger, check_date: str | None
     inside = shapely.contains_xy(polygon, x, y)
     lo, hi = cell_stats(x[inside], y[inside], z[inside], drive[inside], origin, shape_yx, len(drives))
     del inside
+    road = shapely.union_all([shape(f["geometry"]) for f in reference if f["properties"]["layer"] == "drivable_area"])
+    cx = origin[0] + (np.arange(lo.shape[1]) % shape_yx[1] + 0.5) * CELL_M
+    cy = origin[1] + (np.arange(lo.shape[1]) // shape_yx[1] + 0.5) * CELL_M
+    off = ~shapely.contains_xy(road, cx, cy)
+    lo[:, off] = np.nan
+    hi[:, off] = np.nan
     noise = noise_levels(lo, hi, dates, shape_yx)
     det = detect_change(lo, hi, dates, noise, shape_yx)
     regions = change_regions(det, origin, shape_yx, dates, scenes)
