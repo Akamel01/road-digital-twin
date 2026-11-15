@@ -1,8 +1,11 @@
 """Cross-drive registration: synthetic clouds only."""
 
+import logging
+
 import numpy as np
 
 from twin import fixtures, merge
+from twin.contracts import Params, StageResult
 
 
 def _cloud(seed):
@@ -222,3 +225,109 @@ def test_degree_two_does_not_invent_curvature_from_noise():
     }
     c = merge.fit_surfaces(cells, "a", 2)
     assert max(np.abs(c[k][3:]).max() for k in "abc") < 0.02  # in metres at 50 m
+
+
+def _scene():
+    return {"scene_token": "tok", "dataset_version": "v1"}
+
+
+def test_build_drive_cache_key_changes_with_params():
+    scene = _scene()
+    k1 = merge.build_drive_cache_key(scene, Params())
+    k2 = merge.build_drive_cache_key(scene, Params(seed=7))
+    assert k1 != k2
+
+
+def test_build_drive_reuses_cached_clip_when_key_matches(tmp_path, monkeypatch):
+    scene = _scene()
+    params = Params()
+    monkeypatch.setattr(merge.runner, "_git", lambda *a: "abc\n")
+    monkeypatch.setattr(merge.runner, "dataset_version", lambda: "v1")
+    key = merge.build_drive_cache_key(scene, params)
+    arr = np.arange(10, dtype=float).reshape(2, 5)
+    np.save(tmp_path / "clip.npy", arr)
+    (tmp_path / "clip.npy.key").write_text(key)
+
+    called = {"n": 0}
+
+    def fake_run(ctx, p):
+        called["n"] += 1
+        return StageResult(status="ok", files=[], metrics={})
+
+    monkeypatch.setattr(merge.load, "run", fake_run)
+    monkeypatch.setattr(merge.mask, "run", fake_run)
+    monkeypatch.setattr(merge.align, "run_icp", fake_run)
+
+    out = merge.build_drive(scene, tmp_path, None, params, logging.getLogger("t"))
+    assert called["n"] == 0
+    assert np.array_equal(out, arr)
+
+
+def test_build_drive_reuses_cached_clip_with_legacy_key(tmp_path, monkeypatch):
+    scene = _scene()
+    params = Params()
+    monkeypatch.setattr(merge.runner, "_git", lambda *a: "abc\n")
+    monkeypatch.setattr(merge.runner, "dataset_version", lambda: "v1")
+    key = merge.build_drive_cache_key(scene, params)
+    arr = np.arange(10, dtype=float).reshape(2, 5)
+    np.save(tmp_path / "clip.npy", arr)
+    (tmp_path / "clip.key").write_text(key)
+
+    called = {"n": 0}
+
+    def fake_run(ctx, p):
+        called["n"] += 1
+        return StageResult(status="ok", files=[], metrics={})
+
+    monkeypatch.setattr(merge.load, "run", fake_run)
+    monkeypatch.setattr(merge.mask, "run", fake_run)
+    monkeypatch.setattr(merge.align, "run_icp", fake_run)
+
+    out = merge.build_drive(scene, tmp_path, None, params, logging.getLogger("t"))
+    assert called["n"] == 0
+    assert np.array_equal(out, arr)
+
+
+def test_build_drive_rebuilds_and_writes_key(tmp_path, monkeypatch):
+    import json
+
+    scene = _scene()
+    params = Params()
+    monkeypatch.setattr(merge.runner, "_git", lambda *a: "abc\n")
+    monkeypatch.setattr(merge.runner, "dataset_version", lambda: "v1")
+    work = tmp_path
+    np.save(work / "clip.npy", np.zeros((1, 5)))
+    (work / "clip.npy.key").write_text("wrong")
+
+    def stage_run_factory(name):
+        def run(ctx, p):
+            d = ctx.stage_dir(name)
+            d.mkdir(parents=True, exist_ok=True)
+            if name == "load":
+                (d / "poses.json").write_text(
+                    json.dumps({"poses": [{"matrix": __import__("numpy").eye(4).flatten().tolist()}]})
+                )
+            elif name == "mask":
+                data = {f: np.array([0.0, 1.0, 2.0]) for f in merge.mask.POINT_FIELDS}
+                __import__("numpy").savez(d / "points.npz", **data)
+            elif name == "align":
+                (d / "poses.json").write_text(
+                    json.dumps({"poses": [{"matrix": __import__("numpy").eye(4).flatten().tolist()}]})
+                )
+            return StageResult(status="ok", files=[], metrics={})
+
+        return run
+
+    monkeypatch.setattr(merge.load, "run", stage_run_factory("load"))
+    monkeypatch.setattr(merge.mask, "run", stage_run_factory("mask"))
+    monkeypatch.setattr(merge.align, "run_icp", stage_run_factory("align"))
+
+    xyz = np.array([[0.0, 0.0, 0.0], [1.0, 1.0, 1.0], [2.0, 2.0, 2.0]])
+    monkeypatch.setattr(
+        merge.ground, "aligned_points", lambda fields, a, b: (xyz, np.ones(3), np.zeros(3, dtype=int))
+    )
+    monkeypatch.setattr(merge.shapely, "contains_xy", lambda poly, x, y: np.array([True, True, True]))
+
+    out = merge.build_drive(scene, work, None, params, logging.getLogger("t"))
+    assert out.shape == (3, 5)
+    assert (work / "clip.npy.key").read_text().strip() == merge.build_drive_cache_key(scene, params)
