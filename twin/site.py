@@ -16,7 +16,7 @@ import numpy as np
 
 from twin import prgate, publish
 from twin.area import drive_tokens
-from twin.gates import GO
+from twin.gates import GO, GateReport
 from twin.runner import default_store
 
 WEB = Path(__file__).resolve().parents[1] / "web"
@@ -46,19 +46,17 @@ def _record(store: Path, entry: dict) -> None:
     path.write_text(json.dumps([*history(store), entry], indent=2) + "\n")
 
 
-def margins(report: dict) -> dict[str, float]:
+def _report_obj(report) -> GateReport:
+    return report if isinstance(report, GateReport) else GateReport.from_dict(report)
+
+
+def margins(report) -> dict[str, float]:
     """Room left on each measured check: threshold - value for <=, value - threshold for >=."""
-    out = {}
-    for gate in report["gates"].values():
-        for c in gate["checks"]:
-            if c["value"] is not None:
-                sign = 1 if c["op"] == "<=" else -1
-                out[c["metric"]] = sign * (c["threshold"] - c["value"])
-    return out
+    return _report_obj(report).margins()
 
 
 def beats(new: dict[str, float], old: dict[str, float]) -> str | None:
-    """None when new beats old (no check worse, at least one better), else the reason."""
+    """Compatibility helper for raw-margin maps: no regression, at least one improvement."""
     for metric, was in old.items():
         if metric not in new:
             return f"{metric} no longer measured"
@@ -69,34 +67,18 @@ def beats(new: dict[str, float], old: dict[str, float]) -> str | None:
     return None
 
 
-def _checks(report: dict):
-    for gate in (report.get("gates") or {}).values():
-        yield from gate.get("checks", [])
-
-
-def go_count(report: dict) -> int:
+def go_count(report) -> int:
     """Number of gate checks whose status is go."""
-    return sum(1 for c in _checks(report) if c.get("status") == "go")
+    return _report_obj(report).passed
 
 
-def total_checks(report: dict) -> int:
-    return sum(1 for _ in _checks(report))
+def total_checks(report) -> int:
+    return _report_obj(report).total
 
 
-def margin_sum(report: dict) -> float:
-    """Sum of normalised, clipped per-check margins (denom |threshold| or 1)."""
-    total = 0.0
-    for c in _checks(report):
-        v = c.get("value")
-        if v is None:
-            continue
-        t = c.get("threshold", 0)
-        op = c.get("op", "<=")
-        denom = abs(t) if t not in (0, 0.0) else 1
-        sign = 1 if op == "<=" else -1
-        margin = sign * (t - v) / denom
-        total += max(-1.0, min(1.0, margin))
-    return round(total, 6)
+def margin_sum(report) -> float:
+    """Sum of normalised, clipped per-check margins (site-compatible)."""
+    return _report_obj(report).margin_sum()
 
 
 def token_path() -> Path:
@@ -130,15 +112,16 @@ def _run(cmd: list[str], cwd: Path, env: dict | None = None) -> None:
         raise SiteStop(f"command failed: {' '.join(cmd[:3])}")
 
 
-def write_status(showcase: Path, report: dict, published_at: str) -> None:
+def write_status(showcase: Path, report, published_at: str) -> None:
     """status.json for the site: verdict and how many gate checks pass (the banner on /)."""
+    gr = _report_obj(report)
     status = {
-        "run_id": report.get("run_id"),
+        "run_id": gr.raw.get("run_id"),
         "published_at": published_at,
-        "verdict": report["verdict"],
-        "gates_version": report["gates_version"],
-        "checks_passed": go_count(report),
-        "checks_total": total_checks(report),
+        "verdict": gr.verdict,
+        "gates_version": gr.raw.get("gates_version"),
+        "checks_passed": gr.passed,
+        "checks_total": gr.total,
     }
     (showcase / "status.json").write_text(json.dumps(status, indent=2) + "\n")
 
@@ -169,16 +152,7 @@ def deploy(token: str, web: Path = WEB) -> None:
     _run(["npx", "-y", WRANGLER, "deploy"], web, env)
 
 
-def _published_report(store: Path, entry: dict) -> dict | None:
-    rid = entry.get("run_id")
-    if rid:
-        gf = store / rid / "gates.json"
-        if gf.exists():
-            try:
-                return json.loads(gf.read_text())
-            except (OSError, ValueError):
-                pass
-    return None
+# Compat: older callers imported this; prefer GateReport/history entry_inputs. Dead path removed.
 
 
 def _improves(candidate: dict, published_entry: dict, store: Path) -> tuple[bool, str]:
@@ -186,7 +160,8 @@ def _improves(candidate: dict, published_entry: dict, store: Path) -> tuple[bool
     pub_ms = published_entry.get("margin_sum")
     if pub_gc is None or pub_ms is None:
         return True, ""
-    cand_gc, cand_ms = go_count(candidate), margin_sum(candidate)
+    cand = _report_obj(candidate)
+    cand_gc, cand_ms = cand.passed, cand.margin_sum()
     if cand_gc > pub_gc:
         return True, ""
     if cand_gc < pub_gc:
@@ -247,7 +222,8 @@ def publish_run(
         gates_file = area / "gates.json"
         if not gates_file.exists():
             return f"skipped: no gates.json for area {area.name}"
-        report = json.loads(gates_file.read_text())
+        gr = GateReport.load(area)
+        report = gr.to_dict()
         selected = area_runs(store, area)
         if not selected:
             return "skipped: no publishable drives for area"
@@ -260,7 +236,8 @@ def publish_run(
         gates_file = store / str(run_id) / "gates.json"
         if not gates_file.exists():
             raise SiteStop(f"no gates.json for {run_id}: run `twin eval` first")
-        report = json.loads(gates_file.read_text())
+        gr = GateReport.load(store / str(run_id))
+        report = gr.to_dict()
         build_input = [str(run_id)]
         publish_id = str(run_id)
         build_id = publish_id
@@ -269,7 +246,7 @@ def publish_run(
         last = published[-1]
         if last.get("build_id", last.get("run_id")) == publish_id:
             return "skipped: already published"
-        improve, reason = _improves(report, published[-1], store)
+        improve, reason = _improves(gr, published[-1], store)
         if not improve:
             return f"skipped: worse: {reason}"
     token = None if dry_run else read_token()
@@ -283,13 +260,13 @@ def publish_run(
             "run_id": publish_id,
             "build_id": build_id,
             "published_at": datetime.now(UTC).isoformat(timespec="seconds"),
-            "verdict": report["verdict"],
-            "margins": margins(report),
-            "go_count": go_count(report),
-            "margin_sum": margin_sum(report),
+            "verdict": gr.verdict,
+            "margins": gr.margins(),
+            "go_count": gr.passed,
+            "margin_sum": gr.margin_sum(),
             # An area build is rebuilt in place, so keep its runs and report to rebuild / later (#222).
             "runs": build_input,
-            "report": report,
+            "report": gr.to_dict(),
         },
     )
     return f"published {publish_id}"
@@ -299,7 +276,7 @@ def entry_inputs(store: Path, entry: dict) -> tuple[list[str], dict]:
     """The runs and gate report a history entry was published from (single-run entries predate #222)."""
     if "runs" in entry:
         return entry["runs"], entry["report"]
-    return [entry["run_id"]], json.loads((Path(store) / entry["run_id"] / "gates.json").read_text())
+    return [entry["run_id"]], GateReport.load(Path(store) / entry["run_id"]).to_dict()
 
 
 def _build_and_deploy(runs: list[str], store: Path, report: dict, web: Path, dry_run: bool) -> bool:
@@ -437,13 +414,9 @@ def decimate_cloud(npz, target: int = CLOUD_TARGET_POINTS) -> tuple[bytes, dict]
     return data, meta
 
 
-def _metric_values(report: dict) -> dict[str, float]:
-    return {
-        c["metric"]: c["value"]
-        for g in report["gates"].values()
-        for c in g["checks"]
-        if c["value"] is not None
-    }
+def _metric_values(report) -> dict[str, float]:
+    gr = _report_obj(report)
+    return {c.metric: c.value for c in gr.checks if c.value is not None}
 
 
 def latest_trend(store: Path) -> list[dict]:
@@ -459,7 +432,8 @@ def latest_payload(store: Path, area: str, now: datetime | None = None) -> dict:
     gates_file = src / "gates.json"
     if not gates_file.is_file():
         raise SiteStop(f"no gates.json in {src}: run `twin eval` first")
-    report = json.loads(gates_file.read_text())
+    gr = GateReport.load(src)
+    report = gr.to_dict()
     at = (now or datetime.now(UTC)).isoformat(timespec="seconds")
     cloud, cmeta = decimate_cloud(src / "merged.npz")
     drives_file = src / "drives.json"
@@ -470,11 +444,11 @@ def latest_payload(store: Path, area: str, now: datetime | None = None) -> dict:
             (src / "merged.npz").stat().st_mtime, UTC
         ).isoformat(timespec="seconds"),
         "published_at": at,
-        "run_id": report["run_id"],
-        "verdict": report["verdict"],
-        "gate_passed": report["verdict"] == GO,
-        "gates_version": report["gates_version"],
-        "gates": report["gates"],
+        "run_id": gr.raw.get("run_id"),
+        "verdict": gr.verdict,
+        "gate_passed": gr.verdict == GO,
+        "gates_version": gr.raw.get("gates_version"),
+        "gates": gr.to_dict().get("gates"),
         "cloud": cmeta,
         "drives": [
             {
@@ -495,8 +469,8 @@ def latest_payload(store: Path, area: str, now: datetime | None = None) -> dict:
     trend = latest_trend(store)
     entry = {
         "built_at": scorecard["built_at"],
-        "verdict": report["verdict"],
-        "metrics": _metric_values(report),
+        "verdict": gr.verdict,
+        "metrics": _metric_values(gr),
     }
     if trend and trend[-1]["built_at"] == entry["built_at"]:
         trend[-1] = entry  # the same build evaluated again: replace, do not repeat

@@ -28,11 +28,11 @@ import yaml
 
 from twin import jobqueue
 from twin.contracts import PARAM_STAGE, STAGE_NAMES, Params
-from twin.gates import GO, NO_GO, margin_score
+from twin.gates import GateReport, margin_score, verdict_rank
 from twin.runner import RUN_ID_RE, default_store
 
 MAX_VARIANTS = 500
-RANK = {GO: 0, NO_GO: 2}  # anything else (not measured) ranks 1
+RANK = verdict_rank  # compat import path for autopilot/sweep consumers
 
 
 def _dim_values(path: str, spec: dict, grid: bool, rng: random.Random) -> list:
@@ -174,12 +174,12 @@ def leaderboard(store: Path, sweep_id: str) -> dict:
         ):
             waiting += job.get("state") not in ("done", "failed")
             continue
-        report = json.loads(gates.read_text())
+        gr = GateReport.load(store / job.get("run_id", "-"))
         rows.append(
             {
                 "run_id": job["run_id"],
-                "verdict": report["verdict"],
-                "score": margin_score(report),
+                "verdict": gr.verdict,
+                "score": gr.score(),
                 "overrides": var["overrides"],
                 "from_stage": var["from_stage"],
             }
@@ -209,7 +209,7 @@ def leaderboard(store: Path, sweep_id: str) -> dict:
             f" | `{json.dumps(r['overrides'])}` |"
         )
     (folder / "leaderboard.md").write_text("\n".join(lines) + "\n")
-    best = next((r for r in rows if r["verdict"] == GO), None)
+    best = next((r for r in rows if r["verdict"] == "go"), None)
     if best:
         params = json.loads((store / best["run_id"] / "manifest.json").read_text())[
             "params"

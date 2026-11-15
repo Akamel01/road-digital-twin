@@ -2,6 +2,8 @@
 
 import json
 import math
+from collections.abc import Mapping
+from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
@@ -13,6 +15,13 @@ GO, NO_GO, NOT_MEASURED = "go", "no-go", "not measured"
 # Metrics compared with a baseline: distance errors in metres, lower is better.
 # (Only gated metrics whose names end in one of _ERROR_SUFFIXES are compared.)
 _ERROR_SUFFIXES = ("p50_m", "p95_m", "rmse_m")
+
+# G2 ratchet (#222/ADR 0005): 3 area builds in a row at current threshold pass -> due.
+G2_STEPS = {0.20: 0.10, 0.10: 0.05}
+G2_RUN = 3
+G2_HISTORY_FILE = Path("autopilot") / "g2_history.json"
+RANK = {GO: 0, NO_GO: 2}  # anything else (not measured) ranks 1
+verdict_rank = RANK  # compat alias for sweep/autopilot consumers
 
 
 def load_gates(path: Path = GATES_FILE) -> dict:
@@ -81,26 +90,284 @@ def _combine(statuses: list[str]) -> str:
     return NOT_MEASURED if NOT_MEASURED in statuses else GO
 
 
-def margin_score(report: dict) -> float:
+def _report_checks(report: Mapping) -> list[tuple[str, Mapping]]:
+    """Yield (gate_id, check) preserving report order."""
+    out = []
+    for gid, gate in (report.get("gates") or {}).items():
+        for c in gate.get("checks", []):
+            out.append((gid, c))
+    return out
+
+
+def _check_margin(c: Mapping) -> float | None:
+    """Raw measured headroom like site.margins: threshold-value for <= else inverse."""
+    v = c.get("value")
+    if not _isnum(v):
+        return None
+    t = c.get("threshold")
+    if t is None:
+        return None
+    sign = 1 if c.get("op", "<=") == "<=" else -1
+    return sign * (t - v)
+
+
+def _clip11(x: float) -> float:
+    return max(-1.0, min(1.0, x))
+
+
+def _score_component(c: Mapping) -> float:
+    """Single-check contribution for sweep margin_score (existing formula)."""
+    if c.get("value") is None:
+        return 0.0
+    if c.get("status") == GO and not c.get("threshold"):
+        return 0.0
+    if not c.get("threshold"):
+        return -1.0
+    sign = 1 if c.get("op") == "<=" else -1
+    margin = sign * (c["threshold"] - c["value"]) / abs(c["threshold"])
+    return _clip11(margin)
+
+
+class GateCheck(Mapping):
+    """A single gate check; dict-like for compat, exposes requested attributes."""
+
+    def __init__(self, gate_id: str, data: Mapping):
+        self.gate = gate_id
+        self._data = dict(data)
+
+    @property
+    def name(self) -> str:
+        return self.metric
+
+    @property
+    def metric(self) -> str:
+        return self._data["metric"]
+
+    @property
+    def value(self):
+        return self._data.get("value")
+
+    @property
+    def threshold(self):
+        return self._data.get("threshold")
+
+    @property
+    def op(self) -> str:
+        return self._data.get("op", "<=")
+
+    @property
+    def status(self) -> str:
+        return self._data.get("status", NOT_MEASURED)
+
+    @property
+    def margin(self) -> float | None:
+        return _check_margin(self._data)
+
+    @property
+    def site_margin_component(self) -> float:
+        if self.value is None:
+            return 0.0
+        t = self.threshold or 0
+        denom = abs(t) if t not in (0, 0.0) else 1
+        sign = 1 if self.op == "<=" else -1
+        return _clip11(sign * (t - self.value) / denom)
+
+    @property
+    def improves_component(self) -> float:
+        if self.value is None:
+            return 0.0
+        t = self.threshold
+        if t in (None, 0, 0.0):
+            return 0.0
+        sign = 1 if self.op == "<=" else -1
+        return _clip11(sign * (t - self.value) / abs(t))
+
+    def __getitem__(self, key):
+        return self._data[key]
+
+    def __iter__(self):
+        return iter(self._data)
+
+    def __len__(self):
+        return len(self._data)
+
+    def get(self, key, default=None):
+        return self._data.get(key, default)
+
+    def to_dict(self) -> dict:
+        return dict(self._data)
+
+
+class GateReport(Mapping):
+    """Interprets a gates.json report for a build dir."""
+
+    def __init__(self, data: Mapping):
+        self._data = json.loads(json.dumps(data))
+        self._checks = [GateCheck(gid, c) for gid, c in _report_checks(self._data)]
+
+    @classmethod
+    def load(cls, build_dir: str | Path) -> "GateReport":
+        path = Path(build_dir) / "gates.json"
+        return cls(json.loads(path.read_text()))
+
+    @classmethod
+    def from_dict(cls, data: Mapping) -> "GateReport":
+        return cls(data)
+
+    @property
+    def verdict(self) -> str:
+        return self._data.get("verdict", NOT_MEASURED)
+
+    @property
+    def checks(self) -> list[GateCheck]:
+        return list(self._checks)
+
+    @property
+    def gates(self) -> dict:
+        return self._data.get("gates", {})
+
+    @property
+    def total(self) -> int:
+        return len(self._checks)
+
+    @property
+    def passed(self) -> int:
+        return sum(1 for c in self._checks if c.status == GO)
+
+    def margins(self) -> dict[str, float]:
+        """Raw per-metric measured headroom (site semantics)."""
+        return {c.metric: c.margin for c in self._checks if c.margin is not None}
+
+    def margin_sum(self) -> float:
+        """Site-compatible sum of normalised, clipped margins (denom 1 for zero threshold)."""
+        return round(sum(c.site_margin_component for c in self._checks), 6)
+
+    def score(self) -> float:
+        """Sweep score; parity with margin_score()."""
+        return round(sum(_score_component(c) for c in self._checks), 6)
+
+    def to_dict(self) -> dict:
+        return json.loads(json.dumps(self._data))
+
+    @property
+    def raw(self) -> dict:
+        return self._data
+
+    def __getitem__(self, key):
+        return self._data[key]
+
+    def __iter__(self):
+        return iter(self._data)
+
+    def __len__(self):
+        return len(self._data)
+
+    def get(self, key, default=None):
+        return self._data.get(key, default)
+
+    def regressions_vs(
+        self,
+        other=None,
+        tolerance: float | None = None,
+        gates: dict | None = None,
+        run=None,
+        base=None,
+    ) -> list[dict]:
+        gates_spec = gates or load_gates()
+        tol = (
+            gates_spec.get("noise_tolerance_m", 0.02)
+            if tolerance is None
+            else tolerance
+        )
+        run_metrics = _metrics_for_regressions(run) if run is not None else _metrics_for_regressions(self)
+        base_metrics = _metrics_for_regressions(base) if base is not None else _metrics_for_regressions(other)
+        # convenience: report carries no metrics -> treat (run_metrics, base_metrics, tol?, gates?)
+        if run is None and base is None and not run_metrics and other is not None:
+            run_metrics = _metrics_for_regressions(other)
+            base_metrics = _metrics_for_regressions(tolerance) if isinstance(tolerance, Mapping) and not isinstance(tolerance, (int, float)) else {}
+            if base_metrics or (isinstance(tolerance, Mapping) and not isinstance(tolerance, (int, float))):
+                gates_spec = gates or load_gates()
+                tol = gates_spec.get("noise_tolerance_m", 0.02)
+                if isinstance(gates, (int, float)):
+                    tol = float(gates)
+                    gates_spec = load_gates()
+                return regressions(run_metrics, base_metrics, tol, gates_spec)
+        return regressions(run_metrics, base_metrics, tol, gates_spec)
+
+    def improves_on(self, other) -> bool:
+        """#222: more go checks, else larger sum of margins normalised by |threshold| clipped to [-1,1].
+
+        Ties are not improvements. Missing/invalid other falls back to publish/True as today.
+        """
+        if other is None:
+            return True
+        try:
+            cand_gc = self.passed
+            cand_ms = self._improves_margin_sum()
+            oth = _coerce_comparable(other)
+            oth_gc = oth["go_count"]
+            oth_ms = oth["improves_margin_sum"]
+        except (TypeError, ValueError, KeyError, AttributeError):
+            return True
+        if oth_gc is None or oth_ms is None:
+            return True
+        if cand_gc != oth_gc:
+            return cand_gc > oth_gc
+        return cand_ms > oth_ms
+
+    def _improves_margin_sum(self) -> float:
+        return round(sum(c.improves_component for c in self._checks), 6)
+
+    def exit_code(self) -> int:
+        return 0 if self.verdict == GO else 1
+
+
+def _metrics_for_regressions(obj) -> dict:
+    """Accept report-like (with gates) or plain metric dicts."""
+    if isinstance(obj, GateReport):
+        metrics = obj.raw.get("metrics")
+        return dict(metrics) if isinstance(metrics, dict) else {}
+    if isinstance(obj, Mapping):
+        if "gates" in obj and ("verdict" in obj or "run_id" in obj):
+            metrics = obj.get("metrics")
+            return dict(metrics) if isinstance(metrics, dict) else {}
+        metrics = obj.get("metrics")
+        if isinstance(metrics, dict) and "gates" not in metrics:
+            return dict(metrics)
+        # treat as metrics tree (possibly flattened handled by regressions)
+        return dict(obj)
+    return {}
+
+
+def _coerce_comparable(other) -> dict:
+    if isinstance(other, GateReport):
+        return {"go_count": other.passed, "improves_margin_sum": other._improves_margin_sum()}
+    if isinstance(other, Mapping):
+        # history entry shape: go_count/margin_sum/report; or report dict
+        go_count = other.get("go_count")
+        margin_sum = other.get("margin_sum")
+        if go_count is not None and margin_sum is not None:
+            # site stored margin_sum (denom 1 for zero threshold) — accept as comparable proxy
+            return {"go_count": go_count, "improves_margin_sum": margin_sum}
+        report = other.get("report")
+        if isinstance(report, Mapping):
+            gr = GateReport(report)
+            return {"go_count": gr.passed, "improves_margin_sum": gr._improves_margin_sum()}
+        if "gates" in other:
+            gr = GateReport(other)
+            return {"go_count": gr.passed, "improves_margin_sum": gr._improves_margin_sum()}
+        # try stored margins dict fallback? none known
+    raise ValueError("uncomparable")
+
+
+def margin_score(report: dict | GateReport) -> float:
     """Sweep score: the sum over measured checks of the normalised margin
     (threshold - value) / threshold for "<=" and (value - threshold) / threshold for ">=",
     each clipped to [-1, 1]. Positive is headroom, negative is a miss. A zero threshold
     cannot be normalised, so that check scores 0 when it passes and -1 when it fails.
     Not-measured checks add nothing. This is the only place the formula lives."""
-    total = 0.0
-    for gate in report["gates"].values():
-        for c in gate["checks"]:
-            if c["value"] is None:
-                continue
-            if c["status"] == GO and not c["threshold"]:
-                continue
-            if not c["threshold"]:
-                total -= 1
-                continue
-            sign = 1 if c["op"] == "<=" else -1
-            margin = sign * (c["threshold"] - c["value"]) / abs(c["threshold"])
-            total += max(-1.0, min(1.0, margin))
-    return round(total, 6)
+    gr = report if isinstance(report, GateReport) else GateReport(report)
+    return gr.score()
 
 
 def _gated_metrics(gates: dict) -> set[str]:
@@ -194,7 +461,8 @@ def evaluate(
     return report
 
 
-def render_markdown(report: dict) -> str:
+def render_markdown(report: dict | GateReport) -> str:
+    report = report.to_dict() if isinstance(report, GateReport) else report
     lines = [
         f"# Gates for run {report['run_id']}: {report['verdict'].upper()}",
         "",
@@ -244,3 +512,121 @@ def eval_command(
     (out / "gates.md").write_text(text)
     print(text, end="")
     return 0 if report["verdict"] == GO else 1
+
+
+# --- G2 ratchet helpers (shared by autopilot/health) -------------------------
+
+def _find_g2_check(report: Mapping):
+    """Select G2 by gate identity; robust to check ordering."""
+    gates = (report or {}).get("gates") or {}
+    g2 = gates.get("G2")
+    if isinstance(g2, Mapping):
+        checks = g2.get("checks") or []
+        if checks:
+            return checks[0]
+    # fallback: first check whose metric looks like G2
+    for gate in gates.values():
+        for c in (gate or {}).get("checks", []):
+            if "cross_drive_ground" in str(c.get("metric", "")):
+                return c
+    return None
+
+
+def _g2_history_path(store: Path) -> Path:
+    return Path(store) / G2_HISTORY_FILE
+
+
+def read_g2_history(store: Path) -> list[dict]:
+    try:
+        data = json.loads(_g2_history_path(store).read_text())
+        return data if isinstance(data, list) else []
+    except (OSError, ValueError, TypeError):
+        return []
+
+
+def g2_entry_from_report(report: Mapping, ts: str | None = None) -> dict | None:
+    check = _find_g2_check(report)
+    if not isinstance(check, Mapping):
+        return None
+    value = check.get("value")
+    threshold = check.get("threshold")
+    if threshold is None or not _isnum(threshold):
+        return None
+    status = check.get("status")
+    if status is None:
+        status = NOT_MEASURED if not _isnum(value) else None
+    entry = {
+        "run_id": report.get("run_id"),
+        "value": value,
+        "threshold": threshold,
+        "status": status or NOT_MEASURED,
+    }
+    if ts:
+        entry["ts"] = ts
+    return entry
+
+
+def _g2_due(history: list[dict]) -> tuple[bool, float | None]:
+    if not history:
+        return False, None
+    last = history[-1]
+    thr = last.get("threshold")
+    nxt = G2_STEPS.get(thr)
+    if not nxt:
+        return False, None
+    tail = history[-G2_RUN:]
+    if len(tail) != G2_RUN:
+        return False, None
+    ok = all(
+        h.get("threshold") == thr and h.get("status") == GO for h in tail
+    )
+    return ok, (nxt if ok else None)
+
+
+def record_g2_result(store: Path, report: Mapping | None = None, build_dir: str | Path | None = None):
+    """Append latest area G2 result to autopilot/g2_history.json and return due info.
+
+    Dedupe key: (run_id, threshold). Silent on absent/malformed input per autopilot behavior.
+    Returns (entry_or_none, due_next_threshold_or_none).
+    """
+    try:
+        if report is None:
+            if build_dir is None:
+                build_dir = Path(store) / "areas" / "seaport-twin"
+            report = json.loads((Path(build_dir) / "gates.json").read_text())
+        entry = g2_entry_from_report(report, ts=datetime.now(UTC).isoformat(timespec="seconds"))
+        if entry is None or entry.get("run_id") is None:
+            return None, None
+        history = read_g2_history(store)
+        key = (entry["run_id"], entry["threshold"])
+        if any((h.get("run_id"), h.get("threshold")) == key for h in history):
+            due, nxt = _g2_due(history)
+            return None, nxt if due else None
+        history.append(entry)
+        path = _g2_history_path(store)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(history, indent=2) + "\n")
+        due, nxt = _g2_due(history)
+        return entry, nxt if due else None
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        return None, None
+
+
+def g2_state(store: Path) -> dict | None:
+    """Health view: {threshold, passing_in_a_row} or None."""
+    try:
+        history = read_g2_history(store)
+        if not history:
+            return None
+        threshold = history[-1].get("threshold")
+        if threshold is None:
+            return None
+        streak = 0
+        for h in reversed(history):
+            if h.get("threshold") == threshold and h.get("status") == GO:
+                streak += 1
+            else:
+                break
+        return {"threshold": threshold, "passing_in_a_row": streak}
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        return None

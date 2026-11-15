@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 from twin import REPO, jobqueue
-from twin.gates import NO_GO
+from twin.gates import GateReport, NO_GO
 from twin.runstore import RunStore
 
 LABEL = "method"
@@ -183,19 +183,20 @@ def gate(store, pr, sha, repo=REPO, root=ROOT, dry_run=False, gh=gh) -> dict:
         subprocess.run(
             cmd, capture_output=True, text=True, check=False
         )  # exit 1 = no-go
-        report = json.loads((runs / run_id / "gates.json").read_text())
+        gr = GateReport.load(runs / run_id)
+        report = gr.to_dict()
         text = (runs / run_id / "gates.md").read_text()
     except Exception as exc:
         set_status(repo, sha, "error", f"{type(exc).__name__}: {exc}", dry_run, gh)
         raise
-    verdict = report["verdict"]
+    verdict = gr.verdict
     head = f"{MARKER}\n**twin-gates** for `{sha[:7]}` on scene-0757. Baseline "
     head += f"`{base.name if base else 'none'}` (main store). A go still needs line-by-line review.\n\n"  # fmt: skip
     post_comment(repo, pr, head + text, dry_run, gh)
     # Only a failed gate or a regression blocks; "not measured" is not a no-go (it blocks publish only).
     # While main itself is no-go, an absolute verdict blocks every method PR. With a baseline, block
     # only a regression against it (gates.regressions, noise tolerance); the operator reviews the rest.
-    worse = report.get("regressions")
+    worse = gr.get("regressions") if hasattr(gr, "get") else report.get("regressions")
     if base is not None and worse is not None:
         ok = not worse
         desc = f"{verdict}, {len(worse)} regression(s) vs baseline {base.name}: run {run_id}"
