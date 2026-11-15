@@ -161,7 +161,7 @@ def _cell_key(x: float, y: float, ox: float, oy: float) -> tuple[int, int]:
     return math.floor((x - ox) / CELL_M), math.floor((y - oy) / CELL_M)
 
 
-def accumulate_drive(
+def accumulate_drive_points(
     acc: dict[tuple[int, int], dict],
     points_xyz: np.ndarray,
     polygon,
@@ -169,14 +169,15 @@ def accumulate_drive(
     labels_flat_driveable: np.ndarray | None = None,
     ox: float | None = None,
     oy: float | None = None,
-) -> str:
-    """Accumulate one drive's road-surface observations into acc.
+    count_drive: bool = False,
+) -> tuple[str, set[tuple[int, int]]]:
+    """Accumulate road-surface observations from one batch/keyframe into acc.
 
-    acc maps (ix,iy) -> {road_eligible, drive_count, road_surface_points, x0, y0}.
-    labels_flat_driveable, if provided, is aligned to points_xyz and filtered to
-    the rebuilt map-frame area polygon.
-    Only counts points inside rebuilt map-frame area polygon and in in-area cells.
-    Returns ground_source.
+    Adds road_surface_points for road-surface points in rebuilt map-frame polygon
+    cells present in acc. Returns (ground_source, covered_keys) where covered_keys
+    are in-area acc cells covered by >=1 road-surface point in this batch.
+    If count_drive is True, increments drive_count once per covered cell for this
+    call (use when this call represents one distinct drive's full observations).
     """
     if ox is None or oy is None:
         ox, oy = grid_origin(polygon)
@@ -191,16 +192,55 @@ def accumulate_drive(
     mask, ground_source = road_surface_mask(pts_in, drivable_union, labels_in)
     road_pts = pts_in[mask] if len(pts_in) else pts_in
     if len(road_pts) == 0:
-        return ground_source
-    covered = set()
+        return ground_source, set()
+    covered: set[tuple[int, int]] = set()
     for p in road_pts:
         key = _cell_key(float(p[0]), float(p[1]), ox, oy)
-        covered.add(key)
         if key in acc:
+            covered.add(key)
             acc[key]["road_surface_points"] += 1
-    for key in covered:
+    if count_drive:
+        mark_drive_coverage(acc, covered)
+    return ground_source, covered
+
+
+def mark_drive_coverage(acc: dict[tuple[int, int], dict], covered_keys) -> None:
+    """Increment drive_count once per covered in-area cell for one distinct drive."""
+    for key in covered_keys:
         if key in acc:
             acc[key]["drive_count"] += 1
+
+
+def accumulate_drive(
+    acc: dict[tuple[int, int], dict],
+    points_xyz: np.ndarray,
+    polygon,
+    drivable_union,
+    labels_flat_driveable: np.ndarray | None = None,
+    ox: float | None = None,
+    oy: float | None = None,
+) -> str:
+    """Accumulate one distinct drive's road-surface observations into acc.
+
+    Backward-compatible single-call form: adds road_surface_points for road-surface
+    points in this call and increments drive_count once per covered in-area cell
+    (this call counts as one drive). For multi-batch/keyframe accumulation of the
+    same drive, use accumulate_drive_points(..., count_drive=False) per batch and
+    mark_drive_coverage once with the union of covered keys.
+    labels_flat_driveable, if provided, is aligned to points_xyz and filtered to
+    the rebuilt map-frame area polygon.
+    Returns ground_source.
+    """
+    ground_source, _covered = accumulate_drive_points(
+        acc,
+        points_xyz,
+        polygon,
+        drivable_union,
+        labels_flat_driveable=labels_flat_driveable,
+        ox=ox,
+        oy=oy,
+        count_drive=True,
+    )
     return ground_source
 
 

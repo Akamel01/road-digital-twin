@@ -398,9 +398,10 @@ def _accumulate_drive_observations(
     import twin.area_coverage as ac
 
     sources: list[str] = []
+    covered_all: set[tuple[int, int]] = set()
     for pts, labels in _sampled_lidar_points_for_scene(nusc, scene_token, polygon, step):
         try:
-            src = ac.accumulate_drive(
+            src, covered = ac.accumulate_drive_points(
                 acc,
                 pts,
                 polygon,
@@ -408,11 +409,14 @@ def _accumulate_drive_observations(
                 labels_flat_driveable=labels,
                 ox=ox,
                 oy=oy,
+                count_drive=False,
             )
         except (ValueError, TypeError):
             continue
         if src:
             sources.append(str(src))
+        covered_all.update(covered)
+    ac.mark_drive_coverage(acc, covered_all)
     uniq = sorted(set(sources))
     if not uniq:
         return "geometric_road_mask_fallback"

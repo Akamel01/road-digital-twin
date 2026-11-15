@@ -253,6 +253,42 @@ def test_accumulate_drive_observations_handles_mixed_sources(monkeypatch):
     )
     assert src == ["geometric_road_mask_fallback", "lidarseg_flat.driveable_surface"]
     assert _flatten_sources_for_test([src]) == src
+    # one distinct drive across two sampled keyframes must count once per covered cell
+    recs = ac.cell_records(acc)
+    assert len(recs) == 1
+    assert recs[0]["drive_count"] == 1
+    assert recs[0]["road_surface_points"] == 2
+
+
+def test_single_drive_multiple_sampled_keyframes_counts_once():
+    poly = shapely.box(0, 0, 5, 5)
+    drivable = shapely.box(0, 0, 5, 5)
+    cells, origin = ac.build_grid(poly, drivable)
+    acc = ac.init_accumulator(cells)
+    kf1 = np.array([[1.0, 1.0, 0.0], [2.0, 2.0, 0.0]])
+    kf2 = np.array([[3.0, 3.0, 0.0]])
+    labels1 = np.ones(len(kf1), bool)
+    labels2 = np.ones(len(kf2), bool)
+    covered_all = set()
+    for pts, labels in [(kf1, labels1), (kf2, labels2)]:
+        _, covered = ac.accumulate_drive_points(
+            acc,
+            pts,
+            poly,
+            drivable,
+            labels_flat_driveable=labels,
+            ox=origin[0],
+            oy=origin[1],
+            count_drive=False,
+        )
+        covered_all.update(covered)
+    ac.mark_drive_coverage(acc, covered_all)
+    recs = ac.cell_records(acc)
+    assert len(recs) == 1
+    r = recs[0]
+    assert r["drive_count"] == 1
+    assert r["road_surface_points"] == 3
+    assert r["density_pts_m2"] == 3 / 25.0
 
 
 def _flatten_sources_for_test(values):
