@@ -199,8 +199,15 @@ def gate(store, pr, sha, repo=REPO, root=ROOT, dry_run=False, gh=gh) -> dict:
     head += f"`{base.name if base else 'none'}` (main store). A go still needs line-by-line review.\n\n"  # fmt: skip
     post_comment(repo, pr, head + text, dry_run, gh)
     # Only a failed gate or a regression blocks; "not measured" is not a no-go (it blocks publish only).
-    ok = verdict != NO_GO
-    desc = f"{verdict}: run {run_id}, baseline {base.name if base else 'none'}"
+    # While main itself is no-go, an absolute verdict blocks every method PR. With a baseline, block
+    # only a regression against it (gates.regressions, noise tolerance); the operator reviews the rest.
+    worse = report.get("regressions")
+    if base is not None and worse is not None:
+        ok = not worse
+        desc = f"{verdict}, {len(worse)} regression(s) vs baseline {base.name}: run {run_id}"
+    else:
+        ok = verdict != NO_GO
+        desc = f"{verdict}: run {run_id}, baseline {base.name if base else 'none'}"
     set_status(repo, sha, "success" if ok else "failure", desc, dry_run, gh)
     return {"eval_result": verdict, "run_id": run_id, "pr": pr}
 
