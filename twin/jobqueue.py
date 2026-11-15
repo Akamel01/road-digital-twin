@@ -35,7 +35,6 @@ JOB_TYPES = ("run", "rerun", "eval", "publish", "prgate")
 DISK_RULES = (("/", 10), ("/data", 50))
 POLL_SECONDS = 30
 PUBLISH_LOCK = ".publish.lock"
-DRAIN_TIMEOUT = 3600  # 60 min bound on a code-change drain
 
 
 def _dir(store: Path, state: str) -> Path:
@@ -59,7 +58,13 @@ def validate(job: dict) -> None:
     kind = job.get("type")
     if kind not in JOB_TYPES:
         raise ValueError(f"job type must be one of {JOB_TYPES}, got {kind!r}")
-    need = {"run": "scene", "rerun": "run_id", "eval": "run_id", "publish": "run_id", "prgate": "pr"}[kind]
+    need = {
+        "run": "scene",
+        "rerun": "run_id",
+        "eval": "run_id",
+        "publish": "run_id",
+        "prgate": "pr",
+    }[kind]
     if not job.get(need):
         raise ValueError(f"{kind} job needs {need!r}")
     if kind == "rerun" and not job.get("from_stage"):
@@ -107,7 +112,9 @@ def take(store: Path | str) -> dict | None:
     """Move the highest-priority pending job (oldest first within a level) to running and
     return it, or None when there is none."""
     store = Path(store)
-    pending = {p: json.loads(p.read_text()) for p in _dir(store, "pending").glob("*.json")}
+    pending = {
+        p: json.loads(p.read_text()) for p in _dir(store, "pending").glob("*.json")
+    }
     for path in sorted(pending, key=lambda p: (priority(pending[p]), p.name)):
         try:
             os.rename(path, _dir(store, "running") / path.name)
@@ -189,8 +196,12 @@ def post_run(store: Path, job: dict, run_id: str) -> dict:
         from twin.site import SiteStop, publish_run
 
         try:
-            with FileLock(str(Path(store) / PUBLISH_LOCK)):  # publish writes the shared site folder
-                out["publish_result"] = publish_run(store, run_id, job.get("dry_run", False))
+            with FileLock(
+                str(Path(store) / PUBLISH_LOCK)
+            ):  # publish writes the shared site folder
+                out["publish_result"] = publish_run(
+                    store, run_id, job.get("dry_run", False)
+                )
         except SiteStop as exc:
             raise RuntimeError(str(exc)) from exc
     return out
@@ -252,7 +263,11 @@ def process_one(store: Path | str, hold=disk_hold) -> str | None:
         release(store, job)
         return f"held {job['id']}: {exc}"
     except Exception as exc:  # noqa: BLE001 - any failure is recorded on the job
-        finish(store, {**job, **({"gpu_lease": held} if held else {})}, f"{type(exc).__name__}: {exc}")
+        finish(
+            store,
+            {**job, **({"gpu_lease": held} if held else {})},
+            f"{type(exc).__name__}: {exc}",
+        )
         return f"failed {job['id']}: {exc}"
     if held:
         extra = {**extra, "gpu_lease": held}
@@ -265,12 +280,7 @@ def worker(
     store: Path | str, jobs: int = 0, poll: float = POLL_SECONDS, hold=disk_hold
 ) -> int:
     """Process jobs one at a time. jobs=N stops after N jobs, 0 runs until killed.
-    Returns 3 when another worker holds the lock.
-
-    On a CodeWatch change, stop taking new jobs (drain), then exit 75 for the supervisor
-    to restart. A synchronous job runs to completion, so the 60-min drain bound
-    (DRAIN_TIMEOUT) is checked between jobs: a single long job may exceed it.
-    """
+    Returns 3 when another worker holds the lock."""
     store = Path(store)
     store.mkdir(parents=True, exist_ok=True)
     lock = FileLock(
@@ -291,20 +301,11 @@ def worker(
             print(f"run recovery skipped: {exc}", flush=True)
         watch = CodeWatch()
         count = 0
-        draining = False
-        drain_deadline = 0.0
-        while True:
-            if jobs and not draining and count >= jobs:
-                break
-            changed = watch.changed() if not draining else None
-            if changed is not None and not draining:
-                print("code changed: draining 0 jobs", flush=True)
-                draining = True
-                drain_deadline = time.time() + DRAIN_TIMEOUT
-            if draining:
-                if time.time() >= drain_deadline:
-                    print("drain timeout: exiting anyway", flush=True)
-                    sys.exit(75)
+        while not jobs or count < jobs:
+            changed = watch.changed()
+            if changed:
+                old, new = changed
+                print(f"code changed {old}..{new}: exiting for restart", flush=True)
                 sys.exit(75)
             status = process_one(store, hold)
             if status is None or status.startswith("held"):

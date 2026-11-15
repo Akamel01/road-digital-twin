@@ -62,7 +62,9 @@ def _log(store):
 
 def test_chain_runs_in_order_and_streams(tmp_path, stubs, monkeypatch):
     stubs(0.05)
-    monkeypatch.setattr(scheduler, "DEFAULT_COST", {n: scheduler.Cost(8, 1) for n in STAGE_NAMES})
+    monkeypatch.setattr(
+        scheduler, "DEFAULT_COST", {n: scheduler.Cost(8, 1) for n in STAGE_NAMES}
+    )
     for scene in "abc":
         jobqueue.add(tmp_path, {"type": "run", "scene": scene})
     _sched(tmp_path, cores=16)  # two tasks at a time
@@ -79,7 +81,9 @@ def test_chain_runs_in_order_and_streams(tmp_path, stubs, monkeypatch):
 
 def test_budget_limits_concurrency(tmp_path, stubs, monkeypatch):
     stubs(0.1)
-    monkeypatch.setattr(scheduler, "DEFAULT_COST", {n: scheduler.Cost(2, 1) for n in STAGE_NAMES})
+    monkeypatch.setattr(
+        scheduler, "DEFAULT_COST", {n: scheduler.Cost(2, 1) for n in STAGE_NAMES}
+    )
     for scene in "abcde":
         jobqueue.add(tmp_path, {"type": "run", "scene": scene})
     s = _sched(tmp_path, cores=4)
@@ -98,7 +102,11 @@ def test_priority_beats_age(tmp_path, stubs):
     jobqueue.add(tmp_path, {"type": "run", "scene": "urgent", "priority": 0})
     jobqueue.add(tmp_path, {"type": "run", "scene": "new"})
     _sched(tmp_path, max_tasks=1)
-    assert [sc for k, n, sc, t in _log(tmp_path) if k == "s" and n == "load"] == ["urgent", "old", "new"]
+    assert [sc for k, n, sc, t in _log(tmp_path) if k == "s" and n == "load"] == [
+        "urgent",
+        "old",
+        "new",
+    ]
     assert jobqueue.priority({"type": "prgate"}) == 0
     assert jobqueue.priority({"type": "run", "sweep": "x"}) == 3
     assert jobqueue.priority({"type": "run"}) == 1
@@ -112,13 +120,27 @@ def test_gpu_task_reserves_cores(tmp_path, monkeypatch):
     s = scheduler.Scheduler(tmp_path, cores=4, gb=64, hold=lambda: None)
     started = []
     monkeypatch.setattr(s, "_start", lambda t: started.append(t.name))
-    gpu = scheduler.Active({"id": "1", "type": "run", "scene": "g"}, tmp_path, Pipeline(), STAGE_NAMES.index("colour"))
-    cpu = scheduler.Active({"id": "2", "type": "run", "scene": "c"}, tmp_path, Pipeline(), STAGE_NAMES.index("profile"))
+    gpu = scheduler.Active(
+        {"id": "1", "type": "run", "scene": "g"},
+        tmp_path,
+        Pipeline(),
+        STAGE_NAMES.index("colour"),
+    )
+    cpu = scheduler.Active(
+        {"id": "2", "type": "run", "scene": "c"},
+        tmp_path,
+        Pipeline(),
+        STAGE_NAMES.index("profile"),
+    )
     busy = scheduler.Cost(2, 1)  # something already running on 2 of the 4 cores
     s.active = [gpu, cpu]
-    s.running = [scheduler.Running(scheduler.Task(gpu, "x", None, (), busy), None, None, busy)]
+    s.running = [
+        scheduler.Running(scheduler.Task(gpu, "x", None, (), busy), None, None, busy)
+    ]
     s.admit()
-    assert started == []  # profile needs 1 core and 1 is free, but colour's 3 are reserved
+    assert (
+        started == []
+    )  # profile needs 1 core and 1 is free, but colour's 3 are reserved
     s.running = []
     s.admit()
     assert started == ["colour", "profile"]  # idle box: both start (3 + 1 cores)
@@ -129,7 +151,9 @@ def test_gpu_lease_held_across_gpu_tasks(tmp_path, stubs, monkeypatch):
     """Two colour tasks back to back: one unload at the start, one release at the end."""
     stubs()
     events = []
-    monkeypatch.setattr(gpulease, "unload_all", lambda urls, record: events.append("unload"))
+    monkeypatch.setattr(
+        gpulease, "unload_all", lambda urls, record: events.append("unload")
+    )
     monkeypatch.setattr(gpulease, "free_mib", lambda: None)
     monkeypatch.setattr(gpulease, "endpoints", list)
     real = gpulease.lease
@@ -158,8 +182,13 @@ def test_dead_task_fails_its_run_only(tmp_path, stubs, monkeypatch):
     _sched(tmp_path)
     states = {j["scene"]: j["state"] for j in jobqueue.list_jobs(tmp_path)}
     assert states == {"bad": "failed", "good": "done"}
-    run_id = next(d.name for d in tmp_path.iterdir() if (d / "manifest.json").exists()
-                  and json.loads((d / "manifest.json").read_text())["data"]["scene_token"] == "bad")
+    run_id = next(
+        d.name
+        for d in tmp_path.iterdir()
+        if (d / "manifest.json").exists()
+        and json.loads((d / "manifest.json").read_text())["data"]["scene_token"]
+        == "bad"
+    )
     manifest = json.loads((tmp_path / run_id / "manifest.json").read_text())
     assert [s["status"] for s in manifest["stages"]][-1] == "failed"
 
@@ -173,18 +202,33 @@ def test_restart_resumes_interrupted_run(tmp_path, stubs):
     for i in range(3):
         runner.run_stage_task(begun.ctx.run_dir, i)
     # the worker died inside ground: a running entry and a partial folder are left
-    manifest = runner.Manifest.model_validate_json((begun.ctx.run_dir / "manifest.json").read_text())
-    manifest.stages.append(ManifestStage(name="ground", method="ransac-tiles", status="running",
-                                         started=manifest.stages[0].started, seconds=0, files=[]))
+    manifest = runner.Manifest.model_validate_json(
+        (begun.ctx.run_dir / "manifest.json").read_text()
+    )
+    manifest.stages.append(
+        ManifestStage(
+            name="ground",
+            method="ransac-tiles",
+            status="running",
+            started=manifest.stages[0].started,
+            seconds=0,
+            files=[],
+        )
+    )
     runner._write_manifest(begun.ctx.run_dir, manifest)
     (begun.ctx.stage_dir("ground")).mkdir()
     (begun.ctx.stage_dir("ground") / "partial.txt").write_text("x")
-    jobqueue._write(jobqueue._dir(tmp_path, "running") / f"{jid}.json", {**job, "new_run": begun.ctx.run_dir.name})
+    jobqueue._write(
+        jobqueue._dir(tmp_path, "running") / f"{jid}.json",
+        {**job, "new_run": begun.ctx.run_dir.name},
+    )
     assert jobqueue.recover(tmp_path) == [jid]
     _sched(tmp_path)
     assert _done(tmp_path)["r"]["run_id"] == begun.ctx.run_dir.name
     assert not (begun.ctx.stage_dir("ground") / "partial.txt").exists()
-    assert len(json.loads((begun.ctx.run_dir / "manifest.json").read_text())["stages"]) == len(STAGE_NAMES)
+    assert len(
+        json.loads((begun.ctx.run_dir / "manifest.json").read_text())["stages"]
+    ) == len(STAGE_NAMES)
 
 
 def test_one_worker_equals_many(tmp_path, stubs):
@@ -196,8 +240,10 @@ def test_one_worker_equals_many(tmp_path, stubs):
             jobqueue.add(store, {"type": "run", "scene": scene})
         _sched(store, max_tasks=n)
         outs[tag] = {
-            scene: {p.relative_to(store / j["run_id"]).as_posix(): p.read_bytes()
-                    for p in (store / j["run_id"]).rglob("out.txt")}
+            scene: {
+                p.relative_to(store / j["run_id"]).as_posix(): p.read_bytes()
+                for p in (store / j["run_id"]).rglob("out.txt")
+            }
             for scene, j in _done(store).items()
         }
     assert outs["one"] == outs["many"] and len(outs["one"]["a"]) > 5
@@ -208,5 +254,82 @@ def test_stop_after_ends_the_run_early(tmp_path, stubs):
     jobqueue.add(tmp_path, {"type": "run", "scene": "a", "stop_after": "mask"})
     _sched(tmp_path)
     done = _done(tmp_path)
-    manifest = json.loads((tmp_path / done["a"]["run_id"] / "manifest.json").read_text())
+    manifest = json.loads(
+        (tmp_path / done["a"]["run_id"] / "manifest.json").read_text()
+    )
     assert [s["name"] for s in manifest["stages"]] == ["load", "mask"]
+
+
+def test_drain_under_constant_load_exits_75(tmp_path, stubs, monkeypatch):
+    stubs(0.05)
+    monkeypatch.setattr(
+        scheduler, "DEFAULT_COST", {n: scheduler.Cost(8, 1) for n in STAGE_NAMES}
+    )
+    for scene in "abc":
+        jobqueue.add(tmp_path, {"type": "run", "scene": scene})
+
+    calls = {"n": 0}
+
+    def changed(self):
+        calls["n"] += 1
+        return None if calls["n"] == 1 else ("old", "new")
+
+    monkeypatch.setattr(scheduler.CodeWatch, "changed", changed)
+
+    exited = {}
+
+    def fake_exit(code):
+        exited["code"] = code
+        raise SystemExit(code)
+
+    monkeypatch.setattr(scheduler.sys, "exit", fake_exit)
+
+    with pytest.raises(SystemExit):
+        s = scheduler.Scheduler(
+            tmp_path, cores=16, gb=64, hold=lambda: None, max_tasks=8
+        )
+        s.run(poll=0.05, exit_when_idle=True)
+    assert exited.get("code") == 75
+
+
+def test_drain_timeout_forces_exit_75(tmp_path, stubs, monkeypatch):
+    stubs(0.05)
+    monkeypatch.setattr(
+        scheduler, "DEFAULT_COST", {n: scheduler.Cost(8, 1) for n in STAGE_NAMES}
+    )
+    for scene in "ab":
+        jobqueue.add(tmp_path, {"type": "run", "scene": scene})
+
+    calls = {"n": 0}
+
+    def changed(self):
+        calls["n"] += 1
+        return None if calls["n"] == 1 else ("old", "new")
+
+    monkeypatch.setattr(scheduler.CodeWatch, "changed", changed)
+    monkeypatch.setattr(scheduler.Scheduler, "DRAIN_TIMEOUT", 0)
+
+    exited = {}
+
+    def fake_exit(code):
+        exited["code"] = code
+        raise SystemExit(code)
+
+    monkeypatch.setattr(scheduler.sys, "exit", fake_exit)
+
+    with pytest.raises(SystemExit):
+        s = scheduler.Scheduler(
+            tmp_path, cores=16, gb=64, hold=lambda: None, max_tasks=8
+        )
+        s.run(poll=0.05, exit_when_idle=True)
+    assert exited.get("code") == 75
+
+
+def test_no_change_normal_admission(tmp_path, stubs, monkeypatch):
+    stubs(0.0)
+    monkeypatch.setattr(scheduler.CodeWatch, "changed", lambda self: None)
+    for scene in "ab":
+        jobqueue.add(tmp_path, {"type": "run", "scene": scene})
+    s = scheduler.Scheduler(tmp_path, cores=16, gb=64, hold=lambda: None, max_tasks=8)
+    s.run(poll=0.05, exit_when_idle=True)
+    assert set(_done(tmp_path)) == {"a", "b"}
