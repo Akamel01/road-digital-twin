@@ -38,6 +38,7 @@ from twin.contracts import (
     Params,
     Pipeline,
     StageResult,
+    stage_dir,
 )
 from twin.publish import PUBLIC_FILES
 from twin.runner import StageContext
@@ -848,7 +849,7 @@ def _write_run(out: Path, index: int, showcase: Path) -> str:
     metrics: dict = {}
     stages = []
     for n, name in enumerate(STAGE_NAMES):
-        folder = run_dir / f"{STAGES[name].number}_{name}"
+        folder = stage_dir(run_dir, name)
         folder.mkdir()
         stage_metrics = WRITERS[name](folder, ctx)
         # The runner's rule: each stage's metrics sit under the stage name (twin/runner.py).
@@ -896,10 +897,10 @@ def _write_run(out: Path, index: int, showcase: Path) -> str:
         *PUBLIC_FILES,
         "twin.laz",
     ):  # what publish copies; LAZ is not thinned here
-        shutil.copy(run_dir / "10_outputs" / name, showcase / run_id / name)
+        shutil.copy(stage_dir(run_dir, "outputs") / name, showcase / run_id / name)
     shutil.copy(run_dir / "manifest.json", showcase / run_id / "manifest.json")
     for name in ("profile.csv", "centrelines.geojson"):
-        shutil.copy(run_dir / "7_profile" / name, showcase / run_id / name)
+        shutil.copy(stage_dir(run_dir, "profile") / name, showcase / run_id / name)
     return run_id
 
 

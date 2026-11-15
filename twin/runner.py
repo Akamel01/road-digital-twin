@@ -38,7 +38,9 @@ from twin.contracts import (
     Pipeline,
     StageResult,
     check_rerun,
+    stage_dir,
 )
+from twin.dataset import DatasetConfig
 
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_STORE = "/data/twin-runs"
@@ -69,7 +71,7 @@ class StageContext:
     min_observed: float = 0.5  # facilities.min_observed: ground marks facilities below it
 
     def stage_dir(self, name: str) -> Path:
-        return self.run_dir / f"{STAGES[name].number}_{name}"
+        return stage_dir(self.run_dir, name)
 
     def input_dir(self, stage: str) -> Path:
         path = self.stage_dir(stage)
@@ -82,7 +84,7 @@ class StageContext:
 
 def dataset_version() -> str:
     """The nuScenes version this process reads: NUSCENES_VERSION, else the manifest default."""
-    return os.environ.get("NUSCENES_VERSION") or ManifestData.model_fields["nuscenes_version"].default
+    return DatasetConfig.from_env().version
 
 
 def default_store() -> Path:
@@ -202,7 +204,7 @@ def _checked(scene_token: str, pipeline: Any, params: Any) -> tuple[Pipeline, Pa
 
 def _link_stage(parent_dir: Path, run_dir: Path, name: str) -> None:
     """Hard-link every file of a parent stage folder into the new run. Dirs are recreated."""
-    src = parent_dir / f"{STAGES[name].number}_{name}"
+    src = stage_dir(parent_dir, name)
     if not src.is_dir():
         return
     dst = run_dir / src.name

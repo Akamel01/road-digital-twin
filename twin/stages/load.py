@@ -25,6 +25,7 @@ from pyproj import Transformer
 from shapely.geometry import box, mapping, shape
 
 from twin.contracts import FacilitiesParams, IsdParams, StageResult
+from twin.dataset import DatasetConfig
 from twin.devkit_compat import nuscenes_map_class
 from twin.facilities import MapView, build_facilities, from_nuscenes_map
 from twin.osm_names import fetch_streets, name_facility, osm_names_meta
@@ -32,11 +33,7 @@ from twin.parallel import pmap, savez_fast
 from twin.registry import register
 
 CRS_EPSG = 32619
-# DECISION: dataset version is fixed to v1.0-mini, matching the manifest default (contracts ManifestData).
-VERSION = "v1.0-mini"
 LOCATION = "boston-seaport"
-# DECISION: nuScenes reads data from NUSCENES_ROOT, default /data/nuscenes (as tests/itest does).
-DATAROOT_DEFAULT = "/data/nuscenes"
 # DECISION: shared Overpass cache at /data/osm (spec section 6); overridable with TWIN_OSM_CACHE.
 OSM_CACHE_DEFAULT = "/data/osm"
 # nuscenes-devkit 1.1.9 scripts/export_poses.py, line 22: REFERENCE_COORDINATES["boston-seaport"]
@@ -536,12 +533,12 @@ class DevkitSource:
         from nuscenes.nuscenes import NuScenes
 
         self.root = dataroot
-        self.nusc = NuScenes(os.environ.get("NUSCENES_VERSION", VERSION), dataroot=dataroot, verbose=False)
+        self.nusc = NuScenes(DatasetConfig.from_env().version, dataroot=dataroot, verbose=False)
         self._map: Any = None
         # sample_data token -> .bin path; empty when lidarseg is not installed.
         # DECISION: lidarseg.json sits in the version tables folder; the .bin paths in it are relative to the dataroot.
         self._seg: dict[str, str] = {}
-        table = Path(dataroot) / os.environ.get("NUSCENES_VERSION", VERSION) / "lidarseg.json"
+        table = Path(dataroot) / DatasetConfig.from_env().version / "lidarseg.json"
         if table.is_file():
             self._seg = {
                 r["sample_data_token"]: os.path.join(dataroot, r["filename"])
@@ -700,7 +697,7 @@ def load_scene(dataroot: str, scene_token: str, params: Any = None) -> LoadedSce
 def run(ctx: Any, params: Any) -> StageResult:
     out: Path = ctx.stage_dir("load")
     out.mkdir(exist_ok=True)
-    dataroot = os.environ.get("NUSCENES_ROOT", DATAROOT_DEFAULT)
+    dataroot = DatasetConfig.from_env().root
     tr = run_crs(MAP_ORIGIN_LATLON)
     scene = load_scene(dataroot, ctx.scene_token, params)
 

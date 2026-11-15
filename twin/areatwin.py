@@ -27,7 +27,7 @@ import shapely
 from shapely.geometry import mapping, shape
 
 from twin import registry
-from twin.contracts import Params, Pipeline
+from twin.contracts import Params, Pipeline, stage_dir
 from twin.runner import StageContext
 from twin.stages import ground
 
@@ -92,7 +92,7 @@ def area_inputs(drives: list[dict], work: Path, polygon) -> tuple[list[dict], li
     ref: dict[tuple, list] = {}
     props: dict[tuple, dict] = {}
     for d in drives:
-        load = work / "drives" / d["scene"] / "1_load"
+        load = stage_dir(work / "drives" / d["scene"], "load")
         for f in json.loads((load / "facilities.geojson").read_text())["features"]:
             fid = f["properties"]["id"]
             if fid not in facs or shape(f["geometry"]).area > shape(facs[fid]["geometry"]).area:
@@ -117,7 +117,7 @@ def parked_vehicles(drives: list[dict], work: Path, centre: np.ndarray, polygon)
     out = []
     for d in drives:
         base = work / "drives" / d["scene"]
-        with np.load(base / "2_mask" / "parked.npz") as f:
+        with np.load(stage_dir(base, "mask") / "parked.npz") as f:
             fields = {k: f[k] for k in ground.POINT_FIELDS}
         if len(fields["x"]) == 0:
             continue
@@ -125,7 +125,7 @@ def parked_vehicles(drives: list[dict], work: Path, centre: np.ndarray, polygon)
             [r["matrix"] for r in json.loads(p.read_text())["poses"]], dtype=float
         ).reshape(-1, 4, 4)
         xyz, _, _ = ground.aligned_points(
-            fields, poses(base / "1_load" / "poses.json"), poses(base / "3_align" / "poses.json")
+            fields, poses(stage_dir(base, "load") / "poses.json"), poses(stage_dir(base, "align") / "poses.json")
         )
         xyz = apply(_correction(d.get("correction")), xyz - centre) + centre
         out.append(xyz[shapely.contains_xy(polygon, xyz[:, 0], xyz[:, 1])])
@@ -362,9 +362,9 @@ def construction_check(regions: list[dict], drives: list[dict], work: Path, cent
     pts, track = [], []
     for d in sel:
         base = work / "drives" / d["scene"]
-        ego = np.array([r["matrix"] for r in json.loads((base / "3_align" / "poses.json").read_text())["poses"]])
+        ego = np.array([r["matrix"] for r in json.loads((stage_dir(base, "align") / "poses.json").read_text())["poses"]])
         track.append(apply(_correction(d.get("correction")), ego.reshape(-1, 4, 4)[:, :3, 3] - centre) + centre)
-        boxes = json.loads((work / "drives" / d["scene"] / "1_load" / "boxes.json").read_text())["sweeps"]
+        boxes = json.loads((stage_dir(work / "drives" / d["scene"], "load") / "boxes.json").read_text())["sweeps"]
         c = np.array([b["center"] for sw in boxes for b in sw["boxes"] if b["category"] in cats])
         if len(c):
             pts.append(apply(_correction(d.get("correction")), c - centre) + centre)
@@ -425,16 +425,16 @@ def twin_area(base: Path, name: str, log: logging.Logger, check_date: str | None
     facilities, reference = area_inputs(drives, work, polygon)
     parked = parked_vehicles(drives, work, centre, polygon)
     ident = json.dumps({"poses": [{"matrix": np.eye(4).tolist()}]})
-    for d, files in {
-        "1_load": {"facilities.geojson": _fc(facilities), "reference.geojson": _fc(reference), "poses.json": ident},
-        "3_align": {"poses.json": ident, "qa.json": json.dumps({"method": "merged-icp", "fallback_used": False, "xy_drift_p95_m": None})},
+    for st, files in {
+        "load": {"facilities.geojson": _fc(facilities), "reference.geojson": _fc(reference), "poses.json": ident},
+        "align": {"poses.json": ident, "qa.json": json.dumps({"method": "merged-icp", "fallback_used": False, "xy_drift_p95_m": None})},
     }.items():
-        (out / d).mkdir(exist_ok=True)
+        stage_dir(out, st).mkdir(exist_ok=True)
         for fn, text in files.items():
-            (out / d / fn).write_text(text)
-    (out / "2_mask").mkdir(exist_ok=True)
+            (stage_dir(out, st) / fn).write_text(text)
+    stage_dir(out, "mask").mkdir(exist_ok=True)
     np.savez_compressed(
-        out / "2_mask" / "parked.npz",
+        stage_dir(out, "mask") / "parked.npz",
         x=parked[:, 0], y=parked[:, 1], z=parked[:, 2],
         intensity=np.zeros(len(parked), np.float32), sweep=np.zeros(len(parked), np.uint16),
     )
@@ -468,7 +468,7 @@ def twin_area(base: Path, name: str, log: logging.Logger, check_date: str | None
     res = ground.split_and_write(
         ctx, params.ground, "ransac-tiles", lambda p, q: ground.ransac_ground(p, q, params.seed),
         xyz[keep], inten[keep], drv[keep].astype(np.int32), None, None,
-        json.loads((out / "3_align" / "qa.json").read_text()), facilities,
+        json.loads((stage_dir(out, "align") / "qa.json").read_text()), facilities,
     )
     if res.status != "ok":
         raise RuntimeError(f"ground: {res.message}")
@@ -494,8 +494,8 @@ def twin_area(base: Path, name: str, log: logging.Logger, check_date: str | None
     n_changed = flag_changed(flat, regions)
     for fn, v in all_feats.items():
         (fdir / fn).write_text(_fc(v))
-    (out / "1_load" / "reference.full.geojson").write_text(_fc(reference))
-    (out / "1_load" / "reference.geojson").write_text(_fc(mask_reference(reference, regions)))
+    (stage_dir(out, "load") / "reference.full.geojson").write_text(_fc(reference))
+    (stage_dir(out, "load") / "reference.geojson").write_text(_fc(mask_reference(reference, regions)))
     for st in ("profile", "isd", "accuracy"):
         r = _stage(ctx, st, params, pipeline)
         seconds[st], stage_metrics[st] = r["seconds"], r["metrics"]

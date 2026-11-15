@@ -30,9 +30,9 @@ from PIL import Image
 from shapely.geometry import mapping, shape
 
 from twin.contracts import AccuracyParams, ColourParams, SemanticsParams, StageResult
+from twin.dataset import DatasetConfig
 from twin.registry import register
 from twin.stages import accuracy, colour, features, zbuffer
-from twin.stages.load import DATAROOT_DEFAULT
 
 log = logging.getLogger(__name__)
 OUTPUT_FILES = ("prob.npz", "prob.pgw", "paint_prob.png", "curb_prob.png", "qa.json")
@@ -537,7 +537,7 @@ def run_with(
     usable = [
         c for c in cams if times[0] <= c["timestamp_us"] <= times[-1]
     ]  # as in colour
-    root = Path(os.environ.get("NUSCENES_ROOT", DATAROOT_DEFAULT))
+    root = Path(DatasetConfig.from_env().root)
 
     def views():
         for cam in usable:

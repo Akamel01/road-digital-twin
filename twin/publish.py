@@ -11,7 +11,7 @@ import laspy
 import numpy as np
 from PIL import Image
 
-from twin.contracts import STAGES, AreaFacility, AreaIndex, Drive, Manifest
+from twin.contracts import AreaFacility, AreaIndex, Drive, Manifest, stage_dir
 from twin.runner import default_store
 from twin.tiles import TILE, write_tiles
 
@@ -29,7 +29,7 @@ UNOBSERVED = (224, 112, 79, 150)  # #E0704F
 
 
 def _stage(run_dir: Path, name: str) -> Path:
-    return run_dir / f"{STAGES[name].number}_{name}"
+    return stage_dir(run_dir, name)
 
 
 def _check_size(path: Path, out: Path, max_bytes: int) -> None:
