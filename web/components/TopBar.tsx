@@ -1,3 +1,4 @@
+import Link from "next/link";
 import DevLink from "@/components/dev/DevLink";
 import LatestLink from "@/components/latest/LatestLink";
 import type { AreaFacility, SiteStatus } from "@/lib/showcase";
@@ -8,7 +9,7 @@ export function Crown() {
     <svg
       viewBox="0 0 64 64"
       fill="none"
-      stroke="#e2a93b"
+      stroke="currentColor"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
@@ -30,6 +31,23 @@ export function Crown() {
   );
 }
 
+export function BrandLockup() {
+  return (
+    <span className="lockup">
+      <a className="lockup-home" href="https://papyrus-ai.net" aria-label="Papyrus AI home">
+        <Crown />
+        <span className="lockup-wm">
+          Papyrus <span className="lockup-ai">AI</span>
+        </span>
+      </a>
+      <span className="lockup-sep" aria-hidden="true" />
+      <Link className="lockup-product" href="/">
+        Digital Twin
+      </Link>
+    </span>
+  );
+}
+
 interface Props {
   areaName: string;
   status: SiteStatus | null;
@@ -43,10 +61,7 @@ interface Props {
 export default function TopBar({ areaName, status, facility, element, onUp, railCollapsed, onToggleRail }: Props) {
   return (
     <header className="top">
-      <div className="brand">
-        <Crown />
-        Road digital twin
-      </div>
+      <BrandLockup />
       <nav className="crumbs" aria-label="Location">
         {facility ? (
           <>

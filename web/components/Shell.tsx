@@ -5,8 +5,9 @@ import MapView from "@/components/MapView";
 import Profile from "@/components/Profile";
 import Rail from "@/components/Rail";
 import type { Sheet } from "@/components/SheetHead";
+import Link from "next/link";
 import TopBar from "@/components/TopBar";
-import { type AreaIndex, loadArea, loadStatus, type SiteStatus } from "@/lib/showcase";
+import { type AreaIndex, loadArea, loadStatus, type SiteStatus, SHOWCASE_MISSING } from "@/lib/showcase";
 import { parseRoute, type Route, routeUrl } from "@/lib/route";
 import { PHONE, TABLET, useMedia } from "@/lib/media";
 
@@ -117,8 +118,10 @@ export default function Shell() {
     return () => window.removeEventListener("keydown", onKey);
   }, [element, facility, up, sumMax, phone]);
 
+  // Nothing published yet: no map, so no rail or profile strip either.
+  const missing = error === SHOWCASE_MISSING;
   return (
-    <div className={railCollapsed && !phone ? "app collapsed" : "app"}>
+    <div className={(railCollapsed || missing) && !phone ? "app collapsed" : "app"}>
       <TopBar
         areaName={AREA_NAME}
         status={status}
@@ -130,7 +133,18 @@ export default function Shell() {
       />
       <main className="main">
         <div className="vp" role="region" aria-label="Map">
-          {error ? (
+          {missing ? (
+            <section className="vp-empty">
+              <h1>No gate-passed twin yet</h1>
+              <p>The reconstruction pipeline publishes here once a build passes every evaluation gate. The newest build, with its gate results, is on the Latest build page.</p>
+              <Link href="/latest" className="btn">
+                Latest build
+              </Link>
+              {process.env.NODE_ENV === "development" && (
+                <p className="vp-empty-dev">{SHOWCASE_MISSING}</p>
+              )}
+            </section>
+          ) : error ? (
             <p role="alert">{error}</p>
           ) : area ? (
             <MapView
@@ -147,13 +161,13 @@ export default function Shell() {
           )}
           <div className="legal">{LEGAL}</div>
         </div>
-        {!phone && (
+        {!phone && !missing && (
           <div className="strip">
             <Profile facility={facility} line={line} />
           </div>
         )}
       </main>
-      <div className="rail" data-sheet={phone ? sheet : undefined}>
+      {!missing && <div className="rail" data-sheet={phone ? sheet : undefined}>
         {area ? (
           <Rail
             area={area}
@@ -175,7 +189,7 @@ export default function Shell() {
             <p>{error ?? "Loading showcase…"}</p>
           </aside>
         )}
-      </div>
+      </div>}
     </div>
   );
 }
