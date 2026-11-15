@@ -224,3 +224,33 @@ def test_area_runs_maps_drive_names_to_tokens_and_skips_unpublishable(tmp_path, 
     runs = {"tok-s1": good, "tok-s2": partial}  # s3 has no full run
     monkeypatch.setattr(site.prgate, "pick_baseline", lambda store, scene: runs.get(scene))
     assert site.area_runs(tmp_path, area) == ["r-good"]
+
+
+def test_build_writes_parseable_status_with_check_counts(tmp_path, monkeypatch):
+    web = tmp_path / "web"
+    (web / "node_modules").mkdir(parents=True)
+    monkeypatch.setattr(site.shutil, "which", lambda *a, **k: "/bin/npm")
+    monkeypatch.setattr(site.publish, "publish_runs", lambda ids, out, store: out.mkdir(parents=True, exist_ok=True))
+    monkeypatch.setattr(site, "stage_latest_into", lambda store, web: False)
+    monkeypatch.setattr(site, "_run", lambda cmd, cwd, env=None: None)
+    rep = report("no-go")
+    site.build(["r1"], tmp_path, rep, web)
+    status = json.loads((web / "public" / "showcase" / "status.json").read_text())  # the browser must parse it
+    assert status["verdict"] == "no-go"
+    assert (status["checks_passed"], status["checks_total"]) == (site.go_count(rep), site.total_checks(rep))
+
+
+def test_area_entry_rebuilds_from_recorded_runs_and_report(tmp_path):
+    entry = {"run_id": "abc123", "runs": ["r1", "r2"], "report": {"verdict": "no-go"}}
+    assert site.entry_inputs(tmp_path, entry) == (["r1", "r2"], {"verdict": "no-go"})
+    (tmp_path / "r0").mkdir()
+    (tmp_path / "r0" / "gates.json").write_text('{"verdict": "go"}')
+    assert site.entry_inputs(tmp_path, {"run_id": "r0"}) == (["r0"], {"verdict": "go"})
+
+
+def test_rollback_of_area_entry_uses_recorded_runs(env):
+    store, calls, _run, _ = env
+    site._record(store, {"run_id": "old", "runs": ["a", "b"], "report": report("no-go"), "published_at": "t"})
+    site._record(store, {"run_id": "new", "runs": ["c"], "report": report("no-go"), "published_at": "t"})
+    assert site.rollback(store) == "rolled back to old"
+    assert calls[-2:] == [("build", ["a", "b"]), ("deploy", "secret")]

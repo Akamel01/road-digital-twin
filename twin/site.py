@@ -130,6 +130,19 @@ def _run(cmd: list[str], cwd: Path, env: dict | None = None) -> None:
         raise SiteStop(f"command failed: {' '.join(cmd[:3])}")
 
 
+def write_status(showcase: Path, report: dict, published_at: str) -> None:
+    """status.json for the site: verdict and how many gate checks pass (the banner on /)."""
+    status = {
+        "run_id": report.get("run_id"),
+        "published_at": published_at,
+        "verdict": report["verdict"],
+        "gates_version": report["gates_version"],
+        "checks_passed": go_count(report),
+        "checks_total": total_checks(report),
+    }
+    (showcase / "status.json").write_text(json.dumps(status, indent=2) + "\n")
+
+
 def build(run_ids: list[str], store: Path, report: dict, web: Path = WEB) -> None:
     """Showcase bundle, status.json and the static export in web/out."""
     label = ",".join(map(str, run_ids))
@@ -144,16 +157,7 @@ def build(run_ids: list[str], store: Path, report: dict, web: Path = WEB) -> Non
     except (OSError, ValueError) as exc:
         raise SiteStop(f"cannot build the showcase from {label}: {exc}") from exc
     stage_latest_into(store, web)
-    gc, tc = go_count(report), total_checks(report)
-    status = {
-        "run_id": report.get("run_id", label),
-        "published_at": datetime.now(UTC).isoformat(timespec="seconds"),
-        "verdict": report["verdict"],
-        "gates_version": report["gates_version"],
-        "checks_passed": gc,
-        "checks_total": tc,
-    }
-    (showcase / "status.json").write_text(json.dumps(status, indent=2) + "\\n")
+    write_status(showcase, report, datetime.now(UTC).isoformat(timespec="seconds"))
     if not (web / "node_modules").exists():
         _run(["npm", "ci"], web)
     _run(["npm", "run", "build"], web)
@@ -283,11 +287,19 @@ def publish_run(
             "margins": margins(report),
             "go_count": go_count(report),
             "margin_sum": margin_sum(report),
-            "checks_go": go_count(report),
-            "total_checks": total_checks(report),
+            # An area build is rebuilt in place, so keep its runs and report to rebuild / later (#222).
+            "runs": build_input,
+            "report": report,
         },
     )
     return f"published {publish_id}"
+
+
+def entry_inputs(store: Path, entry: dict) -> tuple[list[str], dict]:
+    """The runs and gate report a history entry was published from (single-run entries predate #222)."""
+    if "runs" in entry:
+        return entry["runs"], entry["report"]
+    return [entry["run_id"]], json.loads((Path(store) / entry["run_id"] / "gates.json").read_text())
 
 
 def rollback(store: Path, dry_run: bool = False, web: Path = WEB) -> str:
@@ -298,7 +310,17 @@ def rollback(store: Path, dry_run: bool = False, web: Path = WEB) -> str:
     earlier = [e for e in past if e["run_id"] != past[-1]["run_id"]]
     if not earlier:
         raise SiteStop("no earlier published run to roll back to")
-    return publish_run(Path(store), earlier[-1]["run_id"], dry_run, force=True, web=web)
+    entry = earlier[-1]
+    if "runs" not in entry:  # published before #222: a single run id
+        return publish_run(Path(store), entry["run_id"], dry_run, force=True, web=web)
+    runs, report = entry_inputs(Path(store), entry)
+    token = None if dry_run else read_token()
+    build(runs, Path(store), report, web)
+    if dry_run:
+        return f"dry run: built {web / 'out'}, nothing deployed"
+    deploy(token, web)
+    _record(Path(store), {**entry, "published_at": datetime.now(UTC).isoformat(timespec="seconds")})
+    return f"rolled back to {entry['run_id']}"
 
 
 def site_command(
@@ -509,21 +531,14 @@ def build_latest(store: Path, web: Path = WEB) -> None:
     showcase = web / "public" / "showcase"
     shutil.rmtree(showcase, ignore_errors=True)
     if past:
-        run_id = past[-1]["run_id"]
-        report = json.loads((Path(store) / run_id / "gates.json").read_text())
+        runs, report = entry_inputs(store, past[-1])
         try:
-            publish.publish_runs([run_id], showcase, store)
+            publish.publish_runs(runs, showcase, store)
         except (OSError, ValueError) as exc:
             raise SiteStop(
-                f"cannot rebuild the published showcase from {run_id}: {exc}"
+                f"cannot rebuild the published showcase from {','.join(runs)}: {exc}"
             ) from exc
-        status = {
-            "run_id": run_id,
-            "published_at": past[-1]["published_at"],
-            "verdict": report["verdict"],
-            "gates_version": report["gates_version"],
-        }
-        (showcase / "status.json").write_text(json.dumps(status, indent=2) + "\n")
+        write_status(showcase, report, past[-1]["published_at"])
     stage_latest_into(store, web)
     if not (web / "node_modules").exists():
         _run(["npm", "ci"], web)
