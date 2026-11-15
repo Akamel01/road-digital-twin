@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 from twin import jobqueue
-from twin.gates import GO, NO_GO
+from twin.gates import NO_GO
 
 REPO = "Akamel01/road-digital-twin"
 LABEL = "method"
@@ -101,9 +101,10 @@ def poll(store: Path, repo: str = REPO, dry_run: bool = False, gh=gh, extra: dic
 
 
 def pick_baseline(store: Path, scene: str = SCENE) -> Path | None:
-    """The main-store run to compare with: finished runs of the scene, a go verdict first,
-    then fewest no-go checks, then the newest."""
-    best, best_key = None, None
+    """The main-store run to compare with: the newest full run of the scene on the worker's
+    dataset version whose stages all finished (ok, or skipped when off by default). The newest
+    is current main, so a PR is compared with what it would replace."""
+    best = None
     for d in sorted(Path(store).glob("2*")):
         try:
             m = json.loads((d / "manifest.json").read_text())
@@ -116,18 +117,12 @@ def pick_baseline(store: Path, scene: str = SCENE) -> Path | None:
         ):
             continue  # different dataset version
         stages = m.get("stages", [])
-        if m.get("data", {}).get("scene_token") != scene or any(
-            s.get("status") != "ok" for s in stages
-        ) or not stages:  # fmt: skip
+        if m.get("data", {}).get("scene_token") != scene or not stages or any(
+            s.get("status") not in ("ok", "skipped") for s in stages
+        ):  # fmt: skip
             continue
-        try:
-            rep = json.loads((d / "gates.json").read_text())
-            checks = [c["status"] for g in rep["gates"].values() for c in g["checks"]]
-            key = (rep["verdict"] == GO, -checks.count(NO_GO))
-        except (OSError, ValueError, KeyError):
-            key = (False, -99)
-        if best_key is None or key >= best_key:  # sorted by id: ties go to the newest
-            best, best_key = d, key
+        if (d / "gates.json").exists():
+            best = d  # sorted by id: the last one is the newest
     return best
 
 
