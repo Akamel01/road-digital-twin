@@ -12,8 +12,6 @@ from collections import Counter
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-import yaml
-
 from twin import REPO, gates, jobqueue, telemetry
 
 LABEL = "box-alarm"
@@ -114,7 +112,7 @@ def idle_minutes(rows: list[dict], now: datetime) -> dict:
 
 def progress(store: Path) -> dict:
     """Best and latest value of every gate metric, a trend over the last TREND_N builds and the G2 ratchet."""
-    spec = yaml.safe_load(gates.GATES_FILE.read_text())["gates"]
+    spec = gates.load_gates()["gates"]
     ops = {c["metric"]: (g, c["op"], c["value"]) for g, body in spec.items() for c in body["checks"]}
     trend = _json(Path(store) / "published" / "latest" / "trend.json", [])
     metrics = {}
@@ -125,14 +123,7 @@ def progress(store: Path) -> dict:
         better = min if op == "<=" else max
         metrics[metric] = {"gate": gate, "op": op, "threshold": thr, "latest": vals[-1], "best": better(vals),
                            "trend": [round(v, 4) for v in vals[-TREND_N:]]}  # fmt: skip
-    g2 = _json(Path(store) / "autopilot" / "g2_history.json", [])
-    ratchet = {"threshold": g2[-1]["threshold"], "passing_in_a_row": 0} if g2 else None
-    for h in reversed(g2):
-        if ratchet and h["threshold"] == ratchet["threshold"] and h["status"] == "go":
-            ratchet["passing_in_a_row"] += 1
-        else:
-            break
-    return {"builds": len(trend), "metrics": metrics, "g2_ratchet": ratchet}
+    return {"builds": len(trend), "metrics": metrics, "g2_ratchet": gates.g2_state(store)}
 
 
 def collect(store: Path, now: datetime | None = None, ps_text: str | None = None, rows: list[dict] | None = None) -> dict:

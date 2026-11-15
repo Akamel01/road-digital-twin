@@ -5,7 +5,7 @@ import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from twin import autopilot, health, jobqueue, site
+from twin import autopilot, gates, health, jobqueue, site
 from twin.cli import main
 
 NOW = datetime(2026, 11, 14, 12, 0, tzinfo=UTC)
@@ -125,8 +125,24 @@ def test_progress_best_and_latest(tmp_path):
     m = "align.cross_drive_ground_p95_m"
     trend = [{"built_at": str(i), "verdict": "no-go", "metrics": {m: v}} for i, v in enumerate((4.0, 1.0, 2.0))]
     (out / "trend.json").write_text(json.dumps(trend))
-    p = health.progress(tmp_path)["metrics"][m]
+    prog = health.progress(tmp_path)
+    p = prog["metrics"][m]
     assert (p["latest"], p["best"], p["gate"]) == (2.0, 1.0, "G2")
+    assert prog["g2_ratchet"] is None
+
+
+def test_progress_g2_ratchet_uses_gate_helper(tmp_path):
+    hist = tmp_path / "autopilot"
+    hist.mkdir(parents=True)
+    (hist / "g2_history.json").write_text(json.dumps([
+        {"run_id": "r1", "value": 0.3, "threshold": 0.2, "status": "no-go"},
+        {"run_id": "r2", "value": 0.1, "threshold": 0.2, "status": "go"},
+        {"run_id": "r3", "value": 0.1, "threshold": 0.2, "status": "go"},
+    ]))
+    assert health.progress(tmp_path)["g2_ratchet"] == gates.g2_state(tmp_path) == {
+        "threshold": 0.2,
+        "passing_in_a_row": 2,
+    }
 
 
 def test_site_bundle_carries_public_health(tmp_path):

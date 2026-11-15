@@ -265,7 +265,7 @@ def test_g2_history_and_ratchet(tmp_path, capsys):
     assert "ratchet" not in capsys.readouterr().out
     build("20261110-000005-eeeeee", 0.10)
     assert "G2 ratchet due: lower to 0.1" in capsys.readouterr().out
-    history = json.loads((tmp_path / "autopilot" / "g2_history.json").read_text())
+    history = autopilot.gates.read_g2_history(tmp_path)
     assert len(history) == 5 and history[-1]["status"] == "go"
 
 

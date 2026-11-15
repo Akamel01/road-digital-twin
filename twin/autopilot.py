@@ -126,26 +126,8 @@ def gates_hash() -> str:
 def record_g2(store: Path) -> None:
     """Append the latest area build's G2 value and verdict to autopilot/g2_history.json, and say
     when G2_RUN builds in a row passed at the current threshold. gates.yaml is never edited."""
-    try:
-        report = json.loads((store / "areas" / TWIN / "gates.json").read_text())
-        check = report["gates"]["G2"]["checks"][0]
-        entry = {"run_id": report["run_id"], "value": check["value"], "threshold": check["threshold"],
-                 "status": check["status"]}  # fmt: skip
-    except (OSError, ValueError, KeyError, IndexError):
-        return
-    path = store / "autopilot" / "g2_history.json"
-    try:
-        history = json.loads(path.read_text())
-    except (OSError, ValueError):
-        history = []
-    if any((h["run_id"], h["threshold"]) == (entry["run_id"], entry["threshold"]) for h in history):
-        return  # a re-eval of a build already recorded
-    history.append({**entry, "ts": datetime.now(UTC).isoformat(timespec="seconds")})
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(history, indent=2) + "\n")
-    last = history[-G2_RUN:]
-    nxt = G2_STEPS.get(entry["threshold"])
-    if nxt and len(last) == G2_RUN and all(h["threshold"] == entry["threshold"] and h["status"] == "go" for h in last):
+    entry, nxt = gates.record_g2_result(store, build_dir=Path(store) / "areas" / TWIN)
+    if entry is not None and nxt is not None:
         say(f"G2 ratchet due: lower to {nxt}")
 
 
