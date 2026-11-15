@@ -183,7 +183,8 @@ def redeploy_web(store: Path, old: str | None, new: str | None) -> None:
     if changed.returncode or not any(p.startswith("web/") for p in changed.stdout.split()):
         return
     try:
-        say(f"web/ changed: redeploy: {site.redeploy(store)}")
+        with FileLock(str(store / jobqueue.PUBLISH_LOCK)):  # a worker publish writes the same site folder
+            say(f"web/ changed: redeploy: {site.redeploy(store)}")
     except site.SiteStop as exc:
         say(f"redeploy not done: {exc}")
     except Exception as exc:  # noqa: BLE001
