@@ -346,21 +346,19 @@ def smoke(work: Path | None = None, say: Callable[[str], None] = _say) -> int:
 
 
 def _check_runs(store: Path, n: int) -> None:
-    from twin.contracts import Manifest
+    from twin.runstore import RunStore
 
-    runs = sorted(p for p in store.glob("*/manifest.json") if p.parent.name[:2] == "20")
-    if len(runs) != n:
-        raise StepFailed(f"expected {n} runs, found {len(runs)}")
-    for path in runs:
-        m = Manifest.model_validate_json(path.read_text())
-        if [s.name for s in m.stages] != list(STAGE_NAMES) or any(
-            s.status not in ("ok", "skipped") for s in m.stages
-        ):
-            raise StepFailed(
-                f"run {m.run_id}: stages {[(s.name, s.status) for s in m.stages]}"
-            )
-        if not (path.parent / "gates.json").is_file():
-            raise StepFailed(f"run {m.run_id}: no gates.json after eval")
+    runs = RunStore(store)
+    found = runs.runs()
+    if len(found) != n:
+        raise StepFailed(f"expected {n} runs, found {len(found)}")
+    full = {r.id for r in runs.runs(full_chain=True)}
+    gated = {r.id for r in runs.runs(with_gates=True)}
+    for run in found:
+        if run.id not in full:
+            raise StepFailed(f"run {run.id}: stages {[(s['name'], s['status']) for s in run.stages]}")
+        if run.id not in gated:
+            raise StepFailed(f"run {run.id}: no gates.json after eval")
 
 
 @contextmanager

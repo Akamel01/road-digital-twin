@@ -13,9 +13,8 @@ import sys
 from pathlib import Path
 
 from twin import REPO, jobqueue
-from twin.contracts import STAGE_NAMES
-from twin.dataset import DatasetConfig
 from twin.gates import NO_GO
+from twin.runstore import RunStore
 
 LABEL = "method"
 CONTEXT = "twin-gates"
@@ -103,26 +102,8 @@ def pick_baseline(store: Path, scene: str = SCENE) -> Path | None:
     """The main-store run to compare with: the newest full run of the scene on the worker's
     dataset version whose stages all finished (ok, or skipped when off by default). The newest
     is current main, so a PR is compared with what it would replace."""
-    best = None
-    for d in sorted(Path(store).glob("2*")):
-        try:
-            m = json.loads((d / "manifest.json").read_text())
-        except (OSError, ValueError):
-            continue
-        if m.get("parent") is not None:
-            continue  # reruns are not baselines
-        if m.get("data", {}).get("nuscenes_version") != DatasetConfig.from_env().version:
-            continue  # different dataset version
-        stages = m.get("stages", [])
-        if m.get("data", {}).get("scene_token") != scene or not stages or any(
-            s.get("status") not in ("ok", "skipped") for s in stages
-        ):  # fmt: skip
-            continue
-        if {s.get("name") for s in stages} != set(STAGE_NAMES):
-            continue  # a partial chain (e.g. P4 prefetch, stop_after) is not a baseline
-        if (d / "gates.json").exists():
-            best = d  # sorted by id: the last one is the newest
-    return best
+    best = RunStore(store).newest_baseline(scene)
+    return best.path if best else None
 
 
 def _sh(cmd: list[str], cwd: Path | None = None) -> str:
