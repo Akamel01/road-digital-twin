@@ -230,7 +230,11 @@ def narrow(rows: list[dict]) -> dict:
         if all(isinstance(v, int | float) and not isinstance(v, bool) for v in vals):
             lo, hi = min(vals), max(vals)
             pad = max((hi - lo) * 0.25, abs(hi) * 0.02)
-            params[path] = {"min": lo - pad, "max": hi + pad}
+            cmin, cmax = _bounds(path)  # never step outside the contract range
+            params[path] = {
+                "min": lo - pad if cmin is None else max(cmin, lo - pad),
+                "max": hi + pad if cmax is None else min(cmax, hi + pad),
+            }
         else:
             params[path] = {"values": sorted(set(map(str, vals)))}
     return {"mode": "random", "n": ROUND_N, "params": params}
@@ -276,6 +280,18 @@ def base_runs(store: Path) -> list[str]:
         if ok:
             out.append(path.parent.name)
     return out
+
+
+def _bounds(path: str) -> tuple[float | None, float | None]:
+    """Contract (ge, le) of a params path like 'features.cluster_eps_m'; None when unbounded."""
+    group, _, name = path.partition(".")
+    try:
+        field = type(getattr(Params(), group)).model_fields[name]
+    except (AttributeError, KeyError):
+        return None, None
+    lo = next((m.ge for m in field.metadata if hasattr(m, "ge")), None)
+    hi = next((m.le for m in field.metadata if hasattr(m, "le")), None)
+    return lo, hi
 
 
 def group_space(group: str, start: int) -> dict:
