@@ -288,3 +288,10 @@ def test_latest_build_published_after_p2_and_p2b_and_failures_do_not_crash(tmp_p
     autopilot.p2_area(tmp_path, {"p2": {"built": "a" * 40}, "p2b": {"running": True, "gates": autopilot.gates_hash()}})
     autopilot.p2_area(tmp_path, {"p2": {"building": "b" * 40, "pid": 1}})  # SiteStop, then RuntimeError: no raise
     assert calls == ["seaport-merged"] * 3
+
+
+def test_narrow_stays_inside_contract_range():
+    rows = [{"overrides": {"features.cluster_eps_m": v}} for v in (0.05, 0.06)]
+    space = autopilot.narrow(rows)["params"]["features.cluster_eps_m"]
+    lo, _ = autopilot._bounds("features.cluster_eps_m")
+    assert space["min"] >= lo
