@@ -25,7 +25,6 @@ from pydantic import BaseModel
 
 from twin import registry
 from twin.contracts import (
-    PARAM_STAGE,
     STAGE_NAMES,
     STAGES,
     Manifest,
@@ -51,16 +50,6 @@ RUN_LOCK = ".lock"  # per-run lock, in the run folder: one task at a time per ru
 CURRENT_FILE = ".current"
 CANCEL_FILE = ".cancel"
 LOCK_TIMEOUT = 0  # seconds to wait for the run lock; 0 refuses at once
-
-# The Params field each stage reads. Derived from PARAM_STAGE (first key per stage);
-# outputs takes no parameters.
-STAGE_PARAMS: dict[str, str | None] = {}
-for _key, _stage in PARAM_STAGE.items():
-    if _stage is not None and _stage not in STAGE_PARAMS:
-        STAGE_PARAMS[_stage] = _key
-for _name in STAGE_NAMES:
-    STAGE_PARAMS.setdefault(_name, None)
-
 
 @dataclass
 class StageContext:
@@ -163,8 +152,8 @@ def _run_stage(
     fn = registry.lookup(name, method)
     if fn is None:
         return StageResult(status="failed", message=f"no registered method {method!r}")
-    field = STAGE_PARAMS[name]
-    stage_params = getattr(params, field) if field else None
+    groups = params.groups_for(name)
+    stage_params = getattr(params, groups[0]) if groups else None
     try:
         result = fn(ctx, stage_params)
     except Exception as exc:  # a stage crash is a failed stage, not a runner crash

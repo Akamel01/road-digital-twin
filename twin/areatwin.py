@@ -397,7 +397,7 @@ def construction_check(regions: list[dict], drives: list[dict], work: Path, cent
 def _stage(ctx: StageContext, name: str, params: Params, pipeline: Pipeline) -> dict:
     fn = registry.lookup(name, getattr(pipeline, name).method)
     t0 = time.time()
-    res = fn(ctx, getattr(params, name))
+    res = fn(ctx, getattr(params, params.groups_for(name)[0]))
     if res.status != "ok":
         raise RuntimeError(f"{name}: {res.message}")
     return {"seconds": round(time.time() - t0, 1), "metrics": res.metrics}

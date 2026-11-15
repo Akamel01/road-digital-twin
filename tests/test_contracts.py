@@ -126,3 +126,37 @@ def test_schema_render_is_sorted_json():
     text = render_schema(Params)
     assert text.endswith("\n")
     assert json.loads(text)["title"] == "Params"
+
+
+def test_params_stage_of_and_groups_for():
+    p = Params()
+    assert p.stage_of("features") == "features" and p.stage_of("merge") is None
+    assert p.groups_for("load") == ["facilities", "seed"]
+    assert p.groups_for("outputs") == []
+
+
+def test_params_get_and_flat():
+    p = Params()
+    assert p.get("features.cluster_eps_m") == p.features.cluster_eps_m
+    assert p.get("seed") == 0
+    for bad in ("nope", "features.nope", "seed.x"):
+        with pytest.raises(KeyError):
+            p.get(bad)
+    flat = p.flat()
+    assert flat["features.cluster_eps_m"] == p.features.cluster_eps_m and "seed" in flat
+
+
+def test_params_with_value_validates_and_leaves_original():
+    p = Params()
+    q = p.with_value("features.cluster_eps_m", 0.5)
+    assert q.features.cluster_eps_m == 0.5 and p.features.cluster_eps_m != 0.5
+    with pytest.raises(ValidationError):
+        p.with_value("features.cluster_eps_m", -1)
+    with pytest.raises(KeyError):
+        p.with_value("features.nope", 1)
+
+
+def test_params_bounds():
+    lo, hi = Params().bounds("features.cluster_eps_m")
+    assert lo is not None and hi is not None and lo < hi
+    assert Params().bounds("nope.x") is None and Params().bounds("seed") is None

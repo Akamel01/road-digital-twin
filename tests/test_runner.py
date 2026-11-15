@@ -255,20 +255,3 @@ def test_manifest_records_dataset_version_and_rerun_refuses_mismatch(
     with pytest.raises(ValueError, match="dataset version"):
         runner.rerun(tmp_path, run_id, "ground")
     assert set(tmp_path.iterdir()) == before
-
-
-def test_stage_params_maps_each_stage_to_its_params_field():
-    assert runner.STAGE_PARAMS == {
-        "load": "facilities",
-        "mask": "mask",
-        "align": "align",
-        "ground": "ground",
-        "features": "features",
-        "colour": "colour",
-        "profile": "profile",
-        "isd": "isd",
-        "accuracy": "accuracy",
-        "outputs": None,
-        "semantics": "semantics",
-        "splats": "splats",
-    }

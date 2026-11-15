@@ -39,7 +39,7 @@ def _dim_values(path: str, spec: dict, grid: bool, rng: random.Random) -> list:
     if "values" in spec:
         return list(spec["values"])
     lo, hi = spec["min"], spec["max"]
-    kind = type(_get(Params().model_dump(), path))
+    kind = type(Params().get(path))
     if kind not in (int, float):
         raise ValueError(f"{path}: min/max needs a number parameter, use values")
     if grid:
@@ -50,25 +50,11 @@ def _dim_values(path: str, spec: dict, grid: bool, rng: random.Random) -> list:
     return [round(v) if kind is int else round(v, 4) for v in pts]
 
 
-def _get(tree: dict, path: str):
-    for key in path.split("."):
-        tree = tree[key]
-    return tree
-
-
-def _set(tree: dict, path: str, value) -> None:
-    *head, last = path.split(".")
-    for key in head:
-        tree = tree[key]
-    tree[last] = value
-
-
 def build_variants(space: dict, base: dict) -> list[dict]:
     """Return [{overrides, params, from_stage}], deduplicated, none equal to base.
     Raises ValueError when a value falls outside the contract ranges or a path is unknown."""
-    base = Params.model_validate(base).model_dump(
-        mode="json"
-    )  # fill fields an old manifest lacks
+    base_params = Params.model_validate(base)  # fills fields an old manifest lacks
+    base = base_params.model_dump(mode="json")
     dims = space.get("params") or {}
     if not dims:
         raise ValueError("space has no params")
@@ -89,15 +75,13 @@ def build_variants(space: dict, base: dict) -> list[dict]:
         raise ValueError(f"{len(combos)} variants; the limit is {MAX_VARIANTS}")
     out, seen = [], set()
     for combo in combos:
-        params = json.loads(json.dumps(base))
+        new = base_params
         for path, value in zip(paths, combo, strict=True):
             try:
-                _set(params, path, value)
+                new = new.with_value(path, value)  # contract ranges
             except (KeyError, TypeError) as exc:
                 raise ValueError(f"unknown parameter {path!r}") from exc
-        params = Params.model_validate(params).model_dump(
-            mode="json"
-        )  # contract ranges
+        params = new.model_dump(mode="json")
         key = json.dumps(params, sort_keys=True)
         if key in seen or params == base:
             continue
