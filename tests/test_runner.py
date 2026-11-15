@@ -7,7 +7,6 @@ from filelock import FileLock
 from twin import registry, runner
 from twin.cli import main
 from twin.contracts import (
-    PARAM_STAGE,
     STAGE_NAMES,
     STAGES,
     Manifest,
@@ -53,7 +52,10 @@ def test_happy_path_manifest_valid_and_all_ok(tmp_path, stubs):
     manifest = _manifest(run_dir)
     assert [s.name for s in manifest.stages] == list(STAGE_NAMES)
     # semantics and splats are off by default (it needs the GPU extra)
-    assert {s.name for s in manifest.stages if s.status != "ok"} == {"semantics", "splats"}
+    assert {s.name for s in manifest.stages if s.status != "ok"} == {
+        "semantics",
+        "splats",
+    }
     assert manifest.stages[0].files == ["out.txt"]
     assert manifest.stages[0].seconds >= 0
     assert manifest.metrics["load"] == {"n": 1}
@@ -240,7 +242,9 @@ def test_manifest_osm_names_null_when_load_has_no_query(tmp_path, stubs):
     assert _manifest(tmp_path / run_id).data.osm_names is None
 
 
-def test_manifest_records_dataset_version_and_rerun_refuses_mismatch(tmp_path, stubs, monkeypatch):
+def test_manifest_records_dataset_version_and_rerun_refuses_mismatch(
+    tmp_path, stubs, monkeypatch
+):
     stubs()
     monkeypatch.setenv("NUSCENES_VERSION", "v1.0-trainval")
     run_id = runner.start_run(tmp_path, "scene-1", Pipeline(), Params())
@@ -253,11 +257,18 @@ def test_manifest_records_dataset_version_and_rerun_refuses_mismatch(tmp_path, s
     assert set(tmp_path.iterdir()) == before
 
 
-def test_stage_params_equals_derived_inverse_of_param_stage():
-    expected: dict[str, str | None] = {}
-    for key, stage in PARAM_STAGE.items():
-        if stage is not None and stage not in expected:
-            expected[stage] = key
-    for name in STAGE_NAMES:
-        expected.setdefault(name, None)
-    assert runner.STAGE_PARAMS == expected
+def test_stage_params_maps_each_stage_to_its_params_field():
+    assert runner.STAGE_PARAMS == {
+        "load": "facilities",
+        "mask": "mask",
+        "align": "align",
+        "ground": "ground",
+        "features": "features",
+        "colour": "colour",
+        "profile": "profile",
+        "isd": "isd",
+        "accuracy": "accuracy",
+        "outputs": None,
+        "semantics": "semantics",
+        "splats": "splats",
+    }

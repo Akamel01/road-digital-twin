@@ -123,7 +123,6 @@ def earliest_stage(base: dict, params: dict) -> str | None:
         for k in params
         if params[k] != base.get(k) and PARAM_STAGE.get(k) is not None
     }
-    stages.discard(None)
     if not stages:
         return None
     return min(stages, key=STAGE_NAMES.index)
