@@ -35,6 +35,7 @@ JOB_TYPES = ("run", "rerun", "eval", "publish", "prgate")
 DISK_RULES = (("/", 10), ("/data", 50))
 POLL_SECONDS = 30
 PUBLISH_LOCK = ".publish.lock"
+DRAIN_TIMEOUT = 3600  # 60 min bound on a code-change drain
 
 
 def _dir(store: Path, state: str) -> Path:
@@ -264,7 +265,12 @@ def worker(
     store: Path | str, jobs: int = 0, poll: float = POLL_SECONDS, hold=disk_hold
 ) -> int:
     """Process jobs one at a time. jobs=N stops after N jobs, 0 runs until killed.
-    Returns 3 when another worker holds the lock."""
+    Returns 3 when another worker holds the lock.
+
+    On a CodeWatch change, stop taking new jobs (drain), then exit 75 for the supervisor
+    to restart. A synchronous job runs to completion, so the 60-min drain bound
+    (DRAIN_TIMEOUT) is checked between jobs: a single long job may exceed it.
+    """
     store = Path(store)
     store.mkdir(parents=True, exist_ok=True)
     lock = FileLock(
@@ -285,11 +291,20 @@ def worker(
             print(f"run recovery skipped: {exc}", flush=True)
         watch = CodeWatch()
         count = 0
-        while not jobs or count < jobs:
-            changed = watch.changed()
-            if changed:
-                old, new = changed
-                print(f"code changed {old}..{new}: exiting for restart", flush=True)
+        draining = False
+        drain_deadline = 0.0
+        while True:
+            if jobs and not draining and count >= jobs:
+                break
+            changed = watch.changed() if not draining else None
+            if changed is not None and not draining:
+                print("code changed: draining 0 jobs", flush=True)
+                draining = True
+                drain_deadline = time.time() + DRAIN_TIMEOUT
+            if draining:
+                if time.time() >= drain_deadline:
+                    print("drain timeout: exiting anyway", flush=True)
+                    sys.exit(75)
                 sys.exit(75)
             status = process_one(store, hold)
             if status is None or status.startswith("held"):
