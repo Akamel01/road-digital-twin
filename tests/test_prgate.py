@@ -85,10 +85,16 @@ def test_pick_baseline(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "verdict,state",
-    [("go", "success"), ("no-go", "failure"), ("not measured", "success")],
+    "verdict,state,worse",
+    [
+        ("go", "success", None),
+        ("no-go", "failure", None),
+        ("not measured", "success", None),
+        ("no-go", "success", []),  # no-go like main, but nothing worse than the baseline
+        ("no-go", "failure", [{"metric": "m"}]),
+    ],
 )
-def test_gate_posts_comment_and_status(tmp_path, monkeypatch, verdict, state):
+def test_gate_posts_comment_and_status(tmp_path, monkeypatch, verdict, state, worse):
     store, root = tmp_path / "main", tmp_path / "root"
     store.mkdir()
     _run(store, "20261101-000000-aaaaaa", "go")
@@ -98,7 +104,8 @@ def test_gate_posts_comment_and_status(tmp_path, monkeypatch, verdict, state):
         if cmd[:3] == ["uv", "run", "twin"]:
             runs = root / "5-runs" / "20261110-000000-eeeeee"
             runs.mkdir(parents=True)
-            (runs / "gates.json").write_text(json.dumps({"verdict": verdict}))
+            rep = {"verdict": verdict} | ({} if worse is None else {"regressions": worse})
+            (runs / "gates.json").write_text(json.dumps(rep))
             (runs / "gates.md").write_text("REPORT\n")
             return "20261110-000000-eeeeee\n"
         return ""
