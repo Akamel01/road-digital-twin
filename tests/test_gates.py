@@ -114,6 +114,12 @@ def test_regression_against_baseline():
     assert rep2["verdict"] == GO
     gr = GateReport.from_dict(rep2)
     assert gr.regressions_vs(run["metrics"], base["metrics"], gates=load_gates()) == []
+    # real regression detected via GateReport API
+    run_bad = copy.deepcopy(GOOD)
+    run_bad["metrics"]["accuracy"]["elements"]["curbs"]["matched_p95_m"] = 0.45
+    gr_bad = GateReport.from_dict(evaluate(run_bad, rerun=run_bad))
+    regs = gr_bad.regressions_vs(run_bad["metrics"], base["metrics"], gates=load_gates())
+    assert any(r["metric"] == "accuracy.elements.curbs.matched_p95_m" for r in regs)
 
 
 def test_regressions_lost_metric_higher_is_better_and_tolerance():

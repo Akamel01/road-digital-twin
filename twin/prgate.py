@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 from twin import REPO, jobqueue
-from twin.gates import GateReport, NO_GO
+from twin.gates import NO_GO, GateReport
 from twin.runstore import RunStore
 
 LABEL = "method"

@@ -28,7 +28,7 @@ import yaml
 
 from twin import jobqueue
 from twin.contracts import PARAM_STAGE, STAGE_NAMES, Params
-from twin.gates import GateReport, margin_score, verdict_rank
+from twin.gates import GateReport, margin_score, verdict_rank  # noqa: F401
 from twin.runner import RUN_ID_RE, default_store
 
 MAX_VARIANTS = 500

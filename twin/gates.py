@@ -269,30 +269,42 @@ class GateReport(Mapping):
         self,
         other=None,
         tolerance: float | None = None,
-        gates: dict | None = None,
+        gates_spec=None,
+        *,
+        gates=None,
         run=None,
         base=None,
     ) -> list[dict]:
-        gates_spec = gates or load_gates()
-        tol = (
-            gates_spec.get("noise_tolerance_m", 0.02)
-            if tolerance is None
-            else tolerance
-        )
+        """Compare regressions between run/base metrics.
+
+        Supports:
+        - regressions_vs(run_metrics, base_metrics, gates=...) where tolerance param is used as base (repo compat)
+        - regressions_vs(other, tolerance=..., gates_spec=...) with other/base/run as report-like or metric dicts
+        """
+        spec = gates_spec if gates_spec is not None else gates
+        gates_spec_resolved = spec if spec is not None else load_gates()
+        tol = gates_spec_resolved.get("noise_tolerance_m", 0.02)
+        if tolerance is not None and not isinstance(tolerance, Mapping):
+            try:
+                tol = float(tolerance)
+            except (TypeError, ValueError):
+                pass
+
         run_metrics = _metrics_for_regressions(run) if run is not None else _metrics_for_regressions(self)
         base_metrics = _metrics_for_regressions(base) if base is not None else _metrics_for_regressions(other)
-        # convenience: report carries no metrics -> treat (run_metrics, base_metrics, tol?, gates?)
-        if run is None and base is None and not run_metrics and other is not None:
-            run_metrics = _metrics_for_regressions(other)
-            base_metrics = _metrics_for_regressions(tolerance) if isinstance(tolerance, Mapping) and not isinstance(tolerance, (int, float)) else {}
-            if base_metrics or (isinstance(tolerance, Mapping) and not isinstance(tolerance, (int, float))):
-                gates_spec = gates or load_gates()
-                tol = gates_spec.get("noise_tolerance_m", 0.02)
-                if isinstance(gates, (int, float)):
-                    tol = float(gates)
-                    gates_spec = load_gates()
-                return regressions(run_metrics, base_metrics, tol, gates_spec)
-        return regressions(run_metrics, base_metrics, tol, gates_spec)
+
+        # Compat: called as regressions_vs(run_metrics_dict, base_metrics_dict, gates=...)
+        # In that form, `other` was passed as run metrics and `tolerance` was passed as base metrics.
+        if run is None and base is None and isinstance(other, Mapping) and "gates" not in other:
+            # If `self` has no own metrics (typical GateReport loaded from gates.json), treat as:
+            # regressions_vs(run, base, ...)
+            has_self_metrics = bool(_metrics_for_regressions(self))
+            if not has_self_metrics and isinstance(tolerance, Mapping):
+                run_metrics = _metrics_for_regressions(other)
+                base_metrics = _metrics_for_regressions(tolerance)
+                tol = gates_spec_resolved.get("noise_tolerance_m", 0.02)
+
+        return regressions(run_metrics, base_metrics, tol, gates_spec_resolved)
 
     def improves_on(self, other) -> bool:
         """#222: more go checks, else larger sum of margins normalised by |threshold| clipped to [-1,1].
