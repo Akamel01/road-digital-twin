@@ -17,7 +17,6 @@ import tempfile
 import time
 from collections.abc import Callable
 from contextlib import contextmanager
-from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
@@ -197,14 +196,10 @@ def stub_web(root: Path) -> Path:
 
 # --- shared steps -------------------------------------------------------------------------
 def health_snapshot(store: Path) -> dict:
-    """A minimal health snapshot: queue counts and free disk. #200 replaces it with `twin health`."""
-    counts = {
-        s: len(list(jobqueue._dir(store, s).glob("*.json"))) for s in jobqueue.STATES
-    }
-    snap = {"at": datetime.now(UTC).isoformat(timespec="seconds"), "queue": counts,
-            "free_gb": {p: round(shutil.disk_usage(p).free / 1024**3, 1) for p in {"/", str(store)}}}  # fmt: skip
-    (store / "health.json").write_text(json.dumps(snap, indent=2) + "\n")
-    return snap
+    """The health monitor's pass (twin.health, #200) over this store, without alerts."""
+    from twin import health
+
+    return health.run(store, alert=False)
 
 
 def run_scheduler(store: Path, max_tasks: int | None = None) -> None:
@@ -261,7 +256,7 @@ def merge_eval_publish(
     run("publish_latest (dry run)", publish)
     run(
         "health snapshot",
-        lambda: say(f"    {json.dumps(health_snapshot(store)['queue'])}"),
+        lambda: say(f"    processes {sorted(health_snapshot(store)['processes'])}"),
     )
     return json.loads((store / merged / "gates.json").read_text())
 
@@ -446,7 +441,7 @@ def _autopilot_pass(store: Path, say) -> None:
 
 
 # --- preflight ----------------------------------------------------------------------------
-def preflight(
+def _preflight(
     store: Path | None = None,
     work: Path | None = None,
     say: Callable[[str], None] = print,
@@ -512,6 +507,25 @@ def preflight(
         if total <= PREFLIGHT_BUDGET_S
         else (say("PREFLIGHT FAILED: over budget") or 1)
     )
+
+
+def preflight(store: Path | None = None, work: Path | None = None, say: Callable[[str], None] = print) -> int:
+    """_preflight, then <store>/health/preflight.json for the health monitor (twin.health raises an alarm on a failure)."""
+    last: list[str] = []
+
+    def log(text: str) -> None:
+        last.append(text)
+        say(text)
+
+    code = _preflight(store, work, log)
+    error = next((t for t in reversed(last) if "FAILED" in t), "")
+    try:
+        path = Path(store or runner.default_store()) / "health" / "preflight.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"ok": code == 0, "error": error}) + "\n")
+    except OSError as exc:
+        say(f"could not write {path}: {exc}")
+    return code
 
 
 def pipeline_command(action: str, store: Path | None, work: Path | None) -> int:
