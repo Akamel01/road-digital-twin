@@ -3,6 +3,7 @@ import json
 import pytest
 
 from twin import jobqueue, prgate
+from twin.contracts import STAGE_NAMES
 
 
 def fake_gh(prs, calls):
@@ -57,11 +58,12 @@ def test_prgate_job_needs_sha(tmp_path):
         jobqueue.add(tmp_path, {"type": "prgate", "pr": 5})
 
 
-def _run(store, name, verdict, nogo=0, scene=prgate.SCENE, status="ok"):
+def _run(store, name, verdict, nogo=0, scene=prgate.SCENE, status="ok", stages=None):
     d = store / name
     d.mkdir()
     (d / "manifest.json").write_text(
-        json.dumps({"data": {"scene_token": scene, "nuscenes_version": "v1.0-mini"}, "stages": [{"status": status}]})
+        json.dumps({"data": {"scene_token": scene, "nuscenes_version": "v1.0-mini"},
+                    "stages": [{"name": n, "status": status} for n in (stages or STAGE_NAMES)]})
     )
     if verdict:
         checks = [{"status": "no-go"}] * nogo
@@ -78,6 +80,9 @@ def test_pick_baseline(tmp_path):
     assert prgate.pick_baseline(tmp_path).name == "20261102-000000-bbbbbb"
     # a stage that is off by default (skipped) does not disqualify a run
     _run(tmp_path, "20261105-000000-eeeeee", "no-go", 1, status="skipped")
+    assert prgate.pick_baseline(tmp_path).name == "20261105-000000-eeeeee"
+    # a partial chain (prefetch load+mask) never becomes the baseline
+    _run(tmp_path, "20261106-000000-ffffff", "no-go", stages=["load", "mask"])
     assert prgate.pick_baseline(tmp_path).name == "20261105-000000-eeeeee"
     assert prgate.pick_baseline(tmp_path / "none") is None
 
