@@ -296,3 +296,18 @@ def test_narrow_stays_inside_contract_range():
     space = autopilot.narrow(rows)["params"]["features.cluster_eps_m"]
     lo, _ = autopilot._bounds("features.cluster_eps_m")
     assert space["min"] >= lo
+
+
+def test_new_main_queues_a_baseline_run_once(tmp_path, monkeypatch):
+    monkeypatch.setattr(autopilot, "main_commit", lambda: "a" * 40)
+    monkeypatch.setattr(autopilot, "_alive", lambda pid: False)
+    monkeypatch.setattr(autopilot, "_detached", lambda s, name, cmd: (999999, "x"))
+    added = []
+    monkeypatch.setattr(autopilot.jobqueue, "add", lambda store, job: added.append(job) or "id")
+    state = {}
+    autopilot.p2_area(tmp_path, state)
+    assert added == [{"type": "run", "scene": autopilot.prgate.SCENE, "eval": True, "tags": ["autopilot", "baseline"]}]
+    state["p2"].update(built="a" * 40, building=None, pid=None)
+    monkeypatch.setattr(autopilot, "_exit_code", lambda job: "1")
+    autopilot.p2_area(tmp_path, state)
+    assert len(added) == 1  # the same commit is not queued again

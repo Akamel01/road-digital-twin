@@ -429,6 +429,8 @@ def _autopilot_pass(store: Path, say) -> None:
         (
             "P0"
             if j["type"] == "prgate"
+            else "P2"
+            if "baseline" in j.get("tags", [])
             else "P3"
             if j.get("sweep")
             else "P4"
@@ -437,9 +439,9 @@ def _autopilot_pass(store: Path, say) -> None:
         )
         for j in new
     }
-    if kinds != {"P0", "P3", "P4"}:
+    if kinds != {"P0", "P2", "P3", "P4"}:
         raise StepFailed(
-            f"the autopilot pass queued {sorted(kinds)}, expected P0, P3 and P4 jobs"
+            f"the autopilot pass queued {sorted(kinds)}, expected P0, P2 (baseline), P3 and P4 jobs"
         )
     check_queue(store, {j["id"] for j in new if j["type"] != "prgate"})
 
