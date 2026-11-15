@@ -186,6 +186,26 @@ a:focus-visible {
   font-size: 11px;
 }
 
+.vp-banner {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  max-width: calc(100% - 24px);
+  padding: 8px 14px;
+  border-radius: 12px;
+  background: var(--glass-smoke);
+  backdrop-filter: blur(8px);
+  color: var(--on-glass);
+  font-size: 13px;
+  text-align: center;
+}
+
 .stamp {
   font-size: 11px;
   color: var(--on-glass-2);

@@ -2,6 +2,7 @@
 published run goes to twin.papyrus-ai.net. History of published runs: <store>/published/history.json.
 """
 
+import hashlib
 import json
 import math
 import os
@@ -13,8 +14,8 @@ from pathlib import Path
 
 import numpy as np
 
+from twin import prgate, publish
 from twin.gates import GO
-from twin.publish import publish_runs
 from twin.runner import default_store
 
 WEB = Path(__file__).resolve().parents[1] / "web"
@@ -73,18 +74,8 @@ def _checks(report: dict):
 
 
 def go_count(report: dict) -> int:
-    """Number of gate checks whose status is go (or that pass op/threshold)."""
-    n = 0
-    for c in _checks(report):
-        if c.get("status") == "go":
-            n += 1
-            continue
-        v, t, op = c.get("value"), c.get("threshold"), c.get("op", "<=")
-        if v is None:
-            continue
-        if op == "<=" and v <= t or op == ">=" and v >= t:
-            n += 1
-    return n
+    """Number of gate checks whose status is go."""
+    return sum(1 for c in _checks(report) if c.get("status") == "go")
 
 
 def total_checks(report: dict) -> int:
@@ -138,10 +129,9 @@ def _run(cmd: list[str], cwd: Path, env: dict | None = None) -> None:
         raise SiteStop(f"command failed: {' '.join(cmd[:3])}")
 
 
-def build(run_id, store: Path, report: dict, web: Path = WEB) -> None:
+def build(run_ids: list[str], store: Path, report: dict, web: Path = WEB) -> None:
     """Showcase bundle, status.json and the static export in web/out."""
-    run_ids = list(run_id) if isinstance(run_id, (list, tuple)) else [run_id]
-    label = run_id if not isinstance(run_id, (list, tuple)) else ",".join(map(str, run_id))
+    label = ",".join(map(str, run_ids))
     if not shutil.which("npm", path=node_env()["PATH"]):
         raise SiteStop(
             "npm not found: Node is needed to build web/ (not installed on this machine)"
@@ -149,7 +139,7 @@ def build(run_id, store: Path, report: dict, web: Path = WEB) -> None:
     showcase = web / "public" / "showcase"
     shutil.rmtree(showcase, ignore_errors=True)
     try:
-        publish_runs(run_ids, showcase, store)
+        publish.publish_runs(run_ids, showcase, store)
     except (OSError, ValueError) as exc:
         raise SiteStop(f"cannot build the showcase from {label}: {exc}") from exc
     stage_latest_into(store, web)
@@ -161,13 +151,8 @@ def build(run_id, store: Path, report: dict, web: Path = WEB) -> None:
         "gates_version": report["gates_version"],
         "checks_passed": gc,
         "checks_total": tc,
-        "n": gc,
-        "m": tc,
-        "checks_go": gc,
-        "total_checks": tc,
-        "n_passed": gc,
     }
-    (showcase / "status.json").write_text(json.dumps(status, indent=2) + "\n")
+    (showcase / "status.json").write_text(json.dumps(status, indent=2) + "\\n")
     if not (web / "node_modules").exists():
         _run(["npm", "ci"], web)
     _run(["npm", "run", "build"], web)
@@ -192,14 +177,10 @@ def _published_report(store: Path, entry: dict) -> dict | None:
 
 
 def _improves(candidate: dict, published_entry: dict, store: Path) -> tuple[bool, str]:
-    pub_report = _published_report(store, published_entry)
-    if pub_report is not None:
-        pub_gc, pub_ms = go_count(pub_report), margin_sum(pub_report)
-    else:
-        pub_gc = published_entry.get("go_count", published_entry.get("checks_go", published_entry.get("n_passed", 0)))
-        pub_ms = published_entry.get("margin_sum", published_entry.get("margins_sum", 0))
-        if isinstance(pub_ms, dict):
-            pub_ms = published_entry.get("margin_sum", 0)
+    pub_gc = published_entry.get("go_count")
+    pub_ms = published_entry.get("margin_sum")
+    if pub_gc is None or pub_ms is None:
+        return True, ""
     cand_gc, cand_ms = go_count(candidate), margin_sum(candidate)
     if cand_gc > pub_gc:
         return True, ""
@@ -208,6 +189,45 @@ def _improves(candidate: dict, published_entry: dict, store: Path) -> tuple[bool
     if cand_ms > pub_ms:
         return True, ""
     return False, f"margin sum {cand_ms:g} is not greater than published {pub_ms:g}"
+
+
+def area_runs(store: Path, area) -> list[str]:
+    store = Path(store)
+    area = area if isinstance(area, Path) else resolve_area(store, str(area))
+    drives = []
+    drives_file = area / "drives.json"
+    if drives_file.is_file():
+        try:
+            drives = json.loads(drives_file.read_text())
+        except (OSError, ValueError):
+            drives = []
+    selected: list[str] = []
+    for d in drives:
+        scene = d.get("scene") or d.get("scene_token")
+        if scene is None:
+            continue
+        base = prgate.pick_baseline(store, scene=scene)
+        if base is None:
+            print(f"publish: skip drive scene {scene}: no baseline", file=sys.stderr)
+            continue
+        run_dir = Path(base)
+        manifest_file = run_dir / "manifest.json"
+        public_ok = manifest_file.exists()
+        if public_ok:
+            try:
+                json.loads(manifest_file.read_text())
+            except (OSError, ValueError):
+                public_ok = False
+        if public_ok:
+            public_ok = all(
+                (publish._stage(run_dir, "outputs") / name).exists()
+                for name in publish.PUBLIC_FILES
+            )
+        if not public_ok:
+            print(f"publish: skip drive {run_dir.name}: not publishable", file=sys.stderr)
+            continue
+        selected.append(run_dir.name)
+    return selected
 
 
 def publish_run(
@@ -231,57 +251,26 @@ def publish_run(
         if not gates_file.exists():
             return f"skipped: no gates.json for area {area.name}"
         report = json.loads(gates_file.read_text())
-        area_name = area.name
-        # select single-drive runs
-        drives = []
-        drives_file = area / "drives.json"
-        if drives_file.is_file():
-            try:
-                drives = json.loads(drives_file.read_text())
-            except (OSError, ValueError):
-                drives = []
-        selected = []
-        for d in drives:
-            scene = d.get("scene") or d.get("scene_token")
-            if scene is None:
-                continue
-            from twin import prgate as _prgate
-            base = _prgate.pick_baseline(store, scene=scene)
-            if base is None:
-                print(f"publish: skip drive scene {scene}: no baseline", file=__import__("sys").stderr)
-                continue
-            run_dir = Path(base)
-            manifest_file = run_dir / "manifest.json"
-            public_ok = manifest_file.exists()
-            try:
-                json.loads(manifest_file.read_text())
-            except (OSError, ValueError):
-                public_ok = False
-            # public files: at least one of PUBLIC_FILES somewhere under the run dir
-            if public_ok:
-                from twin import publish as _pub
-                pub_found = any((run_dir / p).exists() for p in _pub.PUBLIC_FILES) or any(
-                    (d / name).exists() for d in run_dir.rglob("*") for name in _pub.PUBLIC_FILES
-                )
-                public_ok = pub_found
-            if not public_ok:
-                print(f"publish: skip drive {run_dir.name}: not publishable", file=__import__("sys").stderr)
-                continue
-            selected.append(run_dir.name)
+        selected = area_runs(store, area)
         if not selected:
             return "skipped: no publishable drives for area"
         build_input = selected
-        publish_id = report.get("run_id", area_name)
+        build_id = hashlib.sha256(
+            (gates_file.read_text() + json.dumps(selected)).encode()
+        ).hexdigest()
+        publish_id = build_id
     else:
         gates_file = store / str(run_id) / "gates.json"
         if not gates_file.exists():
             raise SiteStop(f"no gates.json for {run_id}: run `twin eval` first")
         report = json.loads(gates_file.read_text())
-        build_input = str(run_id)
+        build_input = [str(run_id)]
         publish_id = str(run_id)
+        build_id = publish_id
     published = history(store)
     if published and not force:
-        if published[-1].get("run_id") == publish_id:
+        last = published[-1]
+        if last.get("build_id", last.get("run_id")) == publish_id:
             return "skipped: already published"
         improve, reason = _improves(report, published[-1], store)
         if not improve:
@@ -295,6 +284,7 @@ def publish_run(
         store,
         {
             "run_id": publish_id,
+            "build_id": build_id,
             "published_at": datetime.now(UTC).isoformat(timespec="seconds"),
             "verdict": report["verdict"],
             "margins": margins(report),
@@ -529,7 +519,7 @@ def build_latest(store: Path, web: Path = WEB) -> None:
         run_id = past[-1]["run_id"]
         report = json.loads((Path(store) / run_id / "gates.json").read_text())
         try:
-            publish_runs([run_id], showcase, store)
+            publish.publish_runs([run_id], showcase, store)
         except (OSError, ValueError) as exc:
             raise SiteStop(
                 f"cannot rebuild the published showcase from {run_id}: {exc}"

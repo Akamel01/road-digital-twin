@@ -52,11 +52,6 @@ export interface SiteStatus {
   gates_version: number;
   checks_passed?: number;
   checks_total?: number;
-  n?: number;
-  m?: number;
-  checks_go?: number;
-  total_checks?: number;
-  n_passed?: number;
 }
 
 export async function loadStatus(): Promise<SiteStatus | null> {

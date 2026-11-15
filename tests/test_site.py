@@ -36,7 +36,7 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(
         site,
         "build",
-        lambda run_id, store, rep, web=None: calls.append(("build", run_id)),
+        lambda run_ids, store, rep, web=None: calls.append(("build", run_ids)),
     )
     monkeypatch.setattr(
         site, "deploy", lambda token, web=None: calls.append(("deploy", token))
@@ -57,7 +57,7 @@ def env(tmp_path, monkeypatch):
 def test_go_first_run_publishes(env):
     store, calls, run, _ = env
     assert site.publish_run(store, run("r1")) == "published r1"
-    assert calls == [("build", "r1"), ("deploy", "secret")]
+    assert calls == [("build", ["r1"]), ("deploy", "secret")]
     assert site.history(store)[-1]["run_id"] == "r1"
 
 
@@ -77,7 +77,7 @@ def test_better_publishes_worse_or_equal_skips(env):
 def test_no_go_first_run_publishes(env):
     store, calls, run, _ = env
     assert site.publish_run(store, run("r1", verdict="no-go")) == "published r1"
-    assert calls == [("build", "r1"), ("deploy", "secret")]
+    assert calls == [("build", ["r1"]), ("deploy", "secret")]
 
 
 def test_missing_token_stops_with_message(env):
@@ -92,7 +92,7 @@ def test_dry_run_builds_without_token_or_deploy(env):
     store, calls, run, token = env
     token.unlink()
     assert site.publish_run(store, run("r1"), dry_run=True).startswith("dry run")
-    assert calls == [("build", "r1")] and site.history(store) == []
+    assert calls == [("build", ["r1"])] and site.history(store) == []
 
 
 def test_rollback_republishes_previous(env, capsys):
@@ -101,7 +101,7 @@ def test_rollback_republishes_previous(env, capsys):
     site.publish_run(store, run("r2", marking=0.1))
     assert main(["site", "rollback", "--store", str(store)]) == 0
     assert site.history(store)[-1]["run_id"] == "r1"
-    assert calls[-2:] == [("build", "r1"), ("deploy", "secret")]
+    assert calls[-2:] == [("build", ["r1"]), ("deploy", "secret")]
 
 
 def test_rollback_needs_an_earlier_run(env):
