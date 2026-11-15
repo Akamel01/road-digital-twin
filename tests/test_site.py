@@ -254,3 +254,31 @@ def test_rollback_of_area_entry_uses_recorded_runs(env):
     site._record(store, {"run_id": "new", "runs": ["c"], "report": report("no-go"), "published_at": "t"})
     assert site.rollback(store) == "rolled back to old"
     assert calls[-2:] == [("build", ["a", "b"]), ("deploy", "secret")]
+
+
+def test_redeploy_rebuilds_last_entry_and_adds_no_history(env, capsys):
+    store, calls, run, _ = env
+    site.publish_run(store, run("r1"))
+    site.publish_run(store, run("r2", marking=0.1))
+    calls.clear()
+    assert main(["site", "redeploy", "--store", str(store)]) == 0
+    assert calls == [("build", ["r2"]), ("deploy", "secret")]
+    hist = site.history(store)
+    assert [e["run_id"] for e in hist] == ["r1", "r2"]
+    assert "redeployed_at" in hist[-1] and "redeployed_at" not in hist[0]
+    assert "redeployed r2" in capsys.readouterr().out
+
+
+def test_redeploy_dry_run_builds_without_deploy_or_record(env):
+    store, calls, run, _ = env
+    site.publish_run(store, run("r1"))
+    calls.clear()
+    assert site.redeploy(store, dry_run=True).startswith("dry run")
+    assert calls == [("build", ["r1"])]
+    assert "redeployed_at" not in site.history(store)[-1]
+
+
+def test_redeploy_needs_a_published_run(env):
+    store, _, _, _ = env
+    with pytest.raises(site.SiteStop):
+        site.redeploy(store)

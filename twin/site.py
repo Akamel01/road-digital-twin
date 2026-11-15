@@ -302,6 +302,16 @@ def entry_inputs(store: Path, entry: dict) -> tuple[list[str], dict]:
     return [entry["run_id"]], json.loads((Path(store) / entry["run_id"] / "gates.json").read_text())
 
 
+def _build_and_deploy(runs: list[str], store: Path, report: dict, web: Path, dry_run: bool) -> bool:
+    """Build the site from runs and report; deploy unless dry_run. True when deployed."""
+    token = None if dry_run else read_token()
+    build(runs, store, report, web)
+    if dry_run:
+        return False
+    deploy(token, web)
+    return True
+
+
 def rollback(store: Path, dry_run: bool = False, web: Path = WEB) -> str:
     """Republish the run published before the current one."""
     past = history(Path(store))
@@ -314,13 +324,26 @@ def rollback(store: Path, dry_run: bool = False, web: Path = WEB) -> str:
     if "runs" not in entry:  # published before #222: a single run id
         return publish_run(Path(store), entry["run_id"], dry_run, force=True, web=web)
     runs, report = entry_inputs(Path(store), entry)
-    token = None if dry_run else read_token()
-    build(runs, Path(store), report, web)
-    if dry_run:
+    if not _build_and_deploy(runs, Path(store), report, web, dry_run):
         return f"dry run: built {web / 'out'}, nothing deployed"
-    deploy(token, web)
     _record(Path(store), {**entry, "published_at": datetime.now(UTC).isoformat(timespec="seconds")})
     return f"rolled back to {entry['run_id']}"
+
+
+def redeploy(store: Path, dry_run: bool = False, web: Path = WEB) -> str:
+    """Rebuild the last published entry with the current web/ code and deploy it. No new history entry:
+    the last one gets redeployed_at (#247)."""
+    store = Path(store)
+    past = history(store)
+    if not past:
+        raise SiteStop("nothing has been published")
+    last = past[-1]
+    runs, report = entry_inputs(store, last)
+    if not _build_and_deploy(runs, store, report, web, dry_run):
+        return f"dry run: built {web / 'out'}, nothing deployed"
+    past[-1] = {**last, "redeployed_at": datetime.now(UTC).isoformat(timespec="seconds")}
+    _history_file(store).write_text(json.dumps(past, indent=2) + "\n")
+    return f"redeployed {last['run_id']}"
 
 
 def site_command(
@@ -339,6 +362,8 @@ def site_command(
                 print(e["published_at"], e["run_id"], e["verdict"])
         elif action == "rollback":
             print(rollback(store, dry_run))
+        elif action == "redeploy":
+            print(redeploy(store, dry_run))
         elif run_id:
             print(publish_run(store, run_id, dry_run))
         else:

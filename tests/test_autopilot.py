@@ -367,3 +367,34 @@ def test_showcase_waits_for_drive_runs_then_publishes_once(tmp_path, monkeypatch
     autopilot.p2_area(tmp_path, state)
     autopilot.p2_area(tmp_path, state)
     assert published == [autopilot.TWIN] and not state["p2"]["showcase_pending"]
+
+
+def test_pull_redeploys_only_when_web_changed(tmp_path, monkeypatch):
+    import subprocess
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git = lambda *a: subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", *a],
+                                    check=True, capture_output=True, text=True).stdout.strip()  # fmt: skip
+    git("init", "-q")
+    for path in ("web/page.ts", "twin/code.py"):
+        (repo / path).parent.mkdir(exist_ok=True)
+        (repo / path).write_text("1\n")
+    git("add", "-A")
+    git("commit", "-qm", "base")
+    base = git("rev-parse", "HEAD")
+    (repo / "twin" / "code.py").write_text("2\n")
+    git("commit", "-qam", "twin only")
+    twin_only = git("rev-parse", "HEAD")
+    (repo / "web" / "page.ts").write_text("2\n")
+    git("commit", "-qam", "web")
+    web = git("rev-parse", "HEAD")
+    monkeypatch.setattr(autopilot, "REPO_ROOT", repo)
+    calls = []
+    monkeypatch.setattr(autopilot.site, "redeploy", lambda store, *a, **k: calls.append(store) or "redeployed x")
+    autopilot.redeploy_web(tmp_path, base, twin_only)
+    assert calls == []  # twin/-only commit: no redeploy
+    autopilot.redeploy_web(tmp_path, twin_only, web)
+    assert calls == [tmp_path]  # web/ touched: redeployed once
+    monkeypatch.setattr(autopilot.site, "redeploy", lambda *a, **k: (_ for _ in ()).throw(autopilot.site.SiteStop("no token")))
+    autopilot.redeploy_web(tmp_path, base, web)  # failure is logged, not raised
