@@ -203,3 +203,24 @@ def test_publish_latest_dry_run_needs_no_token(tmp_path, monkeypatch):
         )
         == 0
     )
+
+
+def test_area_runs_maps_drive_names_to_tokens_and_skips_unpublishable(tmp_path, monkeypatch):
+    from twin import publish
+
+    area = _area(tmp_path)  # areas/a1, drives.json lists scene "s1"
+    drives = json.loads((area / "drives.json").read_text()) + [{"scene": "s2"}, {"scene": "s3"}]
+    (area / "drives.json").write_text(json.dumps(drives))
+    defs = [{"scene": s, "scene_token": f"tok-{s}"} for s in ("s1", "s2", "s3")]
+    (tmp_path / "areas" / "a1.json").write_text(json.dumps({"drives": defs}))
+    good, partial = tmp_path / "r-good", tmp_path / "r-partial"
+    for run in (good, partial):
+        run.mkdir()
+        (run / "manifest.json").write_text("{}")
+    out = publish._stage(good, "outputs")
+    out.mkdir(parents=True)
+    for name in publish.PUBLIC_FILES:
+        (out / name).write_text("x")
+    runs = {"tok-s1": good, "tok-s2": partial}  # s3 has no full run
+    monkeypatch.setattr(site.prgate, "pick_baseline", lambda store, scene: runs.get(scene))
+    assert site.area_runs(tmp_path, area) == ["r-good"]

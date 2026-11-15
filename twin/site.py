@@ -15,6 +15,7 @@ from pathlib import Path
 import numpy as np
 
 from twin import prgate, publish
+from twin.area import drive_tokens
 from twin.gates import GO
 from twin.runner import default_store
 
@@ -192,20 +193,12 @@ def _improves(candidate: dict, published_entry: dict, store: Path) -> tuple[bool
 
 
 def area_runs(store: Path, area) -> list[str]:
+    """For each drive of the area build, the newest full single-drive run (prgate.pick_baseline) that has
+    every public file; drives without one are left out and logged."""
     store = Path(store)
     area = area if isinstance(area, Path) else resolve_area(store, str(area))
-    drives = []
-    drives_file = area / "drives.json"
-    if drives_file.is_file():
-        try:
-            drives = json.loads(drives_file.read_text())
-        except (OSError, ValueError):
-            drives = []
     selected: list[str] = []
-    for d in drives:
-        scene = d.get("scene") or d.get("scene_token")
-        if scene is None:
-            continue
+    for scene in drive_tokens(area):
         base = prgate.pick_baseline(store, scene=scene)
         if base is None:
             print(f"publish: skip drive scene {scene}: no baseline", file=sys.stderr)

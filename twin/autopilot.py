@@ -24,6 +24,7 @@ from pathlib import Path
 from filelock import FileLock, Timeout
 
 from twin import gates, jobqueue, prgate, site, sweep, telemetry
+from twin.area import drive_tokens
 from twin.contracts import Params
 from twin.runner import dataset_version
 
@@ -176,11 +177,8 @@ def publish_latest(store: Path) -> None:
 
 
 def area_scenes(store: Path) -> list[str]:
-    """The scenes of the area twin's drives (areas/<TWIN>/drives.json); [] when there is none yet."""
-    try:
-        return [d["scene"] for d in json.loads((Path(store) / "areas" / TWIN / "drives.json").read_text())]
-    except (OSError, ValueError, KeyError, TypeError):
-        return []
+    """Scene tokens of the area twin's drives; [] before the first area build. Run jobs take tokens."""
+    return drive_tokens(Path(store) / "areas" / TWIN)
 
 
 def publish_showcase(store: Path) -> bool:

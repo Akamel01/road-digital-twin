@@ -147,3 +147,18 @@ def area_define_command(
         flag = "RAIN" if d["rain"] else "    "
         print(f"  {d['scene']}  {d['date']}  {flag}  {d['description']}")
     return 0
+
+
+def drive_tokens(build: Path) -> list[str]:
+    """Scene tokens of the drives an area build used (its drives.json lists scene names), in that order.
+    The tokens come from the area definition <store>/areas/<area>.json, where the build folder is
+    <area>-twin or <area>-merged. [] when either file is missing."""
+    build = Path(build)
+    name = build.name.removesuffix("-twin").removesuffix("-merged")
+    try:
+        defined = json.loads((build.parent / f"{name}.json").read_text())["drives"]
+        used = json.loads((build / "drives.json").read_text())
+    except (OSError, ValueError, KeyError):
+        return []
+    token = {d["scene"]: d["scene_token"] for d in defined}
+    return [token[d["scene"]] for d in used if d.get("scene") in token]

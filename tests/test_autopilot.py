@@ -325,9 +325,12 @@ def test_new_main_queues_a_baseline_run_once(tmp_path, monkeypatch):
 
 
 def _area(store, scenes):
+    """An area definition (scene names -> tokens "tok-<name>") and a twin build that used them."""
     d = store / "areas" / autopilot.TWIN
     d.mkdir(parents=True)
     (d / "drives.json").write_text(json.dumps([{"scene": s} for s in scenes]))
+    drives = [{"scene": s, "scene_token": f"tok-{s}"} for s in [*scenes, "unused"]]
+    (store / "areas" / f"{autopilot.AREA}.json").write_text(json.dumps({"drives": drives}))
 
 
 def test_new_main_queues_one_run_per_area_scene_unless_current(tmp_path, monkeypatch):
@@ -336,21 +339,21 @@ def test_new_main_queues_one_run_per_area_scene_unless_current(tmp_path, monkeyp
     current = tmp_path / "r-current"
     current.mkdir()
     (current / "manifest.json").write_text(json.dumps({"code": {"git_sha": commit}}))
-    monkeypatch.setattr(autopilot.prgate, "pick_baseline", lambda store, scene: current if scene == "scene-2" else None)
+    monkeypatch.setattr(autopilot.prgate, "pick_baseline", lambda store, scene: current if scene == "tok-scene-2" else None)
     monkeypatch.setattr(autopilot, "main_commit", lambda: commit)
     monkeypatch.setattr(autopilot, "_alive", lambda pid: False)
     monkeypatch.setattr(autopilot, "_detached", lambda s, name, cmd: (999999, "x"))
     added = []
     monkeypatch.setattr(autopilot.jobqueue, "add", lambda store, job: added.append(job) or "id")
     autopilot.p2_area(tmp_path, {})
-    assert [j["scene"] for j in added[1:]] == ["scene-1"]  # added[0] is the scene-0757 baseline
+    assert [j["scene"] for j in added[1:]] == ["tok-scene-1"]  # added[0] is the scene-0757 baseline
 
 
 def test_showcase_waits_for_drive_runs_then_publishes_once(tmp_path, monkeypatch):
     _area(tmp_path, ["scene-1"])
     published = []
     monkeypatch.setattr(autopilot.site, "publish_run", lambda store, twin: published.append(twin) or "published x")
-    jobqueue.add(tmp_path, {"type": "run", "scene": "scene-1"})
+    jobqueue.add(tmp_path, {"type": "run", "scene": "tok-scene-1"})
     monkeypatch.setattr(autopilot, "main_commit", lambda: "a" * 40)
     monkeypatch.setattr(autopilot, "_alive", lambda pid: False)
     monkeypatch.setattr(autopilot, "_exit_code", lambda job: "1")
