@@ -159,12 +159,6 @@ export default function Shell() {
           ) : (
             <p>Loading map…</p>
           )}
-          {!missing && status && status.verdict !== "go" && (
-            <div className="vp-banner">
-              Not gate-passed yet: {status.checks_passed ?? 0} of {status.checks_total ?? 0} checks pass. See the{" "}
-              <Link href="/latest">Latest build</Link> page for the gate results.
-            </div>
-          )}
           <div className="legal">{LEGAL}</div>
         </div>
         {!phone && !missing && (
