@@ -11,7 +11,7 @@ from twin.runner import default_store
 GATES_FILE = Path(__file__).with_name("gates.yaml")
 GO, NO_GO, NOT_MEASURED = "go", "no-go", "not measured"
 # Metrics compared with a baseline: distance errors in metres, lower is better.
-_ERROR_SUFFIXES = ("p50_m", "p95_m", "rmse_m")
+# (Only metrics named in the gates file's checks are compared.)
 
 
 def load_gates(path: Path = GATES_FILE) -> dict:
@@ -102,12 +102,25 @@ def margin_score(report: dict) -> float:
     return round(total, 6)
 
 
-def regressions(run: dict, base: dict, tol: float) -> list[dict]:
-    """Error metrics worse than the baseline by more than tol, or lost since."""
+def _gated_metrics(gates: dict) -> set[str]:
+    out: set[str] = set()
+    for gate in (gates or {}).get("gates", {}).values():
+        for c in gate.get("checks", []):
+            if "metric" in c:
+                out.add(c["metric"])
+    return out
+
+
+def regressions(run: dict, base: dict, tol: float, gates: dict | None = None) -> list[dict]:
+    """Gated metrics worse than the baseline by more than tol, or lost since."""
+    if gates is None:
+        gates = load_gates()
+    gated = _gated_metrics(gates)
     cur, old = _flatten(run), _flatten(base)
     found = []
-    for name, was in sorted(old.items()):
-        if not name.endswith(_ERROR_SUFFIXES) or not _isnum(was):
+    for name in sorted(gated):
+        was = old.get(name)
+        if not _isnum(was):
             continue
         now = cur.get(name)
         if not _isnum(now):
@@ -155,7 +168,7 @@ def evaluate(
     if baseline is not None:
         tol = gates["noise_tolerance_m"]
         worse = regressions(
-            manifest.get("metrics", {}), baseline.get("metrics", {}), tol
+            manifest.get("metrics", {}), baseline.get("metrics", {}), tol, gates
         )
         report["regressions"] = worse
         report["noise_tolerance_m"] = tol
