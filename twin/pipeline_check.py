@@ -21,9 +21,9 @@ from pathlib import Path
 
 import numpy as np
 
-from twin import fake_run, gpulease, jobqueue, registry, runner, scheduler, site
+from twin import fake_run, gpulease, jobqueue, merge, registry, runner, scheduler, site
 from twin import fixtures as fx
-from twin.contracts import STAGE_NAMES, STAGES, StageResult
+from twin.contracts import STAGE_NAMES, STAGES, Params, StageResult
 
 AREA = "seaport"
 FAKE_AREA_HALF_M = (
@@ -181,6 +181,8 @@ def fake_area(store: Path) -> dict:
         work = store / "areas" / f"{AREA}-merged" / "drives" / d["scene"]
         work.mkdir(parents=True, exist_ok=True)
         np.save(work / "clip.npy", pts)
+        key = merge.build_drive_cache_key({"scene_token": d["scene_token"]}, Params())
+        (work / "clip.npy.key").write_text(key)
     return area
 
 

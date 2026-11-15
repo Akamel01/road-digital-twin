@@ -11,6 +11,7 @@ DECISION: this is its own step, not a pipeline stage. A stage takes one scene's 
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -21,7 +22,7 @@ import open3d as o3d
 import shapely
 from shapely.geometry import shape
 
-from twin import heights
+from twin import heights, runner
 from twin.contracts import Params
 from twin.stages import align, ground, load, mask
 
@@ -379,13 +380,31 @@ def _poses(d: Path) -> np.ndarray:
     return np.array([r["matrix"] for r in rows], dtype=float).reshape(-1, 4, 4)
 
 
+def build_drive_cache_key(scene, params):
+    payload = {
+        "git_sha": (runner._git("rev-parse", "HEAD") or "").strip() or "unknown",
+        "facilities": params.facilities.model_dump(mode="json"),
+        "mask": params.mask.model_dump(mode="json"),
+        "align": params.align.model_dump(mode="json"),
+        "seed": params.seed,
+        "scene_token": scene["scene_token"],
+        "dataset_version": scene.get("dataset_version") or runner.dataset_version(),
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
 def build_drive(scene: dict, work: Path, polygon, params: Params, log) -> np.ndarray:
     """load, mask, align for one scene; its aligned points inside polygon, (N, 5): x, y, z, intensity, sweep."""
     from twin.runner import StageContext
 
     cache = work / "clip.npy"
-    if cache.is_file():
+    key_path = work / "clip.npy.key"
+    key = build_drive_cache_key(scene, params)
+    # Reuse only what this code, these params and this dataset produced (#231); the key is written after the clip.
+    if cache.is_file() and key_path.is_file() and key_path.read_text().strip() == key:
+        log.info("build_drive: reuse cached clip for %s", scene["scene_token"])
         return np.load(cache)
+    log.info("build_drive: rebuild clip for %s", scene["scene_token"])
     ctx = StageContext(work, scene["scene_token"], params.seed, log)
     for name, fn, p in (
         ("load", load.run, params.facilities),
@@ -403,6 +422,7 @@ def build_drive(scene: dict, work: Path, polygon, params: Params, log) -> np.nda
     keep = shapely.contains_xy(polygon, xyz[:, 0], xyz[:, 1])
     out = np.column_stack([xyz, inten, sweep])[keep]
     np.save(cache, out)
+    key_path.write_text(key)
     return out
 
 
