@@ -1,3 +1,5 @@
+import pytest
+
 """Cross-drive registration: synthetic clouds only."""
 
 import logging
@@ -263,29 +265,28 @@ def test_build_drive_reuses_cached_clip_when_key_matches(tmp_path, monkeypatch):
     assert np.array_equal(out, arr)
 
 
-def test_build_drive_reuses_cached_clip_with_legacy_key(tmp_path, monkeypatch):
-    scene = _scene()
-    params = Params()
+def test_cache_key_changes_with_head(monkeypatch):
     monkeypatch.setattr(merge.runner, "_git", lambda *a: "abc\n")
-    monkeypatch.setattr(merge.runner, "dataset_version", lambda: "v1")
-    key = merge.build_drive_cache_key(scene, params)
-    arr = np.arange(10, dtype=float).reshape(2, 5)
-    np.save(tmp_path / "clip.npy", arr)
-    (tmp_path / "clip.key").write_text(key)
+    k1 = merge.build_drive_cache_key(_scene(), Params())
+    monkeypatch.setattr(merge.runner, "_git", lambda *a: "def\n")
+    assert merge.build_drive_cache_key(_scene(), Params()) != k1
 
-    called = {"n": 0}
 
-    def fake_run(ctx, p):
-        called["n"] += 1
-        return StageResult(status="ok", files=[], metrics={})
+def test_cache_key_changes_with_align_param():
+    assert merge.build_drive_cache_key(_scene(), Params()) != merge.build_drive_cache_key(
+        _scene(), Params(align={"voxel_m": 0.7})
+    )
 
-    monkeypatch.setattr(merge.load, "run", fake_run)
-    monkeypatch.setattr(merge.mask, "run", fake_run)
-    monkeypatch.setattr(merge.align, "run_icp", fake_run)
 
-    out = merge.build_drive(scene, tmp_path, None, params, logging.getLogger("t"))
-    assert called["n"] == 0
-    assert np.array_equal(out, arr)
+def test_missing_key_file_rebuilds(tmp_path, monkeypatch):
+    np.save(tmp_path / "clip.npy", np.zeros((1, 5)))
+
+    def boom(ctx, p):
+        raise RuntimeError("rebuild")
+
+    monkeypatch.setattr(merge.load, "run", boom)
+    with pytest.raises(RuntimeError, match="rebuild"):
+        merge.build_drive(_scene(), tmp_path, None, Params(), logging.getLogger("t"))
 
 
 def test_build_drive_rebuilds_and_writes_key(tmp_path, monkeypatch):

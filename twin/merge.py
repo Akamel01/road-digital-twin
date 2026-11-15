@@ -400,8 +400,8 @@ def build_drive(scene: dict, work: Path, polygon, params: Params, log) -> np.nda
     cache = work / "clip.npy"
     key_path = work / "clip.npy.key"
     key = build_drive_cache_key(scene, params)
-    existing_keys = [p for p in (key_path, work / "clip.key") if p.is_file()]
-    if cache.is_file() and existing_keys and any(p.read_text().strip() == key for p in existing_keys):
+    # Reuse only what this code, these params and this dataset produced (#231); the key is written after the clip.
+    if cache.is_file() and key_path.is_file() and key_path.read_text().strip() == key:
         log.info("build_drive: reuse cached clip for %s", scene["scene_token"])
         return np.load(cache)
     log.info("build_drive: rebuild clip for %s", scene["scene_token"])
