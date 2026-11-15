@@ -84,9 +84,9 @@ def tiers(store: Path, now: datetime, window_h: float = 24.0) -> dict:
         done = job.get("finished")
         if done and job["state"] == "done":
             t["finished"] = max(filter(None, (t["finished"], done)))
-        if done and job["state"] == "failed":
-            if not t["failed"] or done > t["failed"]["at"]:
-                t["failed"] = {"at": done, "error": (job.get("error") or "?").strip().splitlines()[-1][:160]}
+        if done and job["state"] == "failed" and (not t["failed"] or done > t["failed"]["at"]):
+            err = (job.get("error") or "?").strip().splitlines()[-1][:160]
+            t["failed"] = {"at": done, "error": err}
         if done and done >= since and job.get("started"):
             t["runs"] += job["type"] == "run"
             span = datetime.fromisoformat(done) - datetime.fromisoformat(job["started"])
