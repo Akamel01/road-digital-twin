@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 from twin import jobqueue
+from twin.contracts import STAGE_NAMES
 from twin.gates import NO_GO
 
 REPO = "Akamel01/road-digital-twin"
@@ -121,6 +122,8 @@ def pick_baseline(store: Path, scene: str = SCENE) -> Path | None:
             s.get("status") not in ("ok", "skipped") for s in stages
         ):  # fmt: skip
             continue
+        if {s.get("name") for s in stages} != set(STAGE_NAMES):
+            continue  # a partial chain (e.g. P4 prefetch, stop_after) is not a baseline
         if (d / "gates.json").exists():
             best = d  # sorted by id: the last one is the newest
     return best
