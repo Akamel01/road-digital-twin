@@ -10,7 +10,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import shutil
 import subprocess
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
@@ -27,9 +26,6 @@ from twin import registry
 from twin.contracts import (
     STAGE_NAMES,
     STAGES,
-    AreaFacility,
-    AreaIndex,
-    Drive,
     Manifest,
     ManifestCode,
     ManifestData,
@@ -40,10 +36,8 @@ from twin.contracts import (
     StageResult,
     stage_dir,
 )
-from twin.publish import PUBLIC_FILES
 from twin.runner import StageContext
 from twin.stages.profile import facility_lines, sample_line
-from twin.tiles import write_tiles
 
 RUN_DATE = "20261108"
 START = datetime(2026, 11, 8, 9, 0, 0)
@@ -168,13 +162,6 @@ class _Ctx:
     observed: dict[str, float]
     rasters: dict[str, np.ndarray] = field(default_factory=dict)
 
-
-def _raster_bbox() -> tuple[float, float, float, float]:
-    """UTM 19N extent of the base raster (EPSG:32619, metres)."""
-    x0 = ORIGIN_E + RASTER_ORIGIN[0]
-    y0 = ORIGIN_N + RASTER_ORIGIN[1]
-    size = RASTER_CELLS * RASTER_M
-    return (x0, y0, x0 + size, y0 + size)
 
 
 def _run_id(index: int) -> str:
@@ -824,7 +811,7 @@ def _code() -> ManifestCode:
     return ManifestCode(git_sha=sha, dirty=dirty, lockfile_sha256=digest)
 
 
-def _write_run(out: Path, index: int, showcase: Path) -> str:
+def _write_run(out: Path, index: int) -> str:
     spec = DRIVE_SPECS[index]
     run_id = _run_id(index)
     run_dir = out / run_id
@@ -891,48 +878,8 @@ def _write_run(out: Path, index: int, showcase: Path) -> str:
     (run_dir / "params.yaml").write_text(
         yaml.safe_dump(params.model_dump(mode="json"), sort_keys=False)
     )
-    write_tiles(showcase, run_id, ctx.rasters, _raster_bbox())
-    (showcase / run_id).mkdir(parents=True, exist_ok=True)
-    for name in (
-        *PUBLIC_FILES,
-        "twin.laz",
-    ):  # what publish copies; LAZ is not thinned here
-        shutil.copy(stage_dir(run_dir, "outputs") / name, showcase / run_id / name)
-    shutil.copy(run_dir / "manifest.json", showcase / run_id / "manifest.json")
-    for name in ("profile.csv", "centrelines.geojson"):
-        shutil.copy(stage_dir(run_dir, "profile") / name, showcase / run_id / name)
     return run_id
 
-
-def _area(run_ids: list[str]) -> AreaIndex:
-    drives = [
-        Drive(
-            run_id=rid,
-            scene_token=DRIVE_SPECS[i].scene_token,
-            name=DRIVE_SPECS[i].name,
-            bbox=list(_raster_bbox()),
-        )
-        for i, rid in enumerate(run_ids)
-    ]
-    min_observed = Params().facilities.min_observed
-    facilities = []
-    for f in FACILITIES:
-        covered = {i: v for i, v in f.observed.items() if i < len(run_ids)}
-        if not covered:
-            continue
-        best = max(covered, key=covered.get)
-        facilities.append(
-            AreaFacility(
-                id=f.id,
-                type=f.type,
-                name=f.name,
-                best_run=run_ids[best],
-                runs=[run_ids[i] for i in covered],
-                observed_core=covered[best],
-                not_scanned_enough=covered[best] < min_observed,
-            )
-        )
-    return AreaIndex(drives=drives, facilities=facilities)
 
 
 def write_fake_runs(out: Path, drives: int = 2) -> list[Path]:
@@ -940,8 +887,8 @@ def write_fake_runs(out: Path, drives: int = 2) -> list[Path]:
     if not 1 <= drives <= len(DRIVE_SPECS):
         raise ValueError(f"drives must be 1 to {len(DRIVE_SPECS)}, got {drives}")
     out.mkdir(parents=True, exist_ok=True)
-    showcase = out / "showcase"
-    showcase.mkdir(exist_ok=True)
-    run_ids = [_write_run(out, i, showcase) for i in range(drives)]
-    (showcase / "area.json").write_text(_area(run_ids).model_dump_json(indent=2))
+    run_ids = [_write_run(out, i) for i in range(drives)]
+    from twin.publish import publish_runs
+
+    publish_runs(run_ids, out / "showcase", store=out)
     return [out / rid for rid in run_ids]

@@ -20,7 +20,9 @@ from twin.contracts import (
     Pipeline,
     StageResult,
 )
-from twin.fake_run import FACILITIES, write_fake_runs
+from twin.fake_run import DRIVE_SPECS, FACILITIES, write_fake_runs
+from twin.publish import publish_runs
+from twin.tiles import TileMeta
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMAS = ROOT / "schemas"
@@ -157,6 +159,10 @@ def test_area_index_has_variety(out):
     area = AreaIndex.model_validate_json((out / "showcase" / "area.json").read_text())
     run_ids = {d.run_id for d in area.drives}
     assert len(area.drives) >= 2
+    assert {d.run_id for d in area.drives} == {p.name for p in _runs(out)}
+    assert {d.scene_token for d in area.drives} == {s.scene_token for s in DRIVE_SPECS}
+    assert all(d.name == d.scene_token for d in area.drives)
+    assert all(len(d.bbox) == 4 and d.bbox[2] > d.bbox[0] and d.bbox[3] > d.bbox[1] for d in area.drives)
     assert len(area.facilities) >= 6
     assert len({f.id for f in area.facilities}) == len(area.facilities)
     types = {f.type for f in area.facilities}
@@ -172,7 +178,12 @@ def test_tile_pyramids(out):
     area = AreaIndex.model_validate_json((out / "showcase" / "area.json").read_text())
     for drive in area.drives:
         for raster in ("lidar", "ortho", "coverage"):
-            for z in range(3):
+            meta = TileMeta.model_validate_json(
+                (out / "showcase" / "tiles" / drive.run_id / raster / "meta.json").read_text()
+            )
+            assert meta.zmax >= 0
+            assert meta.bbox[2] > meta.bbox[0] and meta.bbox[3] > meta.bbox[1]
+            for z in range(meta.zmax + 1):
                 tiles = list(
                     (out / "showcase" / "tiles" / drive.run_id / raster / str(z)).glob(
                         "*/*.webp"
@@ -272,3 +283,23 @@ def test_same_inputs_give_identical_metrics(tmp_path):
         run = _runs(tmp_path / f"r{k}")[0]
         metrics.append(json.loads((run / "manifest.json").read_text())["metrics"])
     assert metrics[0] == metrics[1]
+
+
+def _showcase_snapshot(showcase: Path) -> dict:
+    snap = {}
+    for path in sorted(p for p in showcase.rglob("*") if p.is_file()):
+        rel = path.relative_to(showcase).as_posix()
+        if rel == "area.json" or path.suffix == ".json":
+            snap[rel] = json.loads(path.read_text())
+        else:
+            snap[rel] = path.read_bytes()
+    return snap
+
+
+def test_fake_showcase_equals_publish_runs(tmp_path):
+    out = tmp_path / "runs"
+    paths = write_fake_runs(out, drives=2)
+    run_ids = [p.name for p in paths]
+    ref = tmp_path / "ref"
+    publish_runs(run_ids, ref, store=out)
+    assert _showcase_snapshot(out / "showcase") == _showcase_snapshot(ref)

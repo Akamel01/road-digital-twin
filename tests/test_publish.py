@@ -8,7 +8,7 @@ from PIL import Image
 
 from twin.cli import main
 from twin.contracts import AreaIndex
-from twin.fake_run import FACILITIES, ORIGIN_E, ORIGIN_N, write_fake_runs
+from twin.fake_run import FACILITIES, write_fake_runs
 from twin.publish import _thin_laz, publish_runs
 from twin.tiles import TILE, TileMeta
 
@@ -124,14 +124,21 @@ def test_tile_meta_places_tiles(runs, tmp_path):
         assert drive.bbox == pytest.approx(list(meta.bbox))
 
 
-def test_fake_showcase_writes_tile_meta(runs):
+def test_fake_showcase_writes_tile_meta(runs, tmp_path):
     store, run_ids = runs
+    ref = tmp_path / "ref"
+    publish_runs(run_ids, ref, store=store)
     for rid in run_ids:
         for raster in ("lidar", "ortho", "coverage"):
             meta = TileMeta.model_validate_json(
                 (store / "showcase" / "tiles" / rid / raster / "meta.json").read_text()
             )
-            assert meta.zmax == 2
-            assert meta.bbox == pytest.approx(
-                [ORIGIN_E - 12, ORIGIN_N - 12, ORIGIN_E + 52, ORIGIN_N + 52]
+            assert meta.crs == "EPSG:32619"
+            assert meta.zmax >= 0
+            assert meta.bbox[2] > meta.bbox[0] and meta.bbox[3] > meta.bbox[1]
+            assert meta.cell_m_at_zmax == pytest.approx(
+                (meta.bbox[2] - meta.bbox[0]) / (TILE * 2**meta.zmax)
             )
+            ref_meta = (ref / "tiles" / rid / raster / "meta.json").read_text()
+            assert (store / "showcase" / "tiles" / rid / raster / "meta.json").read_text() == ref_meta
+            assert (store / "showcase" / "tiles" / rid / raster / "0" / "0" / "0.webp").is_file()
