@@ -314,7 +314,10 @@ def diversity_score(candidate: dict, existing_drives) -> int:
 
 
 def rank_candidates(candidates, baseline_records, existing_drives, top_n: int):
-    """candidates: iterable of dicts with scene, scene_token, description, candidate_records."""
+    """candidates: iterable of dicts with scene, scene_token, description, candidate_records.
+
+    candidate_records must be baseline+candidate merged records (marginal vs baseline).
+    """
     ranked = []
     for c in candidates:
         rec = dict(c)
@@ -335,11 +338,23 @@ def rank_candidates(candidates, baseline_records, existing_drives, top_n: int):
             str(r.get("scene_token", "")),
         )
     )
-    if top_n < len(ranked):
-        ranked = ranked[:top_n]
-    return ranked
-    cand_low = low_coverage_cells(candidate_records)
-    return len(base_low - cand_low)
+    if top_n < 0:
+        return []
+    return ranked[:top_n]
+
+
+def _flatten_ground_sources(ground_sources: Iterable[object] | None) -> list[str]:
+    out: set[str] = set()
+    for src in ground_sources or []:
+        if src is None:
+            continue
+        if isinstance(src, (list, tuple, set)):
+            for s in src:
+                if s:
+                    out.add(str(s))
+            continue
+        out.add(str(src))
+    return sorted(out)
 
 
 def coverage_document(
@@ -353,7 +368,7 @@ def coverage_document(
     baseline_scene_tokens: list[str] | None = None,
     extra_metadata: dict | None = None,
 ) -> dict:
-    gs = sorted(set(ground_sources or []))
+    gs = _flatten_ground_sources(ground_sources)
     doc = {
         "schema_version": SCHEMA_VERSION,
         "area": area_name,
