@@ -269,14 +269,25 @@ def test_regressions_vs_unresolvable_report_like_inputs_raise():
     base_report = report_obj(GOOD, rerun=copy.deepcopy(GOOD)).to_dict()  # gates.json-like, no metrics
     gr = GateReport.from_dict({"gates": {}})
     run_metrics = {"align": {"cross_drive_ground_p95_m": 0.5}}
+    gates = load_gates()
     # comparing against report-like object without resolvable metrics is misleading -> explicit error
     with pytest.raises(ValueError, match="cannot resolve metrics"):
-        gr.regressions_vs(run_metrics, base_report, gates=load_gates())
+        gr.regressions_vs(run_metrics, base_report, gates=gates)
     with pytest.raises(ValueError, match="cannot resolve metrics"):
-        gr.regressions_vs(other=GateReport.from_dict(base_report), tolerance=0.02, gates_spec=load_gates())
+        gr.regressions_vs(run_metrics, base_report, gates_spec=gates)
+    with pytest.raises(ValueError, match="cannot resolve metrics"):
+        gr.regressions_vs(other=GateReport.from_dict(base_report), tolerance=0.02, gates_spec=gates)
     # explicit run report-like without metrics also errors
     with pytest.raises(ValueError, match="cannot resolve metrics"):
-        gr.regressions_vs(other=run_metrics, run=base_report, base=run_metrics, gates=load_gates())
+        gr.regressions_vs(other=run_metrics, run=base_report, base=run_metrics, gates=gates)
+    with pytest.raises(ValueError, match="cannot resolve metrics"):
+        gr.regressions_vs(other=run_metrics, run=base_report, base=run_metrics, gates_spec=gates)
+    # checks-only report-like (no verdict/run_id markers) must also be treated as unresolvable
+    checks_only_report = {"gates": {"G2": {"status": GO, "checks": []}}, "checks": []}
+    with pytest.raises(ValueError, match="cannot resolve metrics"):
+        gr.regressions_vs(run_metrics, checks_only_report, gates=gates)
+    with pytest.raises(ValueError, match="cannot resolve metrics"):
+        gr.regressions_vs(run_metrics, checks_only_report, gates_spec=gates)
     # no comparison requested and no metrics: not a false negative, returns empty/stored-equivalent
     assert gr.regressions_vs() == []
 

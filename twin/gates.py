@@ -302,21 +302,25 @@ class GateReport(Mapping):
 
         # Detect positional forms:
         # - API: (other, tolerance_num, gates_spec_dict) or (other, tolerance_num)
-        # - Compat: (run_metrics, base_metrics, gates_dict)
+        # - Compat: (run_metrics, base_metrics, gates_dict/spec)
         pos2 = base_or_tolerance
         pos3 = gates_spec if gates_spec is not None else None
         compat_pair = False
-        if run is None and base is None and isinstance(other, Mapping) and "gates" not in other:
+        spec_looks_like_gates = isinstance(spec, Mapping) and (
+            "gates" in spec or "noise_tolerance_m" in spec or "regression_metrics" in spec
+        )
+        if run is None and base is None and isinstance(other, Mapping) and not _is_report_like(other):
             has_self_metrics = bool(_metrics_for_regressions(self))
             if not has_self_metrics and isinstance(pos2, Mapping):
-                # pos3 as gates spec means compat (run, base, gates=spec)
-                if isinstance(pos3, Mapping) and ("gates" in pos3 or "noise_tolerance_m" in pos3 or "regression_metrics" in pos3):
+                # pos3 or kw gates/gates_spec as gates spec means compat (run, base, spec)
+                if (isinstance(pos3, Mapping) and ("gates" in pos3 or "noise_tolerance_m" in pos3 or "regression_metrics" in pos3)) or spec_looks_like_gates:
+                    if isinstance(pos3, Mapping) and ("gates" in pos3 or "noise_tolerance_m" in pos3 or "regression_metrics" in pos3):
+                        gates_spec_resolved = pos3
+                    tol = gates_spec_resolved.get("noise_tolerance_m", 0.02)
                     run_metrics = _metrics_for_regressions(other)
                     base_metrics = _metrics_for_regressions(pos2)
                     run_source, base_source = other, pos2
-                    gates_spec_resolved = pos3
-                    tol = gates_spec_resolved.get("noise_tolerance_m", 0.02)
-                    compat_pair = True
+                    compat_pair = bool(run_metrics) or bool(base_metrics) or (not _is_report_like(pos2))
                 elif _is_report_like(pos2) and not _metrics_for_regressions(pos2):
                     # (run_metrics, report_like_without_metrics, ...)
                     run_source, base_source = other, pos2
@@ -369,18 +373,27 @@ class GateReport(Mapping):
 
         # Report-like inputs without resolvable metrics cannot be compared; fail explicitly
         # rather than returning a false "no regressions" result.
-        if not compat_pair:
-            if base_source is not None and _is_report_like(base_source) and not base_metrics:
-                raise ValueError(
-                    "regressions_vs: cannot resolve metrics from report-like base/other "
-                    "input (gates reports do not include manifest metrics); pass explicit "
-                    "run/base metric mappings or keyword run=/base="
-                )
-            if run is not None and _is_report_like(run_source) and not run_metrics:
-                raise ValueError(
-                    "regressions_vs: cannot resolve metrics from report-like run input; "
-                    "pass explicit metric mappings"
-                )
+        if (
+            not (
+                compat_pair
+                and base_source is not None
+                and not _is_report_like(base_source)
+                and isinstance(base_metrics, Mapping)
+            )
+            and base_source is not None
+            and _is_report_like(base_source)
+            and not base_metrics
+        ):
+            raise ValueError(
+                "regressions_vs: cannot resolve metrics from report-like base/other "
+                "input (gates reports do not include manifest metrics); pass explicit "
+                "run/base metric mappings or keyword run=/base="
+            )
+        if run is not None and _is_report_like(run_source) and not run_metrics:
+            raise ValueError(
+                "regressions_vs: cannot resolve metrics from report-like run input; "
+                "pass explicit metric mappings"
+            )
 
         # No comparison requested (e.g. report.regressions_vs()): preserve stored regressions
         # snapshot behavior-equivalent empty comparison only when there is nothing to compare.
@@ -420,17 +433,19 @@ class GateReport(Mapping):
 
 def _is_report_like(obj) -> bool:
     return isinstance(obj, GateReport) or (
-        isinstance(obj, Mapping) and "gates" in obj and ("verdict" in obj or "run_id" in obj or "checks" in obj)
+        isinstance(obj, Mapping)
+        and "gates" in obj
+        and ("verdict" in obj or "run_id" in obj or "checks" in obj)
     )
 
 
 def _metrics_for_regressions(obj) -> dict:
-    """Accept report-like (with gates+metrics) or plain metric dicts."""
+    """Accept report-like (with embedded metrics) or plain metric dicts."""
     if isinstance(obj, GateReport):
         metrics = obj.raw.get("metrics")
         return dict(metrics) if isinstance(metrics, dict) else {}
     if isinstance(obj, Mapping):
-        if "gates" in obj and ("verdict" in obj or "run_id" in obj):
+        if _is_report_like(obj):
             metrics = obj.get("metrics")
             return dict(metrics) if isinstance(metrics, dict) else {}
         metrics = obj.get("metrics")
