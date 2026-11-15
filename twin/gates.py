@@ -11,7 +11,8 @@ from twin.runner import default_store
 GATES_FILE = Path(__file__).with_name("gates.yaml")
 GO, NO_GO, NOT_MEASURED = "go", "no-go", "not measured"
 # Metrics compared with a baseline: distance errors in metres, lower is better.
-# (Only metrics named in the gates file's checks are compared.)
+# (Only gated metrics whose names end in one of _ERROR_SUFFIXES are compared.)
+_ERROR_SUFFIXES = ("p50_m", "p95_m", "rmse_m")
 
 
 def load_gates(path: Path = GATES_FILE) -> dict:
@@ -119,6 +120,8 @@ def regressions(run: dict, base: dict, tol: float, gates: dict | None = None) ->
     cur, old = _flatten(run), _flatten(base)
     found = []
     for name in sorted(gated):
+        if not name.endswith(_ERROR_SUFFIXES):
+            continue
         was = old.get(name)
         if not _isnum(was):
             continue
