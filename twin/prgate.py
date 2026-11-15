@@ -108,6 +108,8 @@ def pick_baseline(store: Path, scene: str = SCENE) -> Path | None:
             m = json.loads((d / "manifest.json").read_text())
         except (OSError, ValueError):
             continue
+        if m.get("parent") is not None:
+            continue  # reruns are not baselines
         stages = m.get("stages", [])
         if m.get("data", {}).get("scene_token") != scene or any(
             s.get("status") != "ok" for s in stages
