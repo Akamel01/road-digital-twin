@@ -104,11 +104,15 @@ def margin_score(report: dict) -> float:
 
 
 def _gated_metrics(gates: dict) -> set[str]:
-    out: set[str] = set()
+    return set(_gated_ops(gates))
+
+
+def _gated_ops(gates: dict) -> dict[str, str]:
+    out: dict[str, str] = {}
     for gate in (gates or {}).get("gates", {}).values():
         for c in gate.get("checks", []):
             if "metric" in c:
-                out.add(c["metric"])
+                out[c["metric"]] = c.get("op", "<=")
     return out
 
 
@@ -116,11 +120,17 @@ def regressions(run: dict, base: dict, tol: float, gates: dict | None = None) ->
     """Gated metrics worse than the baseline by more than tol, or lost since."""
     if gates is None:
         gates = load_gates()
-    gated = _gated_metrics(gates)
+    gated_ops = _gated_ops(gates)
+    extra = (gates or {}).get("regression_metrics") or []
+    candidates = set(gated_ops) | set(extra)
     cur, old = _flatten(run), _flatten(base)
     found = []
-    for name in sorted(gated):
-        if not name.endswith(_ERROR_SUFFIXES):
+    for name in sorted(candidates):
+        higher = gated_ops.get(name) == ">="
+        # Error-suffix rule: lower-is-better metrics are only compared when their
+        # name ends in a distance-error suffix. Higher-is-better gated metrics
+        # (e.g. coverage) are compared regardless of suffix.
+        if not higher and not name.endswith(_ERROR_SUFFIXES):
             continue
         was = old.get(name)
         if not _isnum(was):
@@ -128,6 +138,10 @@ def regressions(run: dict, base: dict, tol: float, gates: dict | None = None) ->
         now = cur.get(name)
         if not _isnum(now):
             found.append({"metric": name, "baseline": was, "value": None})
+            continue
+        if higher:
+            if was - now > tol:
+                found.append({"metric": name, "baseline": was, "value": now})
         elif now - was > tol:
             found.append({"metric": name, "baseline": was, "value": now})
     return found

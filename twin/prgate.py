@@ -7,6 +7,7 @@ as a PR comment and set the commit status `twin-gates`.
 """
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -110,6 +111,10 @@ def pick_baseline(store: Path, scene: str = SCENE) -> Path | None:
             continue
         if m.get("parent") is not None:
             continue  # reruns are not baselines
+        if m.get("data", {}).get("nuscenes_version") != os.environ.get(
+            "NUSCENES_VERSION", "v1.0-mini"
+        ):
+            continue  # different dataset version
         stages = m.get("stages", [])
         if m.get("data", {}).get("scene_token") != scene or any(
             s.get("status") != "ok" for s in stages
