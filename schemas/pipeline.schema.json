@@ -54,6 +54,9 @@
     },
     "semantics": {
       "$ref": "#/$defs/PipelineStage"
+    },
+    "splats": {
+      "$ref": "#/$defs/PipelineStage"
     }
   },
   "title": "Pipeline",

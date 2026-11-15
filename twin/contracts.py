@@ -20,6 +20,7 @@ StageName = Literal[
     "accuracy",
     "outputs",
     "semantics",
+    "splats",
 ]
 STAGE_NAMES: tuple[str, ...] = (
     "load",
@@ -33,6 +34,7 @@ STAGE_NAMES: tuple[str, ...] = (
     "accuracy",
     "outputs",
     "semantics",
+    "splats",
 )
 
 
@@ -151,6 +153,15 @@ STAGES: dict[str, StageSpec] = {
         ),
         optional=True,
     ),
+    # ADR 0006 Q2(c), Q3. A rendering and a viewing layer, never a measurement. Off by default (needs the splats extra
+    # and the GPU). Runs last so that no stage number changes.
+    "splats": StageSpec(
+        number=12,
+        methods=("gsplat-lidar",),
+        requires=("load", "mask", "align", "ground"),
+        outputs=("splats.npz", "ortho.png", "ortho.pgw", "qa.json"),
+        optional=True,
+    ),
 }
 
 
@@ -232,6 +243,31 @@ class SemanticsParams(_Strict):
     support_radius_m: float = Field(0.3, ge=0.05, le=1)
 
 
+class SplatsParams(_Strict):
+    # Training images are scaled so that their longest side is this many px.
+    long_side_px: int = Field(800, ge=320, le=1600)
+    iterations: int = Field(7000, ge=100, le=30000)
+    # Every holdout_every-th camera image is kept out of training and scores the splats (PSNR, SSIM).
+    holdout_every: int = Field(8, ge=2, le=50)
+    # Lidar points the splats start from (a random subset of ground plus non-ground).
+    init_points: int = Field(600000, ge=1000, le=3000000)
+    # Hard cap on splats; densification stops when it is reached. Keeps VRAM under the 10 GB budget.
+    max_gaussians: int = Field(1500000, ge=1000, le=5000000)
+    # Weight of the relative lidar depth error in the loss; 0 turns depth supervision off.
+    depth_weight: float = Field(0.5, ge=0, le=5)
+    # Per-camera pose refinement (ADR 0006 Q3): the correction is clamped to these bounds.
+    pose_refine: bool = True
+    pose_max_deg: float = Field(1.0, ge=0.01, le=5)
+    pose_max_m: float = Field(0.1, ge=0.001, le=1)
+    # A camera whose correction exceeds these is flagged; a drive with a quarter of its cameras flagged is flagged.
+    pose_flag_deg: float = Field(0.5, ge=0.01, le=5)
+    pose_flag_m: float = Field(0.05, ge=0.001, le=1)
+    ortho_cm: float = Field(3.0, ge=1, le=10)
+    # The orthophoto and the ground check use splats within this height of the lidar ground surface.
+    ground_band_m: float = Field(0.3, ge=0.05, le=2)
+    seed: int = 0
+
+
 class ProfileParams(_Strict):
     sample_m: float = Field(1.0, ge=0.1, le=10)
 
@@ -275,6 +311,7 @@ class Params(_Strict):
     features: FeaturesParams = Field(default_factory=FeaturesParams)
     colour: ColourParams = Field(default_factory=ColourParams)
     semantics: SemanticsParams = Field(default_factory=SemanticsParams)
+    splats: SplatsParams = Field(default_factory=SplatsParams)
     profile: ProfileParams = Field(default_factory=ProfileParams)
     isd: IsdParams = Field(default_factory=IsdParams)
     accuracy: AccuracyParams = Field(default_factory=AccuracyParams)
@@ -320,6 +357,9 @@ class Pipeline(_Strict):
     )
     semantics: PipelineStage = Field(
         default_factory=lambda: PipelineStage(method="mapillary-m2f", enabled=False)
+    )
+    splats: PipelineStage = Field(
+        default_factory=lambda: PipelineStage(method="gsplat-lidar", enabled=False)
     )
 
     @model_validator(mode="after")
@@ -449,6 +489,7 @@ PARAM_STAGE: dict[str, str | None] = {
     "features": "features",
     "colour": "colour",
     "semantics": "semantics",
+    "splats": "splats",
     "profile": "profile",
     "isd": "isd",
     "accuracy": "accuracy",

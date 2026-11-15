@@ -179,6 +179,10 @@ def build_parser() -> argparse.ArgumentParser:
     hl = sub.add_parser("health", help="write <store>/health.json and raise or clear box-alarm issues")
     hl.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
     hl.add_argument("--no-alert", action="store_true", help="write health.json only, touch no issues")
+    pl = sub.add_parser("pipeline", help="end-to-end checks: smoke (fake data, CI) or preflight (real data, box)")
+    pl.add_argument("action", choices=("smoke", "preflight"))
+    pl.add_argument("--store", type=Path, help="preflight: live store to read the area from (default: $TWIN_RUNS)")
+    pl.add_argument("--work", type=Path, help="scratch folder (default: a new one under $TMPDIR)")
     serve = sub.add_parser("serve", help="run the control API")
     serve.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
     serve.add_argument("--host", default="127.0.0.1")
@@ -276,6 +280,10 @@ def main(argv: list[str] | None = None) -> int:
         from twin.health import health_command
 
         return health_command(args.store, args.no_alert)
+    if args.command == "pipeline":
+        from twin.pipeline_check import pipeline_command
+
+        return pipeline_command(args.action, args.store, args.work)
     if args.command == "serve":
         from twin.api import serve_command
 

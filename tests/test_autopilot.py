@@ -45,7 +45,8 @@ def test_stops_at_target(tmp_path, monkeypatch):
 
 def test_source_order_and_tags(tmp_path, monkeypatch):
     monkeypatch.setattr(autopilot.shutil, "which", lambda _: "/bin/gh")
-    gh = lambda *a: json.dumps([{"number": 7, "headRefOid": "a" * 40, "labels": [{"name": "method"}]}])
+    prs = json.dumps([{"number": 7, "headRefOid": "a" * 40, "labels": [{"name": "method"}]}])
+    gh = lambda *a: "twin/stages/ground.py" if a[:2] == ("pr", "diff") else prs
     real = prgate.poll
     monkeypatch.setattr(prgate, "poll", lambda store, extra=None: real(store, gh=gh, extra=extra))
     monkeypatch.setattr(autopilot, "main_commit", lambda: None)
@@ -306,3 +307,18 @@ def test_p2_chain_is_merge_then_twin_then_eval_on_the_twin_folder(tmp_path, monk
     merge, twin, ev = (c.strip() for c in cmds[0].split("&&"))
     assert "area merge seaport" in merge and "area twin seaport" in twin
     assert "eval areas/seaport-twin" in ev
+
+
+def test_new_main_queues_a_baseline_run_once(tmp_path, monkeypatch):
+    monkeypatch.setattr(autopilot, "main_commit", lambda: "a" * 40)
+    monkeypatch.setattr(autopilot, "_alive", lambda pid: False)
+    monkeypatch.setattr(autopilot, "_detached", lambda s, name, cmd: (999999, "x"))
+    added = []
+    monkeypatch.setattr(autopilot.jobqueue, "add", lambda store, job: added.append(job) or "id")
+    state = {}
+    autopilot.p2_area(tmp_path, state)
+    assert added == [{"type": "run", "scene": autopilot.prgate.SCENE, "eval": True, "tags": ["autopilot", "baseline"]}]
+    state["p2"].update(built="a" * 40, building=None, pid=None)
+    monkeypatch.setattr(autopilot, "_exit_code", lambda job: "1")
+    autopilot.p2_area(tmp_path, state)
+    assert len(added) == 1  # the same commit is not queued again

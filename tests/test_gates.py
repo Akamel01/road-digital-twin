@@ -79,15 +79,15 @@ def test_nondeterministic_rerun():
 def test_regression_against_baseline():
     base = copy.deepcopy(GOOD)
     run = copy.deepcopy(GOOD)
-    run["metrics"]["accuracy"]["elements"]["curbs"]["p95_m"] = (
+    run["metrics"]["accuracy"]["elements"]["curbs"]["matched_p95_m"] = (
         0.45  # +0.05, still < 0.5
     )
     rep = evaluate(run, baseline=base, rerun=run)
     assert rep["verdict"] == NO_GO
     assert [r["metric"] for r in rep["regressions"]] == [
-        "accuracy.elements.curbs.p95_m"
+        "accuracy.elements.curbs.matched_p95_m"
     ]
-    run["metrics"]["accuracy"]["elements"]["curbs"]["p95_m"] = 0.41  # within noise
+    run["metrics"]["accuracy"]["elements"]["curbs"]["matched_p95_m"] = 0.41  # within noise
     assert evaluate(run, baseline=base, rerun=run)["verdict"] == GO
 
 

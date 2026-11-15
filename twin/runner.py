@@ -62,6 +62,7 @@ STAGE_PARAMS: dict[str, str | None] = {
     "accuracy": "accuracy",
     "outputs": None,
     "semantics": "semantics",
+    "splats": "splats",
 }
 
 

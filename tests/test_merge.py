@@ -140,9 +140,9 @@ def test_fit_zplanes_removes_offset_and_tilt_across_drives():
     clouds = {k: _ground(rng, o, t) for k, (o, t) in truth.items()}
     cells = {k: merge.ground_cells(v) for k, v in clouds.items()}
     assert _p95(clouds["a"], clouds["b"]) > 1.0
-    planes = merge.fit_zplanes(cells, "a")
+    planes = merge.fit_surfaces(cells, "a")
     assert np.allclose(planes["a"], 0)
-    fixed = {k: merge.apply_zplane(v, planes[k]) for k, v in clouds.items()}
+    fixed = {k: merge.apply_surface(v, planes[k]) for k, v in clouds.items()}
     for x, y in (("a", "b"), ("a", "c"), ("b", "c")):
         assert _p95(fixed[x], fixed[y]) < 0.05
 
@@ -152,6 +152,73 @@ def test_fit_zplanes_ignores_a_layer_outlier_and_is_deterministic():
     a, b = _ground(rng, 0.0, (0, 0)), _ground(rng, 0.5, (0.02, 0))
     b[b[:, 0] > 14, 2] += 4.0  # 15% of b's ground sits on another layer (overpass)
     cells = {"a": merge.ground_cells(a), "b": merge.ground_cells(b)}
-    p1, p2 = merge.fit_zplanes(cells, "a"), merge.fit_zplanes(cells, "a")
+    p1, p2 = merge.fit_surfaces(cells, "a"), merge.fit_surfaces(cells, "a")
     assert np.array_equal(p1["b"], p2["b"])
-    assert np.allclose(p1["b"], [-0.5, -0.02, 0.0], atol=0.03)
+    assert np.allclose(p1["b"], [-0.5, -0.02 * merge.SURFACE_SCALE_M, 0.0], atol=0.03)
+
+
+def _four(rng, extra=None):
+    out = {
+        k: _ground(rng, o, (0.0, 0.0))
+        for k, o in zip("abcd", (0.0, 0.3, -0.2, 0.1), strict=True)
+    }
+    if extra:
+        out["b"] = extra(out["b"])
+    return {k: merge.ground_cells(v) for k, v in out.items()}
+
+
+def test_reject_layers_drops_an_overhead_patch_only():
+    rng = np.random.default_rng(3)
+
+    def roof(p):
+        p = p.copy()
+        p[(p[:, 0] > 5) & (p[:, 1] > 5), 2] += (
+            4.5  # 'ground' points on a gantry above the road
+        )
+        return p
+
+    cells = _four(rng, roof)
+    plane = merge.fit_surfaces(cells, "a", 1)
+    shifted = {k: merge.apply_cells(v, plane[k]) for k, v in cells.items()}
+    kept, n = merge.reject_layers(shifted)
+    assert n["b"] > 400  # about 15 x 15 m of 0.5 m cells
+    assert n["a"] + n["c"] + n["d"] < 0.02 * len(cells["a"])
+    kept = {k: {c: cells[k][c] for c in kept[k]} for k in cells}
+    fit = merge.fit_surfaces(kept, "a", 1)
+    d = merge.ground_disagreement(
+        merge.apply_cells(kept["a"], fit["a"]), merge.apply_cells(kept["b"], fit["b"])
+    )
+    assert d["p95_m"] < 0.05
+
+
+def test_curved_drive_is_recovered_by_degree_two_not_one():
+    rng = np.random.default_rng(4)
+    bowl = lambda p: (
+        p + np.column_stack([np.zeros(len(p)), np.zeros(len(p)), 0.002 * p[:, 0] ** 2])
+    )
+    cells = _four(rng, bowl)
+
+    def worst(deg):
+        c = merge.fit_surfaces(cells, "a", deg)
+        return max(
+            merge.ground_disagreement(
+                merge.apply_cells(cells[x], c[x]), merge.apply_cells(cells[y], c[y])
+            )["p95_m"]
+            for x, y in (("a", "b"), ("b", "c"), ("b", "d"), ("c", "d"))
+        )
+
+    assert worst(1) > 0.15
+    assert worst(2) < 0.05
+
+
+def test_degree_two_does_not_invent_curvature_from_noise():
+    rng = np.random.default_rng(5)
+    noisy = lambda p: (
+        p + np.column_stack([np.zeros((len(p), 2)), rng.normal(0, 0.03, len(p))])
+    )
+    cells = {
+        k: merge.ground_cells(noisy(_ground(rng, o, (0.01, 0.0))))
+        for k, o in zip("abc", (0.0, 0.4, -0.3), strict=True)
+    }
+    c = merge.fit_surfaces(cells, "a", 2)
+    assert max(np.abs(c[k][3:]).max() for k in "abc") < 0.02  # in metres at 50 m

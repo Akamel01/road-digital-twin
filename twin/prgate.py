@@ -7,13 +7,15 @@ as a PR comment and set the commit status `twin-gates`.
 """
 
 import json
+import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 from twin import jobqueue
-from twin.gates import GO, NO_GO
+from twin.contracts import STAGE_NAMES
+from twin.gates import NO_GO
 
 REPO = "Akamel01/road-digital-twin"
 LABEL = "method"
@@ -52,6 +54,19 @@ def open_prs(repo: str = REPO, gh=gh) -> list[dict]:
     ]
 
 
+SINGLE_DRIVE = ("twin/stages/", "twin/runner.py", "twin/contracts.py", "twin/params")  # path prefixes
+
+
+def touches_single_drive(repo: str, pr: int, gh=gh) -> bool:
+    """True when the PR's diff changes a single-drive stage, the runner or the contracts. When the diff
+    cannot be read the gate runs: a skipped gate is the worse mistake."""
+    try:
+        files = gh("pr", "diff", str(pr), "-R", repo, "--name-only").split()
+    except PrGateError:
+        return True
+    return any(f.startswith(SINGLE_DRIVE) for f in files)
+
+
 def poll(store: Path, repo: str = REPO, dry_run: bool = False, gh=gh, extra: dict | None = None) -> list[str]:
     """Queue a prgate job for every method PR whose head has no job yet. Other open PRs get
     a success status `twin-gates` (n/a), so the check can be required on main. Returns lines."""
@@ -65,9 +80,12 @@ def poll(store: Path, repo: str = REPO, dry_run: bool = False, gh=gh, extra: dic
     na_file = Path(store) / "queue" / "prgate-na.json"
     na = set(json.loads(na_file.read_text())) if na_file.exists() else set()
     for p in open_prs(repo, gh):
-        if not p["method"]:
+        why = "n/a: not a method PR"
+        if p["method"] and (p["pr"], p["sha"]) not in seen and not touches_single_drive(repo, p["pr"], gh):
+            why = "n/a: no single-drive stage changed"  # e.g. a merge-only PR: the scene-0757 run would not differ
+        if why != "n/a: not a method PR" or not p["method"]:
             if p["sha"] not in na:
-                set_status(repo, p["sha"], "success", "n/a: not a method PR", dry_run, gh)
+                set_status(repo, p["sha"], "success", why, dry_run, gh)
                 if not dry_run:
                     na.add(p["sha"])
                     na_file.parent.mkdir(parents=True, exist_ok=True)
@@ -84,27 +102,30 @@ def poll(store: Path, repo: str = REPO, dry_run: bool = False, gh=gh, extra: dic
 
 
 def pick_baseline(store: Path, scene: str = SCENE) -> Path | None:
-    """The main-store run to compare with: finished runs of the scene, a go verdict first,
-    then fewest no-go checks, then the newest."""
-    best, best_key = None, None
+    """The main-store run to compare with: the newest full run of the scene on the worker's
+    dataset version whose stages all finished (ok, or skipped when off by default). The newest
+    is current main, so a PR is compared with what it would replace."""
+    best = None
     for d in sorted(Path(store).glob("2*")):
         try:
             m = json.loads((d / "manifest.json").read_text())
         except (OSError, ValueError):
             continue
+        if m.get("parent") is not None:
+            continue  # reruns are not baselines
+        if m.get("data", {}).get("nuscenes_version") != os.environ.get(
+            "NUSCENES_VERSION", "v1.0-mini"
+        ):
+            continue  # different dataset version
         stages = m.get("stages", [])
-        if m.get("data", {}).get("scene_token") != scene or any(
-            s.get("status") != "ok" for s in stages
-        ) or not stages:  # fmt: skip
+        if m.get("data", {}).get("scene_token") != scene or not stages or any(
+            s.get("status") not in ("ok", "skipped") for s in stages
+        ):  # fmt: skip
             continue
-        try:
-            rep = json.loads((d / "gates.json").read_text())
-            checks = [c["status"] for g in rep["gates"].values() for c in g["checks"]]
-            key = (rep["verdict"] == GO, -checks.count(NO_GO))
-        except (OSError, ValueError, KeyError):
-            key = (False, -99)
-        if best_key is None or key >= best_key:  # sorted by id: ties go to the newest
-            best, best_key = d, key
+        if {s.get("name") for s in stages} != set(STAGE_NAMES):
+            continue  # a partial chain (e.g. P4 prefetch, stop_after) is not a baseline
+        if (d / "gates.json").exists():
+            best = d  # sorted by id: the last one is the newest
     return best
 
 
@@ -183,8 +204,15 @@ def gate(store, pr, sha, repo=REPO, root=ROOT, dry_run=False, gh=gh) -> dict:
     head += f"`{base.name if base else 'none'}` (main store). A go still needs line-by-line review.\n\n"  # fmt: skip
     post_comment(repo, pr, head + text, dry_run, gh)
     # Only a failed gate or a regression blocks; "not measured" is not a no-go (it blocks publish only).
-    ok = verdict != NO_GO
-    desc = f"{verdict}: run {run_id}, baseline {base.name if base else 'none'}"
+    # While main itself is no-go, an absolute verdict blocks every method PR. With a baseline, block
+    # only a regression against it (gates.regressions, noise tolerance); the operator reviews the rest.
+    worse = report.get("regressions")
+    if base is not None and worse is not None:
+        ok = not worse
+        desc = f"{verdict}, {len(worse)} regression(s) vs baseline {base.name}: run {run_id}"
+    else:
+        ok = verdict != NO_GO
+        desc = f"{verdict}: run {run_id}, baseline {base.name if base else 'none'}"
     set_status(repo, sha, "success" if ok else "failure", desc, dry_run, gh)
     return {"eval_result": verdict, "run_id": run_id, "pr": pr}
 
