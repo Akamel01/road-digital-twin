@@ -1,43 +1,33 @@
-"""Study area: a polygon from HD-map intersections and the nuScenes drives that pass through it.
-
-`twin area define` writes <store>/areas/<name>.json. The run store keeps run folders
-named by run id, so the `areas` folder is never read as a run.
-"""
-
+"""Study areas and suggest-drives (#253). Reads only needed nuScenes JSON tables."""
 from __future__ import annotations
 
 import json
-import os
 import sys
 from pathlib import Path
 
 import numpy as np
 import shapely
+from pyquaternion import Quaternion
 from shapely.geometry import mapping
 
+import twin.area_coverage as ac
+from twin.devkit_compat import nuscenes_map_class
 from twin.stages.load import MAP_ORIGIN_LATLON, run_crs
 
 MIN_PREFIX = 8
+VERSION = "v1.0-trainval"
 
 
-def _table(root: Path, version: str, name: str) -> list[dict]:
+def _table(root: Path, version: str, name: str):
     return json.loads((root / version / f"{name}.json").read_text())
 
 
-def load_intersections(dataroot, location: str) -> dict[str, shapely.Polygon]:
-    """Intersection road segments of one HD map: full token -> polygon, map frame."""
-    from twin.devkit_compat import nuscenes_map_class
-
+def load_intersections(dataroot, location: str):
     nusc_map = nuscenes_map_class()(dataroot=str(dataroot), map_name=location)
-    return {
-        r["token"]: nusc_map.extract_polygon(r["polygon_token"])
-        for r in nusc_map.road_segment
-        if r["is_intersection"]
-    }
+    return {r["token"]: nusc_map.extract_polygon(r["polygon_token"]) for r in nusc_map.road_segment if r["is_intersection"]}
 
 
-def resolve_tokens(prefixes: list[str], known) -> list[str]:
-    """Full tokens for unique prefixes of at least 8 characters. Raises ValueError otherwise."""
+def resolve_tokens(prefixes, known):
     out = []
     for p in prefixes:
         hits = [t for t in known if len(p) >= MIN_PREFIX and t.startswith(p)]
@@ -47,41 +37,24 @@ def resolve_tokens(prefixes: list[str], known) -> list[str]:
     return out
 
 
-def drives_through(root: Path, version: str, location: str, polygon) -> list[dict]:
-    """Scenes of this map location with any ego pose (keyframe or sweep, any sensor) inside polygon."""
-    logs = {log["token"]: log for log in _table(root, version, "log")}
-    scenes = {
-        s["token"]: s
-        for s in _table(root, version, "scene")
-        if logs[s["log_token"]]["location"] == location
-    }
-    scene_of_sample = {
-        s["token"]: s["scene_token"]
-        for s in _table(root, version, "sample")
-        if s["scene_token"] in scenes
-    }
-    pose_scene = {}  # ego_pose token -> scene token
+def drives_through(root: Path, version: str, location: str, polygon):
+    logs = {l["token"]: l for l in _table(root, version, "log")}
+    scenes = {s["token"]: s for s in _table(root, version, "scene") if logs[s["log_token"]]["location"] == location}
+    scene_of_sample = {s["token"]: s["scene_token"] for s in _table(root, version, "sample") if s["scene_token"] in scenes}
+    pose_scene = {}
     for sd in _table(root, version, "sample_data"):
-        scene = scene_of_sample.get(sd["sample_token"])
-        if scene:
-            pose_scene[sd["ego_pose_token"]] = scene
+        sc = scene_of_sample.get(sd["sample_token"])
+        if sc:
+            pose_scene[sd["ego_pose_token"]] = sc
     poses = [p for p in _table(root, version, "ego_pose") if p["token"] in pose_scene]
-    xs = [p["translation"][0] for p in poses]
-    ys = [p["translation"][1] for p in poses]
-    inside = shapely.contains_xy(polygon, xs, ys)
+    if not poses:
+        return []
+    inside = shapely.contains_xy(polygon, [p["translation"][0] for p in poses], [p["translation"][1] for p in poses])
     hit = {pose_scene[p["token"]] for p, i in zip(poses, inside) if i}
     rows = []
     for token in hit:
         s = scenes[token]
-        rows.append(
-            {
-                "scene": s["name"],
-                "scene_token": token,
-                "date": logs[s["log_token"]]["date_captured"],
-                "description": s["description"],
-                "rain": "rain" in s["description"].lower(),
-            }
-        )
+        rows.append({"scene": s["name"], "scene_token": token, "date": logs[s["log_token"]]["date_captured"], "description": s["description"], "rain": "rain" in s["description"].lower()})
     return sorted(rows, key=lambda r: r["scene"])
 
 
@@ -90,54 +63,24 @@ def _to_utm(tr, coords):
     return np.column_stack([x, y])
 
 
-def make_area(
-    name, polygons, prefixes, buffer_m, root, version, location, include_rain=False
-) -> dict:
-    """The area record. polygons: intersection token -> map-frame polygon.
-
-    DECISION: the buffer is applied and poses are tested in the map frame (metres,
-    local tmerc with k=1); the saved polygon is that polygon moved to EPSG:32619.
-    DECISION: rain drives are listed but held out (build_input false) unless include_rain.
-    """
+def make_area(name, polygons, prefixes, buffer_m, root, version, location, include_rain=False):
     tokens = resolve_tokens(prefixes, polygons)
     poly = shapely.union_all([polygons[t] for t in tokens]).buffer(buffer_m)
-    tr = run_crs(MAP_ORIGIN_LATLON)
-    utm = shapely.transform(poly, lambda a: _to_utm(tr, a))
+    utm = shapely.transform(poly, lambda a: _to_utm(run_crs(MAP_ORIGIN_LATLON), a))
     drives = drives_through(Path(root), version, location, poly)
     for d in drives:
         d["build_input"] = include_rain or not d["rain"]
-    return {
-        "name": name,
-        "location": location,
-        "epsg": 32619,
-        "buffer_m": buffer_m,
-        "intersections": tokens,
-        "polygon": mapping(utm),
-        "dataset_version": version,
-        "drives": drives,
-    }
+    return {"name": name, "location": location, "epsg": 32619, "buffer_m": buffer_m, "intersections": tokens, "polygon": mapping(utm), "dataset_version": version, "drives": drives}
 
 
-def area_define_command(
-    name, intersections, buffer_m, location, dataroot, version, store, include_rain
-) -> int:
+def area_define_command(name, intersections, buffer_m, location, dataroot, version, store, include_rain):
     from twin.runner import default_store
-
     root = Path(dataroot)
     if not (root / version / "scene.json").is_file():
         print(f"nuScenes {version} not found at {root}", file=sys.stderr)
         return 2
     try:
-        area = make_area(
-            name,
-            load_intersections(root, location),
-            intersections,
-            buffer_m,
-            root,
-            version,
-            location,
-            include_rain,
-        )
+        area = make_area(name, load_intersections(root, location), intersections, buffer_m, root, version, location, include_rain)
     except ValueError as e:
         print(e, file=sys.stderr)
         return 2
@@ -147,15 +90,11 @@ def area_define_command(
     rain = sum(d["rain"] for d in area["drives"])
     print(f"{out}: {len(area['drives'])} drives, {rain} rain (held out)")
     for d in area["drives"]:
-        flag = "RAIN" if d["rain"] else "    "
-        print(f"  {d['scene']}  {d['date']}  {flag}  {d['description']}")
+        print(f"  {d['scene']}  {d['date']}  {'RAIN' if d['rain'] else '    '}  {d['description']}")
     return 0
 
 
-def drive_tokens(build: Path) -> list[str]:
-    """Scene tokens of the drives an area build used (its drives.json lists scene names), in that order.
-    The tokens come from the area definition <store>/areas/<area>.json, where the build folder is
-    <area>-twin or <area>-merged. [] when either file is missing."""
+def drive_tokens(build: Path):
     build = Path(build)
     name = build.name.removesuffix("-twin").removesuffix("-merged")
     try:
@@ -167,652 +106,224 @@ def drive_tokens(build: Path) -> list[str]:
     return [token[d["scene"]] for d in used if d.get("scene") in token]
 
 
-# --- suggest-drives (ticket #253, M2) ---
-
-SUGGEST_DRIVES_VERSION = "v1.0-trainval"
-SUGGEST_SWEEP_STEP = 4
-SUGGEST_DENSITY_THRESHOLD = 50.0
-
-
-def _versioned_table(root: Path, version: str, name: str) -> list[dict]:
-    path = root / version / f"{name}.json"
-    if not path.is_file():
-        raise FileNotFoundError(f"missing dataset table: {path}")
-    try:
-        return json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError) as e:
-        raise ValueError(f"failed to read dataset table {path}: {e}") from e
+def _jt(root, version, name):
+    p = root / version / f"{name}.json"
+    if not p.is_file():
+        raise FileNotFoundError(p)
+    return json.loads(p.read_text())
 
 
-def resolve_area_arg(area_arg: str, store: Path) -> Path:
-    """Z1: try arg, <store>/arg, <store>/areas/<arg>.
-
-    Returns existing resolved path, else raises FileNotFoundError listing tried paths.
-    """
-    store = Path(store).resolve()
-    p = Path(area_arg)
-    tried: list[str] = []
-    candidates: list[Path] = []
-    if p.is_absolute():
-        candidates.append(p)
-    else:
-        candidates.append(p)
-        candidates.append(store / area_arg)
-        candidates.append(store / "areas" / area_arg)
-    for cand in candidates:
-        tried.append(str(cand))
-        if cand.exists():
-            return cand.resolve()
-    raise FileNotFoundError("tried paths: " + ", ".join(tried))
-
-
-def _read_area_json(path: Path) -> dict:
-    try:
-        data = json.loads(Path(path).read_text())
-    except (OSError, json.JSONDecodeError) as e:
-        raise ValueError(f"failed to read area JSON {path}: {e}") from e
-    if not isinstance(data, dict):
-        raise TypeError(f"area JSON must be an object: {path}")
-    return data
-
-
-def rebuilt_map_frame_polygon_from_area(
-    area_def: dict, dataroot: Path, location: str | None = None
-):
-    loc = location or area_def.get("location")
-    if not loc:
-        raise ValueError("area definition missing location")
-    polys = load_intersections(dataroot, loc)
-    tokens = area_def.get("intersections") or []
-    if not tokens:
-        raise ValueError("area definition missing intersections")
-    missing = [t for t in tokens if t not in polys]
-    if missing:
-        raise ValueError(f"area intersections not found in map: {missing[:3]}")
-    buffer_m = float(area_def.get("buffer_m", 0.0))
-    poly = shapely.union_all([polys[t] for t in tokens]).buffer(buffer_m)
-    if poly is None or poly.is_empty:
-        raise ValueError("rebuilt map-frame polygon is empty")
-    return poly
+def _rebuild_poly(area_def, root):
+    polys = load_intersections(root, area_def["location"])
+    return shapely.union_all([polys[t] for t in area_def["intersections"]]).buffer(float(area_def.get("buffer_m", 0.0)))
 
 
 def _drivable_union(nusc_map, bounds):
-    records = nusc_map.get_records_in_patch(
-        tuple(bounds), layer_names=["drivable_area"], mode="intersect"
-    )
+    recs = nusc_map.get_records_in_patch(tuple(bounds), ["drivable_area"], "intersect")
     polys = []
-    for token in records.get("drivable_area", []):
-        rec = nusc_map.get("drivable_area", token)
-        for poly_token in rec.get("polygon_tokens", []):
-            polys.append(nusc_map.extract_polygon(poly_token))
-    if not polys:
-        return shapely.Polygon()
-    return shapely.union_all(polys)
+    for tok in recs.get("drivable_area", []):
+        for pt in nusc_map.get("drivable_area", tok).get("polygon_tokens", []):
+            polys.append(nusc_map.extract_polygon(pt))
+    return shapely.union_all(polys) if polys else shapely.Polygon()
 
 
-def _scene_rows_for_location(root: Path, version: str, location: str) -> list[dict]:
-    logs = {log["token"]: log for log in _versioned_table(root, version, "log")}
-    out = []
-    for s in _versioned_table(root, version, "scene"):
-        log = logs.get(s["log_token"])
-        if not log or log.get("location") != location:
-            continue
-        desc = s.get("description", "") or ""
-        out.append(
-            {
-                "scene": s["name"],
-                "scene_token": s["token"],
-                "date": log.get("date_captured"),
-                "description": desc,
-                "rain": "rain" in desc.lower(),
-            }
-        )
+def _build_indices(root, version, location):
+    logs = {l["token"]: l for l in _jt(root, version, "log")}
+    scenes = [s for s in _jt(root, version, "scene") if logs[s["log_token"]]["location"] == location]
+    samples = {s["token"]: s for s in _jt(root, version, "sample")}
+    ego = {p["token"]: p for p in _jt(root, version, "ego_pose")}
+    cal = {c["token"]: c for c in _jt(root, version, "calibrated_sensor")}
+    sd_by_sample = {}
+    for sd in _jt(root, version, "sample_data"):
+        if sd.get("channel") == "LIDAR_TOP":
+            sd_by_sample.setdefault(sd["sample_token"], []).append(sd)
+    for recs in sd_by_sample.values():
+        recs.sort(key=lambda r: (not r.get("is_key_frame", False), r["token"]))
+    return logs, scenes, samples, sd_by_sample, ego, cal
+
+
+def _keyframes(scene, samples):
+    out, tok = [], scene["first_sample_token"]
+    while tok:
+        s = samples[tok]
+        out.append(s)
+        tok = s.get("next")
     return out
 
 
-def _scene_pose_index(root: Path, version: str, polygon):
-    """Build scene_token -> in-polygon flag once for this area (single table pass)."""
-    scenes = _versioned_table(root, version, "scene")
-    scene_tokens = {s["token"] for s in scenes}
-    scene_of_sample = {
-        s["token"]: s["scene_token"]
-        for s in _versioned_table(root, version, "sample")
-        if s.get("scene_token") in scene_tokens
-    }
-    pose_scene: dict[str, str] = {}
-    for sd in _versioned_table(root, version, "sample_data"):
-        scene = scene_of_sample.get(sd.get("sample_token"))
-        if scene:
-            pose_scene[sd["ego_pose_token"]] = scene
-    if not pose_scene:
-        return {}
-    poses = [
-        p for p in _versioned_table(root, version, "ego_pose") if p["token"] in pose_scene
-    ]
-    if not poses:
-        return {}
-    xs = np.array([p["translation"][0] for p in poses], dtype=float)
-    ys = np.array([p["translation"][1] for p in poses], dtype=float)
-    inside = np.asarray(shapely.contains_xy(polygon, xs, ys), dtype=bool)
-    hit: set[str] = set()
-    for p, ok in zip(poses, inside, strict=False):
-        if ok:
-            scene = pose_scene.get(p["token"])
-            if scene:
-                hit.add(scene)
-    return {tok: (tok in hit) for tok in scene_tokens}
-
-
-def _drive_overlaps_polygon_index(scene_token: str, overlap_index: dict[str, bool]) -> bool:
-    return bool(overlap_index.get(scene_token, False))
-
-
-def _driveable_surface_index(nusc) -> int | None:
-    mapping = getattr(nusc, "lidarseg_name2idx_mapping", None)
-    if isinstance(mapping, dict) and "flat.driveable_surface" in mapping:
+def _lidarseg_table(root, version):
+    p = root / version / "lidarseg.json"
+    if not p.is_file():
+        return {}, None
+    try:
+        rows = json.loads(p.read_text())
+        idx = {r["sample_data_token"]: r["filename"] for r in rows if r.get("sample_data_token") and r.get("filename")}
+    except Exception:  # noqa: BLE001
+        idx = {}
+    didx = None
+    cp = root / version / "category.json"
+    if cp.is_file():
         try:
-            return int(mapping["flat.driveable_surface"])
-        except (TypeError, ValueError):
-            return None
-    categories = getattr(nusc, "category", None)
-    if isinstance(categories, list):
-        for c in categories:
-            if c.get("name") == "flat.driveable_surface" and "index" in c:
-                try:
-                    return int(c["index"])
-                except (TypeError, ValueError):
-                    return None
-    return None
+            for c in json.loads(cp.read_text()):
+                if c.get("name") == "flat.driveable_surface":
+                    didx = int(c["index"])
+        except Exception:  # noqa: BLE001
+            didx = None
+    return idx, didx
 
 
-def _lidarseg_token_path_index(nusc):
-    """Cache sample_data_token -> lidarseg bin path from <dataroot>/<version>/lidarseg.json."""
-    cached = getattr(nusc, "_suggest_lidarseg_path_index", None)
-    if cached is not None:
-        return cached
-    index: dict[str, str] = {}
-    dataroot = getattr(nusc, "dataroot", None)
-    version = getattr(nusc, "version", None)
-    if dataroot and version:
-        table = Path(dataroot) / str(version) / "lidarseg.json"
-        if table.is_file():
+def _world_xy(root, sd, cal, ego):
+    pts = np.fromfile(root / sd["filename"], dtype=np.float32).reshape(-1, 5)[:, :3].T
+    if pts.size == 0:
+        return np.empty((0, 2), np.float32), 0
+    pts = Quaternion(cal["rotation"]).rotation_matrix @ pts + np.array(cal["translation"])[:, None]
+    pts = Quaternion(ego["rotation"]).rotation_matrix @ pts + np.array(ego["translation"])[:, None]
+    xy = pts[:2].T.astype(np.float32, copy=False)
+    n = xy.shape[0]
+    del pts
+    return xy, n
+
+
+def _road_mask(xy, area_poly, drivable_union, root, lseg_idx, sd_token, didx, n_pts):
+    in_area = shapely.contains_xy(area_poly, xy[:, 0], xy[:, 1])
+    if not np.any(in_area):
+        return np.zeros(len(xy), bool)
+    road = np.zeros(len(xy), bool)
+    fn = lseg_idx.get(sd_token)
+    if fn and didx is not None:
+        p = root / fn
+        if p.is_file():
             try:
-                rows = json.loads(table.read_text())
-            except (OSError, json.JSONDecodeError, TypeError, ValueError):
-                rows = []
-            if isinstance(rows, list):
-                for row in rows:
-                    if not isinstance(row, dict):
-                        continue
-                    token = row.get("sample_data_token")
-                    filename = row.get("filename")
-                    if not token or not filename:
-                        continue
-                    index[str(token)] = os.path.join(str(dataroot), str(filename))
-    try:
-        setattr(nusc, "_suggest_lidarseg_path_index", index)
-    except (AttributeError, TypeError):
-        pass
-    return index
-
-
-def _lidarseg_driveable_labels(
-    nusc, sd_token: str, n_points: int, inside_idx, drive_idx: int | None
-):
-    if drive_idx is None:
-        return None
-    path = None
-    try:
-        rec = nusc.get("lidarseg", sd_token)
-    except (KeyError, AttributeError, TypeError):
-        rec = None
-    if isinstance(rec, dict):
-        filename = rec.get("filename")
-        if filename:
-            path = os.path.join(getattr(nusc, "dataroot", ""), str(filename))
-    if not path:
-        path = _lidarseg_token_path_index(nusc).get(str(sd_token))
-    if not path or not os.path.isfile(path):
-        return None
-    try:
-        labels = np.fromfile(path, dtype=np.uint8)
-    except (OSError, ValueError):
-        return None
-    if len(labels) != n_points:
-        return None
-    try:
-        return labels[inside_idx] == int(drive_idx)
-    except (IndexError, TypeError, ValueError):
-        return None
-
-
-def _sampled_lidar_points_for_scene(nusc, scene_token: str, polygon, step: int):
-    """Yield (points_xyz[N,3], labels_flat_driveable_or_None) for sampled keyframes."""
-    scene = nusc.get("scene", scene_token)
-    keyframes = []
-    token = scene["first_sample_token"]
-    while token:
-        sample = nusc.get("sample", token)
-        keyframes.append(sample)
-        token = sample.get("next")
-    drive_idx = _driveable_surface_index(nusc)
-    for sample in keyframes[::step]:
-        sd_token = sample["data"].get("LIDAR_TOP")
-        if not sd_token:
-            continue
-        try:
-            from nuscenes.utils.data_classes import LidarPointCloud
-            from pyquaternion import Quaternion
-
-            sd = nusc.get("sample_data", sd_token)
-            pc = LidarPointCloud.from_file(nusc.get_sample_data_path(sd_token))
-            cs = nusc.get("calibrated_sensor", sd["calibrated_sensor_token"])
-            ego = nusc.get("ego_pose", sd["ego_pose_token"])
-            pc.rotate(Quaternion(cs["rotation"]).rotation_matrix)
-            pc.translate(np.array(cs["translation"]))
-            pc.rotate(Quaternion(ego["rotation"]).rotation_matrix)
-            pc.translate(np.array(ego["translation"]))
-        except (KeyError, OSError, ValueError, TypeError, AssertionError, ImportError):
-            continue
-        pts = np.asarray(pc.points[:3, :].T, dtype=float)
-        if len(pts) == 0:
-            continue
-        inside = np.asarray(shapely.contains_xy(polygon, pts[:, 0], pts[:, 1]), dtype=bool)
-        if not inside.any():
-            continue
-        inside_idx = np.flatnonzero(inside)
-        pts_in = pts[inside_idx]
-        labels_in = _lidarseg_driveable_labels(nusc, sd_token, len(pts), inside_idx, drive_idx)
-        yield pts_in, labels_in
-
-
-def _accumulate_drive_observations(
-    acc, nusc, scene_token, polygon, drivable_union, step, ox, oy
-):
-    import twin.area_coverage as ac
-
-    sources: list[str] = []
-    covered_all: set[tuple[int, int]] = set()
-    for pts, labels in _sampled_lidar_points_for_scene(nusc, scene_token, polygon, step):
-        try:
-            src, covered = ac.accumulate_drive_points(
-                acc,
-                pts,
-                polygon,
-                drivable_union,
-                labels_flat_driveable=labels,
-                ox=ox,
-                oy=oy,
-                count_drive=False,
-            )
-        except (ValueError, TypeError):
-            continue
-        if src:
-            sources.append(str(src))
-        covered_all.update(covered)
-    ac.mark_drive_coverage(acc, covered_all)
-    uniq = sorted(set(sources))
-    if not uniq:
-        return "geometric_road_mask_fallback"
-    if len(uniq) == 1:
-        return uniq[0]
-    return uniq
-
-
-def _flatten_source_list(values) -> list[str]:
-    out: set[str] = set()
-    for v in values or []:
-        if v is None:
-            continue
-        if isinstance(v, (list, tuple, set)):
-            for s in v:
-                if s:
-                    out.add(str(s))
+                lab = np.fromfile(p, dtype=np.uint8)
+                if lab.size == n_pts:
+                    road = (lab == np.uint8(didx)) & in_area
+            except Exception:  # noqa: BLE001
+                road = np.zeros(len(xy), bool)
+    if not np.any(road):
+        # geometric fallback: on drivable union (approx road surface)
+        if drivable_union is not None and not drivable_union.is_empty:
+            road = shapely.contains_xy(drivable_union, xy[:, 0], xy[:, 1]) & in_area
         else:
-            out.add(str(v))
-    return sorted(out)
+            road = in_area
+    return np.asarray(road, bool)
 
 
-def _format_suggest_table(rows):
-    header = f"{'scene':<14} {'scene_token':<34} {'cells_gained':>12} {'rain':<6} {'night':<6}"
-    lines = [header]
-    for r in rows:
-        scene = str(r.get("scene", ""))
-        tok = str(r.get("scene_token", ""))
-        gained = int(r.get("cells_gained", 0))
-        rain = str(bool(r.get("rain", False)))
-        night = str(bool(r.get("night", False)))
-        lines.append(
-            f"{scene:<14} {tok:<34} {gained:>12} {rain:<6} {night:<6}"
-        )
-    return "\n".join(lines)
+def _overlapping_scene_tokens(scenes, samples, sd_by_sample, ego, area_poly):
+    scene_of_sample = {s["token"]: s["scene_token"] for s in samples.values()}
+    pose_scene = {}
+    for st, recs in sd_by_sample.items():
+        sc = scene_of_sample.get(st)
+        if sc and recs:
+            pose_scene[recs[0]["ego_pose_token"]] = sc
+    if not pose_scene:
+        return set()
+    toks = [t for t in pose_scene if t in ego]
+    if not toks:
+        return set()
+    xs = [ego[t]["translation"][0] for t in toks]
+    ys = [ego[t]["translation"][1] for t in toks]
+    inside = shapely.contains_xy(area_poly, xs, ys)
+    return {pose_scene[t] for t, ok in zip(toks, inside) if ok}
 
 
-def _drive_entry_from_row(row):
-    return {
-        "scene": row["scene"],
-        "scene_token": row["scene_token"],
-        "date": row.get("date"),
-        "description": row.get("description", ""),
-        "rain": bool(row.get("rain", False)),
-        "build_input": not bool(row.get("rain", False)),
-    }
+def _observe(scene, samples, sd_by_sample, ego, cal, masks, area_poly, drivable_union, drive_count, point_count, root, lseg_idx, didx):
+    seen = np.zeros_like(drive_count, dtype=np.uint8)
+    for kf in _keyframes(scene, samples)[:: ac.SWEEP_STEP]:
+        recs = sd_by_sample.get(kf["token"]) or []
+        if not recs:
+            continue
+        sd = recs[0]
+        ep, cs = ego.get(sd["ego_pose_token"]), cal.get(sd["calibrated_sensor_token"])
+        if not ep or not cs or not shapely.contains_xy(area_poly, ep["translation"][0], ep["translation"][1]):
+            continue
+        try:
+            xy, n = _world_xy(root, sd, cs, ep)
+        except Exception:  # noqa: BLE001,S112
+            continue
+        if n == 0:
+            continue
+        road = _road_mask(xy, area_poly, drivable_union, root, lseg_idx, sd["token"], didx, n)
+        ac.add_points(point_count, seen, masks, xy, road)
+        del xy, road
+    ac.close_drive(drive_count, seen)
 
 
-def suggest_drives_command(
-    area_arg,
-    top_n,
-    density_threshold,
-    apply_changes,
-    dataroot,
-    store,
-    version=SUGGEST_DRIVES_VERSION,
-    *,
-    _coverage_module=None,
-    _nusc_factory=None,
-    _nusc_map_factory=None,
-) -> int:
-    import twin.area_coverage as ac
-
-    ac_mod = _coverage_module or ac
-    root = Path(dataroot).resolve()
-    if store is None:
-        from twin.runner import default_store
-
-        store_path = Path(default_store()).resolve()
-    else:
-        store_path = Path(store).resolve()
-
-    # Z1 resolution
-    try:
-        resolved = resolve_area_arg(str(area_arg), store_path)
-    except FileNotFoundError as e:
-        print(str(e), file=sys.stderr)
+def suggest_drives_command(area, top, density_threshold=50.0, apply=False, dataroot=None, store=None, version=VERSION, **_ignored):
+    area_path = Path(area)
+    if not area_path.is_file():
+        print(f"area file not found: {area_path}", file=sys.stderr)
         return 2
-
-    # validation (CLI may also check; enforce here for programmatic use)
     try:
-        top_n_i = int(top_n)
-    except (TypeError, ValueError):
+        top_n = int(top)
+        if top_n < 1:
+            raise ValueError
+    except Exception:  # noqa: BLE001
         print("--top must be an integer >= 1", file=sys.stderr)
         return 2
-    if top_n_i < 1:
-        print("--top must be an integer >= 1", file=sys.stderr)
-        return 2
-    try:
-        density_threshold_f = float(density_threshold)
-    except (TypeError, ValueError):
+    thr = float(density_threshold)
+    if thr < 0:
         print("--density-threshold must be >= 0", file=sys.stderr)
         return 2
-    if density_threshold_f < 0:
-        print("--density-threshold must be >= 0", file=sys.stderr)
-        return 2
-
-    # dataset presence check for required resources/tables (basic)
-    required_tables = [
-        "scene.json",
-        "sample.json",
-        "sample_data.json",
-        "ego_pose.json",
-        "log.json",
-    ]
-    for t in required_tables:
-        if not (root / version / t).is_file():
-            print(f"missing dataset table: {root / version / t}", file=sys.stderr)
+    root = Path(dataroot) if dataroot else Path(".")
+    for n in ("log", "scene", "sample", "sample_data", "ego_pose", "calibrated_sensor"):
+        if not (root / version / f"{n}.json").is_file():
+            print(f"missing dataset table: {root / version / f'{n}.json'}", file=sys.stderr)
             return 2
-
     try:
-        area_def = _read_area_json(resolved)
-    except (TypeError, ValueError) as e:
+        area_def = json.loads(area_path.read_text())
+        rebuilt = _rebuild_poly(area_def, root)
+        nusc_map = nuscenes_map_class()(dataroot=str(root), map_name=area_def["location"])
+        drivable = _drivable_union(nusc_map, rebuilt.bounds)
+        logs, scenes, samples, sd_by_sample, ego, cal = _build_indices(root, version, area_def["location"])
+    except Exception as e:  # noqa: BLE001
         print(str(e), file=sys.stderr)
         return 2
 
-    location = area_def.get("location")
-    if not location or not isinstance(location, str):
-        print("area definition missing location", file=sys.stderr)
-        return 2
+    lseg_idx, didx = _lidarseg_table(root, version)
+    overlap = _overlapping_scene_tokens(scenes, samples, sd_by_sample, ego, rebuilt)
+    existing = list(area_def.get("drives") or [])
+    existing_tokens = {d.get("scene_token") for d in existing}
+    masks = ac.build_masks(rebuilt, drivable)
+    base_drive, base_pts = ac.new_grids(masks)
+    by_token = {s["token"]: s for s in scenes}
+    for tok in existing_tokens & overlap:
+        sc = by_token.get(tok)
+        if sc:
+            _observe(sc, samples, sd_by_sample, ego, cal, masks, rebuilt, drivable, base_drive, base_pts, root, lseg_idx, didx)
+    _, base_low = ac.density_low(masks, base_drive, base_pts, thr)
+    base_low_set = set(zip(*np.where(base_low)))
 
-    drivable_union_empty = False
-    try:
-        from twin.devkit_compat import nuscenes_map_class
-
-        NuScenesMap = nuscenes_map_class()
-        nusc_map = (
-            _nusc_map_factory(dataroot=str(root), map_name=location)
-            if _nusc_map_factory
-            else NuScenesMap(dataroot=str(root), map_name=location)
-        )
-        rebuilt = rebuilt_map_frame_polygon_from_area(area_def, root, location)
-        drivable_union = _drivable_union(nusc_map, rebuilt.bounds)
-        if drivable_union is None or drivable_union.is_empty:
-            drivable_union_empty = True
-            print(
-                "warning: drivable_area union is empty for area bounds; "
-                "no road-eligible coverage/suggestions expected",
-                file=sys.stderr,
-            )
-    except FileNotFoundError as e:
-        print(str(e), file=sys.stderr)
-        return 2
-    except ValueError as e:
-        print(str(e), file=sys.stderr)
-        return 2
-    except (KeyError, OSError, RuntimeError, TypeError, AssertionError) as e:
-        print(f"failed to load area/map resources: {e}", file=sys.stderr)
-        return 2
-
-    try:
-        cells, origin = ac_mod.build_grid(rebuilt, drivable_union)
-        baseline_acc = ac_mod.init_accumulator(cells)
-    except (ValueError, TypeError) as e:
-        print(f"failed to build coverage grid: {e}", file=sys.stderr)
-        return 2
-
-    existing_drives = list(area_def.get("drives") or [])
-    existing_tokens = {
-        d.get("scene_token") for d in existing_drives if isinstance(d, dict) and d.get("scene_token")
-    }
-
-    # instantiate NuScenes for version (explicit, not scan_scenes/DevkitSource)
-    try:
-        if _nusc_factory:
-            nusc = _nusc_factory(version=version, dataroot=str(root), verbose=False)
-        else:
-            from nuscenes.nuscenes import NuScenes
-
-            nusc = NuScenes(version, dataroot=str(root), verbose=False)
-    except (AssertionError, FileNotFoundError, KeyError, OSError, RuntimeError, ValueError) as e:
-        print(f"failed to load nuScenes {version} at {root}: {e}", file=sys.stderr)
-        return 2
-
-    baseline_sources: list[object] = []
-    for d in existing_drives:
-        if not isinstance(d, dict):
+    ex_rain = any(ac.flags(d.get("description"))[0] for d in existing)
+    ex_night = any(ac.flags(d.get("description"))[1] for d in existing)
+    ex_tod = {ac.flags(d.get("description"))[2] for d in existing} - {"unknown"}
+    cands = []
+    for sc in scenes:
+        if sc["token"] not in overlap or sc["token"] in existing_tokens:
             continue
-        tok = d.get("scene_token")
-        if not tok:
-            continue
-        try:
-            src = _accumulate_drive_observations(
-                baseline_acc,
-                nusc,
-                tok,
-                rebuilt,
-                drivable_union,
-                SUGGEST_SWEEP_STEP,
-                origin[0],
-                origin[1],
-            )
-            baseline_sources.append(src)
-        except (KeyError, OSError, RuntimeError, TypeError, ValueError, AssertionError) as e:
-            print(f"failed to read baseline drive {tok}: {e}", file=sys.stderr)
-            return 2
+        cd, cp = base_drive.copy(), base_pts.copy()
+        _observe(sc, samples, sd_by_sample, ego, cal, masks, rebuilt, drivable, cd, cp, root, lseg_idx, didx)
+        _, low = ac.density_low(masks, cd, cp, thr)
+        gained = len(base_low_set - set(zip(*np.where(low))))
+        rain, night, tod = ac.flags(sc.get("description", ""))
+        div = int((rain and not ex_rain) + (night and not ex_night) + (tod != "unknown" and tod not in ex_tod))
+        cands.append({"scene": sc["name"], "scene_token": sc["token"], "date": logs[sc["log_token"]].get("date_captured"), "description": sc.get("description", ""), "cells_gained": int(gained), "rain": rain, "night": night, "diversity": div, "_d": cd, "_p": cp})
+    ranked = ac.rank(cands, top_n)
+    print(f"{'scene':<14} {'scene_token':<34} {'cells_gained':>12} {'rain':<6} {'night':<6}")
+    for r in ranked:
+        print(f"{r['scene']:<14} {r['scene_token']:<34} {r['cells_gained']:>12} {r['rain']!s:<6} {r['night']!s:<6}")
 
-    baseline_records = ac_mod.cell_records(baseline_acc, density_threshold_f)
-    baseline_snapshot = {
-        k: (int(v.get("road_surface_points", 0)), int(v.get("drive_count", 0)))
-        for k, v in baseline_acc.items()
-    }
-
-    # candidate discovery: trainval/version, same location, overlaps rebuilt polygon, exclude existing
-    try:
-        scene_rows = _scene_rows_for_location(root, version, location)
-        overlap_index = _scene_pose_index(root, version, rebuilt)
-    except FileNotFoundError as e:
-        print(str(e), file=sys.stderr)
-        return 2
-    except ValueError as e:
-        print(str(e), file=sys.stderr)
-        return 2
-
-    candidate_rows = []
-    try:
-        for row in scene_rows:
-            tok = row["scene_token"]
-            if tok in existing_tokens:
-                continue
-            if not _drive_overlaps_polygon_index(tok, overlap_index):
-                continue
-            cand_acc = {k: dict(v) for k, v in baseline_acc.items()}
-            src = _accumulate_drive_observations(
-                cand_acc,
-                nusc,
-                tok,
-                rebuilt,
-                drivable_union,
-                SUGGEST_SWEEP_STEP,
-                origin[0],
-                origin[1],
-            )
-            candidate_records = ac_mod.cell_records(cand_acc, density_threshold_f)
-            delta: dict[tuple[int, int], tuple[int, int]] = {}
-            for key, base_vals in baseline_snapshot.items():
-                cv = cand_acc.get(key, {})
-                pts = int(cv.get("road_surface_points", 0)) - base_vals[0]
-                drv = int(cv.get("drive_count", 0)) - base_vals[1]
-                if pts or drv:
-                    delta[key] = (pts, drv)
-            candidate_rows.append(
-                {
-                    **row,
-                    "candidate_records": candidate_records,
-                    "ground_source": src,
-                    "coverage_delta": delta,
-                }
-            )
-    except FileNotFoundError as e:
-        print(str(e), file=sys.stderr)
-        return 2
-    except ValueError as e:
-        print(str(e), file=sys.stderr)
-        return 2
-    except (KeyError, OSError, RuntimeError, TypeError, AssertionError) as e:
-        print(f"failed to evaluate candidates: {e}", file=sys.stderr)
-        return 2
-
-    ranked = ac_mod.rank_candidates(
-        candidate_rows, baseline_records, existing_drives, top_n_i
-    )
-
-    baseline_scene_tokens = [
-        d.get("scene_token") for d in existing_drives if isinstance(d, dict) and d.get("scene_token")
-    ]
-    cov_path = ac_mod.coverage_path_for_area(resolved)
-    extra_base = {
-        "epsg_persisted_polygon": area_def.get("epsg"),
-        "dataset_version_area": area_def.get("dataset_version"),
-        "suggest_version": version,
-        "dataroot": str(root),
-        "store": str(store_path),
-        "generated_with": "twin.area_coverage",
-        "area_resolved_path": str(resolved),
-    }
-    if drivable_union_empty:
-        extra_base["drivable_union_empty"] = True
-
-    # print table
-    print(_format_suggest_table(ranked))
-
-    applied_rows = []
-    applied_drives_for_area = list(area_def.get("drives") or [])
-    if apply_changes and ranked:
-        seen_apply = {
-            d.get("scene_token")
-            for d in applied_drives_for_area
-            if isinstance(d, dict) and d.get("scene_token")
-        }
+    fd, fp, base_tokens = base_drive, base_pts, [d.get("scene_token") for d in existing if d.get("scene_token")]
+    if apply and ranked:
+        drives_out = list(existing)
+        seen = set(existing_tokens)
         for r in ranked:
-            tok = r.get("scene_token")
-            if tok in seen_apply:
+            if r["scene_token"] in seen:
                 continue
-            applied_drives_for_area.append(_drive_entry_from_row(r))
-            seen_apply.add(tok)
-            applied_rows.append(r)
-        new_def = dict(area_def)
-        new_def["drives"] = applied_drives_for_area
-        try:
-            ac_mod.atomic_write_json(resolved, new_def)
-        except (OSError, TypeError, ValueError) as e:
-            print(f"failed to write area file {resolved}: {e}", file=sys.stderr)
-            return 2
-
-    if applied_rows:
-        final_acc = {k: dict(v) for k, v in baseline_acc.items()}
-        final_scene_tokens = list(baseline_scene_tokens)
-        final_sources = list(baseline_sources)
-        for r in applied_rows:
-            delta = r.get("coverage_delta") or {}
-            for key, (d_pts, d_drv) in delta.items():
-                if key not in final_acc:
-                    continue
-                final_acc[key]["road_surface_points"] = int(
-                    final_acc[key].get("road_surface_points", 0)
-                ) + int(d_pts)
-                final_acc[key]["drive_count"] = int(
-                    final_acc[key].get("drive_count", 0)
-                ) + int(d_drv)
-            tok = r.get("scene_token")
-            if tok:
-                final_scene_tokens.append(tok)
-            if r.get("ground_source") is not None:
-                final_sources.append(r.get("ground_source"))
-        final_records = ac_mod.cell_records(final_acc, density_threshold_f)
-        gs = _flatten_source_list(final_sources)
-        try:
-            doc = ac_mod.coverage_document(
-                new_def.get("name") or resolved.stem,
-                str(resolved),
-                location,
-                origin,
-                final_records,
-                density_threshold_pts_m2=density_threshold_f,
-                ground_sources=gs,
-                baseline_scene_tokens=final_scene_tokens,
-                extra_metadata=extra_base,
-            )
-            ac_mod.atomic_write_json(cov_path, doc)
-        except (OSError, TypeError, ValueError) as e:
-            print(f"failed to write coverage output {cov_path}: {e}", file=sys.stderr)
-            return 2
-    else:
-        gs = _flatten_source_list(
-            list(baseline_sources) + [r.get("ground_source") for r in candidate_rows]
-        )
-        try:
-            doc = ac_mod.coverage_document(
-                area_def.get("name") or resolved.stem,
-                str(resolved),
-                location,
-                origin,
-                baseline_records,
-                density_threshold_pts_m2=density_threshold_f,
-                ground_sources=gs,
-                baseline_scene_tokens=baseline_scene_tokens,
-                extra_metadata=extra_base,
-            )
-            ac_mod.atomic_write_json(cov_path, doc)
-        except (OSError, TypeError, ValueError) as e:
-            print(f"failed to write coverage output {cov_path}: {e}", file=sys.stderr)
-            return 2
-
+            drives_out.append({"scene": r["scene"], "scene_token": r["scene_token"], "date": r.get("date"), "description": r.get("description", ""), "rain": bool(r["rain"]), "build_input": not bool(r["rain"])})
+            seen.add(r["scene_token"])
+            fd, fp = r["_d"], r["_p"]
+            base_tokens.append(r["scene_token"])
+        nd = dict(area_def); nd["drives"] = drives_out
+        ac.atomic_write_json(area_path, nd)
+    ac.atomic_write_json(ac.coverage_path(area_path), ac.coverage_doc(area_def, area_path, masks, fd, fp, base_tokens, thr))
     return 0

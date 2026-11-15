@@ -1,437 +1,115 @@
-"""Area coverage: per-5m-cell drive counts and sampled road-surface density.
-
-Pure/testable core for ticket #253. Semantics are pinned by the plan:
-- Coverage/overlap/grid in nuScenes map frame (local tmerc, meters) rebuilt from
-  stored intersections+buffer_m (B1). Never use persisted EPSG:32619 polygon for tests.
-- Grid: 5m, aligned to floor(min_x/min_y / 5)*5 of rebuilt map-frame polygon bounds.
-  In-area iff cell center inside rebuilt map-frame polygon.
-- Drivable union from get_records_in_patch(bounds, ["drivable_area"], "intersect")
-  with no pad, reused for eligibility and geometric fallback (I2).
-- road_eligible iff cell_box.intersection(drivable_union).area > 0 (I1).
-- Road-surface point: lidarseg flat.driveable_surface when labels provided, else
-  geometric road_mask-equivalent fallback using same drivable union (I1/I2).
-- Covered cell iff >=1 road-surface point of a drive falls in that in-area cell
-  after filtering to rebuilt map-frame area polygon.
-- Low-coverage (eligible only): drive_count < 2 OR density_pts_m2 < threshold.
-  density_pts_m2 = road_surface_points_in_cell / 25.0 (sampled semantics, sweep_step 4).
-"""
-
+"""Compact area coverage for suggest-drives (#253). numpy grids only."""
 from __future__ import annotations
 
 import json
 import math
 import os
 import tempfile
-from collections.abc import Iterable
-from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import shapely
 
-from twin.select import CELL_M, GROUND_TOL_M
-
+CELL_M = 5.0
 SWEEP_STEP = 4
-DENSITY_THRESHOLD_PTS_M2 = 50.0
-SCHEMA_VERSION = 1
-FRAME = "nuScenes-local-tmerc"
-DENSITY_SEMANTICS = "sampled_every_4th_keyframe"
-ROAD_ELIGIBLE_RULE = "cell_box.intersection(drivable_union).area > 0"
+DENSITY_THRESHOLD = 50.0
 
 
-@dataclass(frozen=True)
-class Cell:
-    ix: int
-    iy: int
-    x0: float
-    y0: float
-    road_eligible: bool
-    center_inside: bool
+def build_masks(area_poly, drivable_union):
+    minx, miny, maxx, maxy = area_poly.bounds
+    ox = math.floor(minx / CELL_M) * CELL_M
+    oy = math.floor(miny / CELL_M) * CELL_M
+    nx = max(math.ceil((maxx - ox) / CELL_M), 1)
+    ny = max(math.ceil((maxy - oy) / CELL_M), 1)
+    xs = ox + (np.arange(nx) + 0.5) * CELL_M
+    ys = oy + (np.arange(ny) + 0.5) * CELL_M
+    xx, yy = np.meshgrid(xs, ys)
+    in_area = shapely.contains_xy(area_poly, xx.ravel(), yy.ravel()).reshape(ny, nx)
+    bx = ox + np.arange(nx) * CELL_M
+    by = oy + np.arange(ny) * CELL_M
+    bxx, byy = np.meshgrid(bx, by)
+    boxes = shapely.box(bxx.ravel(), byy.ravel(), bxx.ravel() + CELL_M, byy.ravel() + CELL_M)
+    if drivable_union is None or drivable_union.is_empty:
+        eligible = np.zeros((ny, nx), dtype=bool)
+    else:
+        inter = shapely.intersection(boxes, drivable_union)
+        eligible = (shapely.area(inter) > 0).reshape(ny, nx)
+    eligible &= in_area
+    return {"ox": float(ox), "oy": float(oy), "nx": nx, "ny": ny, "in_area": in_area, "eligible": eligible}
 
 
-def rebuild_map_frame_polygon(
-    intersection_polygons: dict[str, shapely.Geometry],
-    tokens: list[str],
-    buffer_m: float,
-):
-    """Rebuild area polygon in nuScenes map frame (meters)."""
-    return shapely.union_all([intersection_polygons[t] for t in tokens]).buffer(buffer_m)
+def new_grids(masks):
+    shp = (masks["ny"], masks["nx"])
+    return np.zeros(shp, np.int32), np.zeros(shp, np.int32)
 
 
-def grid_origin(polygon) -> tuple[float, float]:
-    minx, miny, _, _ = polygon.bounds
-    return math.floor(minx / CELL_M) * CELL_M, math.floor(miny / CELL_M) * CELL_M
-
-
-def build_grid(polygon, drivable_union) -> tuple[list[Cell], tuple[float, float]]:
-    """Build deterministic in-area cell list and grid origin."""
-    ox, oy = grid_origin(polygon)
-    minx, miny, maxx, maxy = polygon.bounds
-    ix0 = math.floor((minx - ox) / CELL_M)
-    iy0 = math.floor((miny - oy) / CELL_M)
-    ix1 = math.ceil((maxx - ox) / CELL_M)
-    iy1 = math.ceil((maxy - oy) / CELL_M)
-    cells: list[Cell] = []
-    for iy in range(iy0, iy1):
-        for ix in range(ix0, ix1):
-            x0 = ox + ix * CELL_M
-            y0 = oy + iy * CELL_M
-            cx = x0 + CELL_M / 2.0
-            cy = y0 + CELL_M / 2.0
-            if not shapely.contains_xy(polygon, cx, cy):
-                continue
-            cell_box = shapely.box(x0, y0, x0 + CELL_M, y0 + CELL_M)
-            inter = cell_box.intersection(drivable_union)
-            road_eligible = (not inter.is_empty) and (inter.area > 0.0)
-            cells.append(
-                Cell(
-                    ix=ix,
-                    iy=iy,
-                    x0=float(x0),
-                    y0=float(y0),
-                    road_eligible=road_eligible,
-                    center_inside=True,
-                )
-            )
-    cells.sort(key=lambda c: (c.ix, c.iy))
-    return cells, (float(ox), float(oy))
-
-
-def _ground_z_by_cell(points_xyz: np.ndarray):
-    pts = np.asarray(points_xyz, dtype=float).reshape(-1, 3)
-    if len(pts) == 0:
-        return {}
-    cells = np.floor(pts[:, :2] / CELL_M).astype(np.int64)
-    z = pts[:, 2]
-    ground_z: dict[tuple[int, int], list[float]] = {}
-    for i in range(len(pts)):
-        key = (int(cells[i, 0]), int(cells[i, 1]))
-        ground_z.setdefault(key, []).append(float(z[i]))
-    return {k: float(np.percentile(np.asarray(v), 5)) for k, v in ground_z.items()}
-
-
-def geometric_road_mask(points_xyz: np.ndarray, drivable_union) -> np.ndarray:
-    """Geometric road mask equivalent to twin.select.road_mask using same union."""
-    pts = np.asarray(points_xyz, dtype=float).reshape(-1, 3)
-    mask = np.zeros(len(pts), dtype=bool)
-    if len(pts) == 0 or drivable_union is None or drivable_union.is_empty:
-        return mask
-    idx = np.flatnonzero(shapely.contains_xy(drivable_union, pts[:, 0], pts[:, 1]))
+def add_points(point_count, seen, masks, xy, road_mask):
+    if xy.size == 0:
+        return
+    idx = np.flatnonzero(road_mask)
     if idx.size == 0:
-        return mask
-    gz = _ground_z_by_cell(pts[idx])
-    cells = np.floor(pts[idx, :2] / CELL_M).astype(np.int64)
-    keep = np.zeros(idx.size, dtype=bool)
-    for j, i in enumerate(idx):
-        key = (int(cells[j, 0]), int(cells[j, 1]))
-        keep[j] = abs(float(pts[i, 2]) - gz[key]) <= GROUND_TOL_M
-    mask[idx[keep]] = True
-    return mask
+        return
+    x, y = xy[idx, 0], xy[idx, 1]
+    ix = np.floor((x - masks["ox"]) / CELL_M).astype(np.int64)
+    iy = np.floor((y - masks["oy"]) / CELL_M).astype(np.int64)
+    ok = (ix >= 0) & (ix < masks["nx"]) & (iy >= 0) & (iy < masks["ny"])
+    ix, iy = ix[ok], iy[ok]
+    if ix.size == 0:
+        return
+    ok = masks["in_area"][iy, ix]
+    ix, iy = ix[ok], iy[ok]
+    if ix.size == 0:
+        return
+    flat = iy * masks["nx"] + ix
+    np.add.at(point_count.ravel(), flat, 1)
+    seen.ravel()[flat] = 1
 
 
-def road_surface_mask(
-    points_xyz: np.ndarray,
-    drivable_union,
-    labels_flat_driveable: np.ndarray | None = None,
-) -> tuple[np.ndarray, str]:
-    """Return (mask, ground_source) for road-surface points.
-
-    labels_flat_driveable: optional bool/0-1 array aligned with points marking
-    lidarseg flat.driveable_surface. If provided and non-None, used as primary.
-    """
-    pts = np.asarray(points_xyz, dtype=float).reshape(-1, 3)
-    if labels_flat_driveable is not None:
-        lbl = np.asarray(labels_flat_driveable).reshape(-1).astype(bool)
-        if len(lbl) != len(pts):
-            raise ValueError("labels_flat_driveable length must match points")
-        return lbl, "lidarseg_flat.driveable_surface"
-    return geometric_road_mask(pts, drivable_union), "geometric_road_mask_fallback"
+def close_drive(drive_count, seen):
+    drive_count += (seen > 0).astype(np.int32)
+    seen.fill(0)
 
 
-def filter_points_to_polygon(points_xyz: np.ndarray, polygon):
-    pts = np.asarray(points_xyz, dtype=float).reshape(-1, 3)
-    if len(pts) == 0:
-        return pts, np.array([], dtype=int)
-    inside = np.asarray(shapely.contains_xy(polygon, pts[:, 0], pts[:, 1]), dtype=bool)
-    idx = np.flatnonzero(inside)
-    return pts[idx], idx
+def density_low(masks, drive_count, point_count, threshold=DENSITY_THRESHOLD):
+    density = point_count.astype(np.float32) / (CELL_M * CELL_M)
+    low = masks["eligible"] & ((drive_count < 2) | (density < float(threshold)))
+    return density, low
 
 
-def _cell_key(x: float, y: float, ox: float, oy: float) -> tuple[int, int]:
-    return math.floor((x - ox) / CELL_M), math.floor((y - oy) / CELL_M)
-
-
-def accumulate_drive_points(
-    acc: dict[tuple[int, int], dict],
-    points_xyz: np.ndarray,
-    polygon,
-    drivable_union,
-    labels_flat_driveable: np.ndarray | None = None,
-    ox: float | None = None,
-    oy: float | None = None,
-    count_drive: bool = False,
-) -> tuple[str, set[tuple[int, int]]]:
-    """Accumulate road-surface observations from one batch/keyframe into acc.
-
-    Adds road_surface_points for road-surface points in rebuilt map-frame polygon
-    cells present in acc. Returns (ground_source, covered_keys) where covered_keys
-    are in-area acc cells covered by >=1 road-surface point in this batch.
-    If count_drive is True, increments drive_count once per covered cell for this
-    call (use when this call represents one distinct drive's full observations).
-    """
-    if ox is None or oy is None:
-        ox, oy = grid_origin(polygon)
-    pts_all = np.asarray(points_xyz, dtype=float).reshape(-1, 3)
-    pts_in, inside_idx = filter_points_to_polygon(pts_all, polygon)
-    labels_in = None
-    if labels_flat_driveable is not None:
-        lbl_all = np.asarray(labels_flat_driveable).reshape(-1)
-        if len(lbl_all) != len(pts_all):
-            raise ValueError("labels_flat_driveable length must match points")
-        labels_in = lbl_all[inside_idx]
-    mask, ground_source = road_surface_mask(pts_in, drivable_union, labels_in)
-    road_pts = pts_in[mask] if len(pts_in) else pts_in
-    if len(road_pts) == 0:
-        return ground_source, set()
-    covered: set[tuple[int, int]] = set()
-    for p in road_pts:
-        key = _cell_key(float(p[0]), float(p[1]), ox, oy)
-        if key in acc:
-            covered.add(key)
-            acc[key]["road_surface_points"] += 1
-    if count_drive:
-        mark_drive_coverage(acc, covered)
-    return ground_source, covered
-
-
-def mark_drive_coverage(acc: dict[tuple[int, int], dict], covered_keys) -> None:
-    """Increment drive_count once per covered in-area cell for one distinct drive."""
-    for key in covered_keys:
-        if key in acc:
-            acc[key]["drive_count"] += 1
-
-
-def accumulate_drive(
-    acc: dict[tuple[int, int], dict],
-    points_xyz: np.ndarray,
-    polygon,
-    drivable_union,
-    labels_flat_driveable: np.ndarray | None = None,
-    ox: float | None = None,
-    oy: float | None = None,
-) -> str:
-    """Accumulate one distinct drive's road-surface observations into acc.
-
-    Backward-compatible single-call form: adds road_surface_points for road-surface
-    points in this call and increments drive_count once per covered in-area cell
-    (this call counts as one drive). For multi-batch/keyframe accumulation of the
-    same drive, use accumulate_drive_points(..., count_drive=False) per batch and
-    mark_drive_coverage once with the union of covered keys.
-    labels_flat_driveable, if provided, is aligned to points_xyz and filtered to
-    the rebuilt map-frame area polygon.
-    Returns ground_source.
-    """
-    ground_source, _covered = accumulate_drive_points(
-        acc,
-        points_xyz,
-        polygon,
-        drivable_union,
-        labels_flat_driveable=labels_flat_driveable,
-        ox=ox,
-        oy=oy,
-        count_drive=True,
-    )
-    return ground_source
-
-
-def init_accumulator(cells: list[Cell]):
+def coverage_doc(area_def, area_path, masks, drive_count, point_count, baseline_tokens, threshold=DENSITY_THRESHOLD):
+    density, low = density_low(masks, drive_count, point_count, threshold)
+    cells = []
+    for iy in range(masks["ny"]):
+        for ix in range(masks["nx"]):
+            if not masks["in_area"][iy, ix]:
+                continue
+            cells.append({
+                "ix": ix, "iy": iy,
+                "x0": float(masks["ox"] + ix * CELL_M),
+                "y0": float(masks["oy"] + iy * CELL_M),
+                "road_eligible": bool(masks["eligible"][iy, ix]),
+                "drive_count": int(drive_count[iy, ix]),
+                "density_pts_m2": float(density[iy, ix]),
+                "road_surface_points": int(point_count[iy, ix]),
+                "low_coverage": bool(low[iy, ix]),
+            })
     return {
-        (c.ix, c.iy): {
-            "road_eligible": c.road_eligible,
-            "drive_count": 0,
-            "road_surface_points": 0,
-            "x0": c.x0,
-            "y0": c.y0,
-        }
-        for c in cells
-    }
-
-
-def cell_records(
-    acc: dict[tuple[int, int], dict], density_threshold_pts_m2: float = DENSITY_THRESHOLD_PTS_M2
-):
-    records = []
-    for key in sorted(acc.keys()):
-        r = acc[key]
-        eligible = bool(r["road_eligible"])
-        pts = int(r["road_surface_points"])
-        density = pts / (CELL_M * CELL_M)
-        drive_count = int(r["drive_count"])
-        if eligible:
-            low = (drive_count < 2) or (density < float(density_threshold_pts_m2))
-        else:
-            low = False
-        records.append(
-            {
-                "ix": int(key[0]),
-                "iy": int(key[1]),
-                "x0": float(r["x0"]),
-                "y0": float(r["y0"]),
-                "road_eligible": eligible,
-                "drive_count": drive_count,
-                "density_pts_m2": float(density),
-                "road_surface_points": pts,
-                "low_coverage": bool(low),
-            }
-        )
-    return records
-
-
-def low_coverage_cells(records) -> set[tuple[int, int]]:
-    return {
-        (r["ix"], r["iy"])
-        for r in records
-        if r.get("road_eligible") and r.get("low_coverage")
-    }
-
-
-def cells_gained(baseline_records, candidate_records) -> int:
-    """Marginal eligible low-coverage cells fixed by adding candidate to baseline."""
-    base_low = low_coverage_cells(baseline_records)
-    cand_low = low_coverage_cells(candidate_records)
-    return len(base_low - cand_low)
-
-
-def coverage_path_for_area(area_path: str | Path) -> Path:
-    p = Path(area_path)
-    return p.with_name(f"{p.stem}.coverage.json")
-
-
-TIME_OF_DAY_KEYWORDS = ("night", "dawn", "dusk", "morning", "afternoon", "evening", "day")
-
-
-def time_of_day_bucket(description: str | None) -> str:
-    s = (description or "").lower()
-    for kw in TIME_OF_DAY_KEYWORDS:
-        if kw in s:
-            return kw
-    return "unknown"
-
-
-def drive_flags(description: str | None) -> dict:
-    d = (description or "").lower()
-    return {
-        "rain": "rain" in d,
-        "night": "night" in d,
-        "time_of_day_bucket": time_of_day_bucket(description),
-    }
-
-
-def _existing_presence(existing_drives) -> tuple[bool, bool, set[str]]:
-    has_rain = False
-    has_night = False
-    buckets: set[str] = set()
-    for d in existing_drives:
-        f = drive_flags(d.get("description"))
-        has_rain = has_rain or f["rain"]
-        has_night = has_night or f["night"]
-        if f["time_of_day_bucket"] != "unknown":
-            buckets.add(f["time_of_day_bucket"])
-    return has_rain, has_night, buckets
-
-
-def diversity_score(candidate: dict, existing_drives) -> int:
-    has_rain, has_night, buckets = _existing_presence(existing_drives)
-    f = drive_flags(candidate.get("description"))
-    score = 0
-    if f["rain"] and not has_rain:
-        score += 1
-    if f["night"] and not has_night:
-        score += 1
-    if f["time_of_day_bucket"] != "unknown" and f["time_of_day_bucket"] not in buckets:
-        score += 1
-    return score
-
-
-def rank_candidates(candidates, baseline_records, existing_drives, top_n: int):
-    """candidates: iterable of dicts with scene, scene_token, description, candidate_records.
-
-    candidate_records must be baseline+candidate merged records (marginal vs baseline).
-    """
-    ranked = []
-    for c in candidates:
-        rec = dict(c)
-        rec["cells_gained"] = int(
-            cells_gained(baseline_records, rec["candidate_records"])
-        )
-        rec["diversity"] = int(diversity_score(rec, existing_drives))
-        f = drive_flags(rec.get("description"))
-        rec["rain"] = f["rain"]
-        rec["night"] = f["night"]
-        rec["time_of_day_bucket"] = f["time_of_day_bucket"]
-        ranked.append(rec)
-    ranked.sort(
-        key=lambda r: (
-            -r["cells_gained"],
-            -r["diversity"],
-            str(r.get("scene", "")),
-            str(r.get("scene_token", "")),
-        )
-    )
-    if top_n < 0:
-        return []
-    return ranked[:top_n]
-
-
-def _flatten_ground_sources(ground_sources: Iterable[object] | None) -> list[str]:
-    out: set[str] = set()
-    for src in ground_sources or []:
-        if src is None:
-            continue
-        if isinstance(src, (list, tuple, set)):
-            for s in src:
-                if s:
-                    out.add(str(s))
-            continue
-        out.add(str(src))
-    return sorted(out)
-
-
-def coverage_document(
-    area_name: str,
-    area_path: str | Path,
-    location: str,
-    grid_origin_map: tuple[float, float],
-    cells: list[dict],
-    density_threshold_pts_m2: float = DENSITY_THRESHOLD_PTS_M2,
-    ground_sources: Iterable[str] | None = None,
-    baseline_scene_tokens: list[str] | None = None,
-    extra_metadata: dict | None = None,
-) -> dict:
-    gs = _flatten_ground_sources(ground_sources)
-    doc = {
-        "schema_version": SCHEMA_VERSION,
-        "area": area_name,
+        "schema_version": 1,
+        "area": area_def.get("name") or Path(area_path).stem,
         "area_path": str(area_path),
-        "location": location,
-        "frame": FRAME,
-        "grid_origin_map": [float(grid_origin_map[0]), float(grid_origin_map[1])],
-        "cell_m": float(CELL_M),
-        "density_threshold_pts_m2": float(density_threshold_pts_m2),
+        "location": area_def.get("location"),
+        "frame": "nuScenes-local-tmerc",
+        "grid_origin_map": [masks["ox"], masks["oy"]],
+        "cell_m": CELL_M,
+        "density_threshold_pts_m2": float(threshold),
         "sweep_step": SWEEP_STEP,
-        "density_semantics": DENSITY_SEMANTICS,
-        "ground_source": gs[0] if len(gs) == 1 else gs,
-        "ground_sources": gs,
-        "baseline_scene_tokens": list(baseline_scene_tokens or []),
-        "road_eligible_rule": ROAD_ELIGIBLE_RULE,
-        "cells": list(cells),
+        "density_semantics": "sampled_every_4th_keyframe",
+        "baseline_scene_tokens": list(baseline_tokens),
+        "cells": cells,
     }
-    if extra_metadata:
-        doc.update(extra_metadata)
-    return doc
 
 
-def atomic_write_json(path: str | Path, data: dict) -> None:
+def atomic_write_json(path, data):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
@@ -439,13 +117,28 @@ def atomic_write_json(path: str | Path, data: dict) -> None:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
             f.write("\n")
-            f.flush()
-            os.fsync(f.fileno())
         os.replace(tmp, path)
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
 
 
-def read_json(path: str | Path) -> dict:
-    return json.loads(Path(path).read_text())
+def coverage_path(area_path):
+    p = Path(area_path)
+    return p.with_name(f"{p.stem}.coverage.json")
+
+
+def flags(desc):
+    d = (desc or "").lower()
+    rain = "rain" in d
+    night = "night" in d
+    tod = "unknown"
+    for kw in ("night", "dawn", "dusk", "morning", "afternoon", "evening", "day"):
+        if kw in d:
+            tod = kw
+            break
+    return rain, night, tod
+
+
+def rank(cands, top_n):
+    return sorted(cands, key=lambda r: (-r["cells_gained"], -r["diversity"], r.get("scene", ""), r.get("scene_token", "")))[: max(0, int(top_n))]
