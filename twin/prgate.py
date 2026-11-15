@@ -52,6 +52,19 @@ def open_prs(repo: str = REPO, gh=gh) -> list[dict]:
     ]
 
 
+SINGLE_DRIVE = ("twin/stages/", "twin/runner.py", "twin/contracts.py", "twin/params")  # path prefixes
+
+
+def touches_single_drive(repo: str, pr: int, gh=gh) -> bool:
+    """True when the PR's diff changes a single-drive stage, the runner or the contracts. When the diff
+    cannot be read the gate runs: a skipped gate is the worse mistake."""
+    try:
+        files = gh("pr", "diff", str(pr), "-R", repo, "--name-only").split()
+    except PrGateError:
+        return True
+    return any(f.startswith(SINGLE_DRIVE) for f in files)
+
+
 def poll(store: Path, repo: str = REPO, dry_run: bool = False, gh=gh, extra: dict | None = None) -> list[str]:
     """Queue a prgate job for every method PR whose head has no job yet. Other open PRs get
     a success status `twin-gates` (n/a), so the check can be required on main. Returns lines."""
@@ -65,9 +78,12 @@ def poll(store: Path, repo: str = REPO, dry_run: bool = False, gh=gh, extra: dic
     na_file = Path(store) / "queue" / "prgate-na.json"
     na = set(json.loads(na_file.read_text())) if na_file.exists() else set()
     for p in open_prs(repo, gh):
-        if not p["method"]:
+        why = "n/a: not a method PR"
+        if p["method"] and (p["pr"], p["sha"]) not in seen and not touches_single_drive(repo, p["pr"], gh):
+            why = "n/a: no single-drive stage changed"  # e.g. a merge-only PR: the scene-0757 run would not differ
+        if why != "n/a: not a method PR" or not p["method"]:
             if p["sha"] not in na:
-                set_status(repo, p["sha"], "success", "n/a: not a method PR", dry_run, gh)
+                set_status(repo, p["sha"], "success", why, dry_run, gh)
                 if not dry_run:
                     na.add(p["sha"])
                     na_file.parent.mkdir(parents=True, exist_ok=True)
