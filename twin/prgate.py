@@ -85,19 +85,7 @@ def poll(store: Path, repo: str = REPO, dry_run: bool = False, gh=gh, extra: dic
         if why != "n/a: not a method PR" or not p["method"]:
             if p["sha"] in na:
                 continue
-            try:
-                set_status(repo, p["sha"], "success", why, dry_run, gh)
-            except Exception as exc:  # noqa: BLE001 - posting must not kill the poll
-                msg = str(exc)
-                if "reached the maximum number of statuses" in msg:
-                    if not dry_run:
-                        na.add(p["sha"])
-                        na_file.parent.mkdir(parents=True, exist_ok=True)
-                        na_file.write_text(json.dumps(sorted(na)))
-                else:
-                    print(f"prgate: set_status failed for {p['sha'][:7]}: {msg}", file=sys.stderr)
-                continue
-            if not dry_run:
+            if set_status(repo, p["sha"], "success", why, dry_run, gh) and not dry_run:
                 na.add(p["sha"])
                 na_file.parent.mkdir(parents=True, exist_ok=True)
                 na_file.write_text(json.dumps(sorted(na)))
@@ -166,11 +154,23 @@ def status_args(repo: str, sha: str, state: str, text: str) -> list[str]:
             "-f", f"context={CONTEXT}", "-f", f"description={text[:140]}"]  # fmt: skip
 
 
-def set_status(repo, sha, state, text, dry_run, gh=gh) -> None:
+CAP = "reached the maximum number of statuses"
+
+
+def set_status(repo, sha, state, text, dry_run, gh=gh) -> bool:
+    """Post a commit status. True when it is on GitHub, or can never be (the SHA is at GitHub's
+    per-SHA cap of 1000). Other errors are logged and return False: posting never kills a poll."""
     if dry_run:
         print(f"[dry-run] status {CONTEXT}={state}: {text}")
-    else:
+        return True
+    try:
         gh(*status_args(repo, sha, state, text))
+    except Exception as exc:  # noqa: BLE001
+        if CAP in str(exc):
+            return True
+        print(f"prgate: set_status failed for {sha[:7]}: {exc}", file=sys.stderr)
+        return False
+    return True
 
 
 def post_comment(repo: str, pr: int, body: str, dry_run: bool, gh=gh) -> None:
@@ -190,11 +190,7 @@ def post_comment(repo: str, pr: int, body: str, dry_run: bool, gh=gh) -> None:
 def gate(store, pr, sha, repo=REPO, root=ROOT, dry_run=False, gh=gh) -> dict:
     """Run the gate for one PR head. Posts a result; on failure posts an error status."""
     store, root = Path(store), Path(root)
-    try:
-        set_status(repo, sha, "pending", "twin gates running on scene-0757", dry_run, gh)
-    except Exception as exc:  # noqa: BLE001
-        if "reached the maximum number of statuses" not in str(exc):
-            print(f"prgate: set_status failed for {sha[:7]}: {exc}", file=sys.stderr)
+    set_status(repo, sha, "pending", "twin gates running on scene-0757", dry_run, gh)
     try:
         clone = checkout(repo, pr, sha, root)
         runs = root / f"{pr}-runs"  # this PR's run store, replaced on every head
@@ -212,11 +208,7 @@ def gate(store, pr, sha, repo=REPO, root=ROOT, dry_run=False, gh=gh) -> dict:
         report = json.loads((runs / run_id / "gates.json").read_text())
         text = (runs / run_id / "gates.md").read_text()
     except Exception as exc:
-        try:
-            set_status(repo, sha, "error", f"{type(exc).__name__}: {exc}", dry_run, gh)
-        except Exception as exc2:  # noqa: BLE001
-            if "reached the maximum number of statuses" not in str(exc2):
-                print(f"prgate: set_status failed for {sha[:7]}: {exc2}", file=sys.stderr)
+        set_status(repo, sha, "error", f"{type(exc).__name__}: {exc}", dry_run, gh)
         raise
     verdict = report["verdict"]
     head = f"{MARKER}\n**twin-gates** for `{sha[:7]}` on scene-0757. Baseline "
@@ -232,11 +224,7 @@ def gate(store, pr, sha, repo=REPO, root=ROOT, dry_run=False, gh=gh) -> dict:
     else:
         ok = verdict != NO_GO
         desc = f"{verdict}: run {run_id}, baseline {base.name if base else 'none'}"
-    try:
-        set_status(repo, sha, "success" if ok else "failure", desc, dry_run, gh)
-    except Exception as exc:  # noqa: BLE001
-        if "reached the maximum number of statuses" not in str(exc):
-            print(f"prgate: set_status failed for {sha[:7]}: {exc}", file=sys.stderr)
+    set_status(repo, sha, "success" if ok else "failure", desc, dry_run, gh)
     return {"eval_result": verdict, "run_id": run_id, "pr": pr}
 
 

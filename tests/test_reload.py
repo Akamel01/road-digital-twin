@@ -2,7 +2,8 @@ import sys
 
 import pytest
 
-from twin import jobqueue, prgate, runner, reload as reload_mod
+from twin import jobqueue, prgate, runner
+from twin import reload as reload_mod
 from twin.reload import CodeWatch
 
 
@@ -71,7 +72,6 @@ def test_p0_cap_handling(monkeypatch, tmp_path):
         raise prgate.PrGateError("reached the maximum number of statuses")
     # set_status path: poll calls set_status which calls gh; make gh raise cap on status
     # We'll monkeypatch set_status to raise cap
-    monkeypatch.setattr(prgate, "set_status", lambda *a, **k: (_ for _ in ()).throw(prgate.PrGateError("reached the maximum number of statuses")))
     # ensure na file none
     prgate.poll(tmp_path, gh=gh)
     import json
