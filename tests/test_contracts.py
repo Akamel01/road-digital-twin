@@ -6,7 +6,7 @@ from pydantic import ValidationError
 
 from twin import contracts
 from twin.cli import render_schema, write_schemas
-from twin.contracts import STAGES, Params, Pipeline, PipelineStage, check_rerun
+from twin.contracts import PARAM_STAGE, STAGES, Params, Pipeline, PipelineStage, check_rerun
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -91,6 +91,17 @@ def test_check_rerun_allows_same_or_later_change():
 def test_check_rerun_setup_key_never_forces_rerun():
     base_p, base_q = Pipeline(), Params()
     new_q = Params(select={"min_contrast": 2.0})
+    check_rerun(base_p, base_q, base_p, new_q, from_stage="load")
+
+
+def test_every_params_field_has_param_stage_entry():
+    for field in Params.model_fields:
+        assert field in PARAM_STAGE, f"Params field {field!r} missing from PARAM_STAGE"
+
+
+def test_check_rerun_differing_merge_params_does_not_raise():
+    base_p, base_q = Pipeline(), Params()
+    new_q = Params(merge={"heights": True})
     check_rerun(base_p, base_q, base_p, new_q, from_stage="load")
 
 

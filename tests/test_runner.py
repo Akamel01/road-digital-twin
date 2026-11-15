@@ -7,6 +7,7 @@ from filelock import FileLock
 from twin import registry, runner
 from twin.cli import main
 from twin.contracts import (
+    PARAM_STAGE,
     STAGE_NAMES,
     STAGES,
     Manifest,
@@ -250,3 +251,13 @@ def test_manifest_records_dataset_version_and_rerun_refuses_mismatch(tmp_path, s
     with pytest.raises(ValueError, match="dataset version"):
         runner.rerun(tmp_path, run_id, "ground")
     assert set(tmp_path.iterdir()) == before
+
+
+def test_stage_params_equals_derived_inverse_of_param_stage():
+    expected: dict[str, str | None] = {}
+    for key, stage in PARAM_STAGE.items():
+        if stage is not None and stage not in expected:
+            expected[stage] = key
+    for name in STAGE_NAMES:
+        expected.setdefault(name, None)
+    assert runner.STAGE_PARAMS == expected
