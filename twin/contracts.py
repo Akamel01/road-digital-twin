@@ -327,6 +327,67 @@ class Params(_Strict):
     facilities: FacilitiesParams = Field(default_factory=FacilitiesParams)
     seed: int = 0
 
+    def stage_of(self, group: str) -> str | None:
+        """The stage that reads this top-level key; None for setup keys (select, merge)."""
+        return PARAM_STAGE[group]
+
+    def groups_for(self, stage: str) -> list[str]:
+        """The top-level keys a stage reads, first the one passed to the stage (load: facilities, seed)."""
+        return [k for k, st in PARAM_STAGE.items() if st == stage]
+
+    def get(self, path: str) -> Any:
+        """The value at a dotted path like 'features.cluster_eps_m'. KeyError when unknown."""
+        node: Any = self
+        for key in path.split("."):
+            if not isinstance(node, BaseModel) or key not in type(node).model_fields:
+                raise KeyError(path)
+            node = getattr(node, key)
+        return node
+
+    def with_value(self, path: str, value: Any) -> "Params":
+        """A copy with the dotted path set, validated against the contract. KeyError when the path is
+        unknown, ValidationError (a ValueError) when the value is outside the contract."""
+        self.get(path)
+        tree = self.model_dump(mode="json")
+        *head, last = path.split(".")
+        node = tree
+        for key in head:
+            node = node[key]
+        node[last] = value
+        return Params.model_validate(tree)
+
+    def bounds(self, path: str) -> tuple[float | None, float | None] | None:
+        """The contract (ge, le) of a numeric path; None when unknown, not a number or unbounded."""
+        group, _, name = path.partition(".")
+        try:
+            field = type(getattr(self, group)).model_fields[name]
+        except (AttributeError, KeyError):
+            return None
+        if field.annotation not in (int, float):
+            return None
+        lo = next((m.ge for m in field.metadata if hasattr(m, "ge")), None)
+        hi = next((m.le for m in field.metadata if hasattr(m, "le")), None)
+        return None if lo is None and hi is None else (lo, hi)
+
+    def flat(self) -> dict[str, Any]:
+        """Leaf values keyed by dotted path; list items as [i]."""
+        return flatten(self.model_dump(mode="json"))
+
+
+def flatten(node: Any, path: str = "") -> dict[str, Any]:
+    """Leaf values of a dumped tree keyed by dotted path; list items as [i]."""
+    if isinstance(node, dict):
+        out: dict[str, Any] = {}
+        for key, value in node.items():
+            out.update(flatten(value, f"{path}.{key}" if path else str(key)))
+        return out
+    if isinstance(node, list):
+        out = {}
+        for i, value in enumerate(node):
+            out.update(flatten(value, f"{path}[{i}]"))
+        return out
+    return {path: node}
+
 
 # ------------------------------------------------------------------ pipeline
 

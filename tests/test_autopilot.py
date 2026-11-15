@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 
 from twin import autopilot, jobqueue, prgate
 from twin.cli import main
+from twin.contracts import Params
 
 
 def _pending(store, n):
@@ -294,7 +295,7 @@ def test_latest_build_published_after_p2_and_p2b_and_failures_do_not_crash(tmp_p
 def test_narrow_stays_inside_contract_range():
     rows = [{"overrides": {"features.cluster_eps_m": v}} for v in (0.05, 0.06)]
     space = autopilot.narrow(rows)["params"]["features.cluster_eps_m"]
-    lo, _ = autopilot._bounds("features.cluster_eps_m")
+    lo, _ = (Params().bounds("features.cluster_eps_m") or (None, None))
     assert space["min"] >= lo
 
 

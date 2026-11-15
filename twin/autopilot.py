@@ -317,7 +317,7 @@ def narrow(rows: list[dict]) -> dict:
         if all(isinstance(v, int | float) and not isinstance(v, bool) for v in vals):
             lo, hi = min(vals), max(vals)
             pad = max((hi - lo) * 0.25, abs(hi) * 0.02)
-            cmin, cmax = _bounds(path)  # never step outside the contract range
+            cmin, cmax = Params().bounds(path) or (None, None)  # never step outside the contract range
             params[path] = {
                 "min": lo - pad if cmin is None else max(cmin, lo - pad),
                 "max": hi + pad if cmax is None else min(cmax, hi + pad),
@@ -369,26 +369,11 @@ def base_runs(store: Path) -> list[str]:
     return out
 
 
-def _bounds(path: str) -> tuple[float | None, float | None]:
-    """Contract (ge, le) of a params path like 'features.cluster_eps_m'; None when unbounded."""
-    group, _, name = path.partition(".")
-    try:
-        field = type(getattr(Params(), group)).model_fields[name]
-    except (AttributeError, KeyError):
-        return None, None
-    lo = next((m.ge for m in field.metadata if hasattr(m, "ge")), None)
-    hi = next((m.le for m in field.metadata if hasattr(m, "le")), None)
-    return lo, hi
-
-
 def group_space(group: str, start: int) -> dict:
     """A random search over LINE_PARAMS numeric parameters of one group, over the contract ranges."""
     found = []
-    for name, field in type(getattr(Params(), group)).model_fields.items():
-        if field.annotation not in (int, float):
-            continue
-        lo = next((m.ge for m in field.metadata if hasattr(m, "ge")), None)
-        hi = next((m.le for m in field.metadata if hasattr(m, "le")), None)
+    for name in type(getattr(Params(), group)).model_fields:
+        lo, hi = Params().bounds(f"{group}.{name}") or (None, None)
         if lo is not None and hi is not None:
             found.append((f"{group}.{name}", {"min": lo, "max": hi}))
     n = min(LINE_PARAMS, len(found))
