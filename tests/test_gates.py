@@ -1,6 +1,8 @@
 import copy
 import json
 
+import pytest
+
 from twin.cli import main
 from twin.gates import (
     G2_RUN,
@@ -114,6 +116,8 @@ def test_regression_against_baseline():
     assert rep2["verdict"] == GO
     gr = GateReport.from_dict(rep2)
     assert gr.regressions_vs(run["metrics"], base["metrics"], gates=load_gates()) == []
+    # compat: positional (run, base, gates=...) on report without embedded metrics
+    assert gr.regressions_vs(run["metrics"], base["metrics"], gates_spec=load_gates()) == []
     # real regression detected via GateReport API
     run_bad = copy.deepcopy(GOOD)
     run_bad["metrics"]["accuracy"]["elements"]["curbs"]["matched_p95_m"] = 0.45
@@ -144,6 +148,14 @@ def test_regressions_lost_metric_higher_is_better_and_tolerance():
         {"metric": "accuracy.coverage", "baseline": 0.8, "value": 0.77}
     ]
     assert regressions({"accuracy": {"coverage": 0.79}}, base, 0.02, gates) == []
+    # GateReport API: tolerance/gates_spec handled; numeric tolerance tolerated
+    gr = GateReport.from_dict({"gates": {}})
+    assert gr.regressions_vs(worse_cov, base, tolerance=0.02, gates_spec=gates) == [
+        {"metric": "accuracy.coverage", "baseline": 0.8, "value": 0.77}
+    ]
+    assert gr.regressions_vs(run=worse_cov, base=base, tolerance="0.02", gates=gates) == [
+        {"metric": "accuracy.coverage", "baseline": 0.8, "value": 0.77}
+    ]
 
 
 def test_thresholds_come_from_gates_file():
@@ -251,6 +263,22 @@ def test_g2_record_dedupe_due_streak_and_state(tmp_path):
     _, due = record_g2_result(tmp_path, rep("r5", 0.10))
     assert due == G2_STEPS[0.2]
     assert g2_state(tmp_path)["passing_in_a_row"] == G2_RUN
+
+
+def test_regressions_vs_unresolvable_report_like_inputs_raise():
+    base_report = report_obj(GOOD, rerun=copy.deepcopy(GOOD)).to_dict()  # gates.json-like, no metrics
+    gr = GateReport.from_dict({"gates": {}})
+    run_metrics = {"align": {"cross_drive_ground_p95_m": 0.5}}
+    # comparing against report-like object without resolvable metrics is misleading -> explicit error
+    with pytest.raises(ValueError, match="cannot resolve metrics"):
+        gr.regressions_vs(run_metrics, base_report, gates=load_gates())
+    with pytest.raises(ValueError, match="cannot resolve metrics"):
+        gr.regressions_vs(other=GateReport.from_dict(base_report), tolerance=0.02, gates_spec=load_gates())
+    # explicit run report-like without metrics also errors
+    with pytest.raises(ValueError, match="cannot resolve metrics"):
+        gr.regressions_vs(other=run_metrics, run=base_report, base=run_metrics, gates=load_gates())
+    # no comparison requested and no metrics: not a false negative, returns empty/stored-equivalent
+    assert gr.regressions_vs() == []
 
 
 def test_g2_robust_selection_and_silent_absent_malformed(tmp_path):

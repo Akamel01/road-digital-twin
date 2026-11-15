@@ -268,41 +268,125 @@ class GateReport(Mapping):
     def regressions_vs(
         self,
         other=None,
-        tolerance: float | None = None,
-        gates_spec=None,
+        base_or_tolerance: float | Mapping | None = None,
+        gates_spec: dict | None = None,
         *,
+        tolerance: float | None = None,
         gates=None,
         run=None,
         base=None,
     ) -> list[dict]:
         """Compare regressions between run/base metrics.
 
-        Supports:
-        - regressions_vs(run_metrics, base_metrics, gates=...) where tolerance param is used as base (repo compat)
-        - regressions_vs(other, tolerance=..., gates_spec=...) with other/base/run as report-like or metric dicts
+        Contract:
+        - ``regressions_vs(run_metrics, base_metrics, gates=...)``: compat form comparing
+          explicit metric mappings (2nd positional slot carries base metrics).
+        - ``regressions_vs(other, tolerance=..., gates_spec=...)`` (or ``gates=``): compare
+          against ``other``/``base`` using gates-spec regression rules/default noise tolerance.
+        - Accepts ``gates_spec=`` and compat ``gates=`` for the gates spec; numeric
+          ``tolerance`` tolerated (including string-coercible).
+
+        Returns regression list per ``regressions()`` semantics. Raises ``ValueError`` when a
+        report-like comparison input is provided but metrics cannot be resolved for that side
+        (gates.json reports do not carry manifest metrics), to avoid a misleading empty result.
         """
         spec = gates_spec if gates_spec is not None else gates
         gates_spec_resolved = spec if spec is not None else load_gates()
         tol = gates_spec_resolved.get("noise_tolerance_m", 0.02)
-        if tolerance is not None and not isinstance(tolerance, Mapping):
+        tol_kw = tolerance
+        if tol_kw is not None:
             try:
-                tol = float(tolerance)
+                tol = float(tol_kw)
             except (TypeError, ValueError):
-                pass
-
-        run_metrics = _metrics_for_regressions(run) if run is not None else _metrics_for_regressions(self)
-        base_metrics = _metrics_for_regressions(base) if base is not None else _metrics_for_regressions(other)
-
-        # Compat: called as regressions_vs(run_metrics_dict, base_metrics_dict, gates=...)
-        # In that form, `other` was passed as run metrics and `tolerance` was passed as base metrics.
-        if run is None and base is None and isinstance(other, Mapping) and "gates" not in other:
-            # If `self` has no own metrics (typical GateReport loaded from gates.json), treat as:
-            # regressions_vs(run, base, ...)
-            has_self_metrics = bool(_metrics_for_regressions(self))
-            if not has_self_metrics and isinstance(tolerance, Mapping):
-                run_metrics = _metrics_for_regressions(other)
-                base_metrics = _metrics_for_regressions(tolerance)
                 tol = gates_spec_resolved.get("noise_tolerance_m", 0.02)
+
+        # Detect positional forms:
+        # - API: (other, tolerance_num, gates_spec_dict) or (other, tolerance_num)
+        # - Compat: (run_metrics, base_metrics, gates_dict)
+        pos2 = base_or_tolerance
+        pos3 = gates_spec if gates_spec is not None else None
+        compat_pair = False
+        if run is None and base is None and isinstance(other, Mapping) and "gates" not in other:
+            has_self_metrics = bool(_metrics_for_regressions(self))
+            if not has_self_metrics and isinstance(pos2, Mapping):
+                # pos3 as gates spec means compat (run, base, gates=spec)
+                if isinstance(pos3, Mapping) and ("gates" in pos3 or "noise_tolerance_m" in pos3 or "regression_metrics" in pos3):
+                    run_metrics = _metrics_for_regressions(other)
+                    base_metrics = _metrics_for_regressions(pos2)
+                    run_source, base_source = other, pos2
+                    gates_spec_resolved = pos3
+                    tol = gates_spec_resolved.get("noise_tolerance_m", 0.02)
+                    compat_pair = True
+                elif _is_report_like(pos2) and not _metrics_for_regressions(pos2):
+                    # (run_metrics, report_like_without_metrics, ...)
+                    run_source, base_source = other, pos2
+                    run_metrics = _metrics_for_regressions(run_source)
+                    base_metrics = {}
+                elif pos3 is None and gates is None and tol_kw is None and not _is_report_like(pos2):
+                    # classic compat (run, base, gates=kw) or (run, base)
+                    run_metrics = _metrics_for_regressions(other)
+                    base_metrics = _metrics_for_regressions(pos2)
+                    run_source, base_source = other, pos2
+                    compat_pair = True
+                else:
+                    # (run, base, tolerance_num?, ...) API-style compat
+                    run_metrics = _metrics_for_regressions(other)
+                    base_metrics = _metrics_for_regressions(pos2)
+                    run_source, base_source = other, pos2
+                    if tol_kw is None and pos3 is not None and not isinstance(pos3, Mapping):
+                        try:
+                            tol = float(pos3)
+                        except (TypeError, ValueError):
+                            pass
+                    compat_pair = True
+            elif not has_self_metrics and pos2 is not None and not isinstance(pos2, Mapping):
+                # (other, numeric_tolerance, ...)
+                run_source = self
+                base_source = other
+                run_metrics = _metrics_for_regressions(run_source)
+                base_metrics = _metrics_for_regressions(base_source)
+                if tol_kw is None:
+                    try:
+                        tol = float(pos2)
+                    except (TypeError, ValueError):
+                        pass
+            else:
+                run_source = run if run is not None else self
+                base_source = base if base is not None else other
+                run_metrics = _metrics_for_regressions(run_source)
+                base_metrics = _metrics_for_regressions(base_source)
+        else:
+            run_source = run if run is not None else self
+            base_source = base if base is not None else other
+            run_metrics = _metrics_for_regressions(run_source)
+            base_metrics = _metrics_for_regressions(base_source)
+            # numeric positional tolerance in API form: (other, 0.02, ...)
+            if tol_kw is None and pos2 is not None and not isinstance(pos2, Mapping):
+                try:
+                    tol = float(pos2)
+                except (TypeError, ValueError):
+                    pass
+
+        # Report-like inputs without resolvable metrics cannot be compared; fail explicitly
+        # rather than returning a false "no regressions" result.
+        if not compat_pair:
+            if base_source is not None and _is_report_like(base_source) and not base_metrics:
+                raise ValueError(
+                    "regressions_vs: cannot resolve metrics from report-like base/other "
+                    "input (gates reports do not include manifest metrics); pass explicit "
+                    "run/base metric mappings or keyword run=/base="
+                )
+            if run is not None and _is_report_like(run_source) and not run_metrics:
+                raise ValueError(
+                    "regressions_vs: cannot resolve metrics from report-like run input; "
+                    "pass explicit metric mappings"
+                )
+
+        # No comparison requested (e.g. report.regressions_vs()): preserve stored regressions
+        # snapshot behavior-equivalent empty comparison only when there is nothing to compare.
+        if run is None and base is None and other is None and not run_metrics and not base_metrics:
+            stored = self.raw.get("regressions")
+            return list(stored) if isinstance(stored, list) else []
 
         return regressions(run_metrics, base_metrics, tol, gates_spec_resolved)
 
@@ -334,8 +418,14 @@ class GateReport(Mapping):
         return 0 if self.verdict == GO else 1
 
 
+def _is_report_like(obj) -> bool:
+    return isinstance(obj, GateReport) or (
+        isinstance(obj, Mapping) and "gates" in obj and ("verdict" in obj or "run_id" in obj or "checks" in obj)
+    )
+
+
 def _metrics_for_regressions(obj) -> dict:
-    """Accept report-like (with gates) or plain metric dicts."""
+    """Accept report-like (with gates+metrics) or plain metric dicts."""
     if isinstance(obj, GateReport):
         metrics = obj.raw.get("metrics")
         return dict(metrics) if isinstance(metrics, dict) else {}
