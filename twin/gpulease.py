@@ -15,7 +15,7 @@ from contextlib import contextmanager
 
 from twin.contracts import STAGE_NAMES, Pipeline
 
-GPU_STAGES = ("colour", "semantics")  # add splats when that stage exists
+GPU_STAGES = ("colour", "semantics", "splats")
 RECHECK_SECONDS = 15
 HTTP_TIMEOUT = 5
 

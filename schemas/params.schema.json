@@ -449,6 +449,107 @@
       },
       "title": "SemanticsParams",
       "type": "object"
+    },
+    "SplatsParams": {
+      "additionalProperties": false,
+      "properties": {
+        "depth_weight": {
+          "default": 0.5,
+          "maximum": 5,
+          "minimum": 0,
+          "title": "Depth Weight",
+          "type": "number"
+        },
+        "ground_band_m": {
+          "default": 0.3,
+          "maximum": 2,
+          "minimum": 0.05,
+          "title": "Ground Band M",
+          "type": "number"
+        },
+        "holdout_every": {
+          "default": 8,
+          "maximum": 50,
+          "minimum": 2,
+          "title": "Holdout Every",
+          "type": "integer"
+        },
+        "init_points": {
+          "default": 600000,
+          "maximum": 3000000,
+          "minimum": 1000,
+          "title": "Init Points",
+          "type": "integer"
+        },
+        "iterations": {
+          "default": 7000,
+          "maximum": 30000,
+          "minimum": 100,
+          "title": "Iterations",
+          "type": "integer"
+        },
+        "long_side_px": {
+          "default": 800,
+          "maximum": 1600,
+          "minimum": 320,
+          "title": "Long Side Px",
+          "type": "integer"
+        },
+        "max_gaussians": {
+          "default": 1500000,
+          "maximum": 5000000,
+          "minimum": 1000,
+          "title": "Max Gaussians",
+          "type": "integer"
+        },
+        "ortho_cm": {
+          "default": 3.0,
+          "maximum": 10,
+          "minimum": 1,
+          "title": "Ortho Cm",
+          "type": "number"
+        },
+        "pose_flag_deg": {
+          "default": 0.5,
+          "maximum": 5,
+          "minimum": 0.01,
+          "title": "Pose Flag Deg",
+          "type": "number"
+        },
+        "pose_flag_m": {
+          "default": 0.05,
+          "maximum": 1,
+          "minimum": 0.001,
+          "title": "Pose Flag M",
+          "type": "number"
+        },
+        "pose_max_deg": {
+          "default": 1.0,
+          "maximum": 5,
+          "minimum": 0.01,
+          "title": "Pose Max Deg",
+          "type": "number"
+        },
+        "pose_max_m": {
+          "default": 0.1,
+          "maximum": 1,
+          "minimum": 0.001,
+          "title": "Pose Max M",
+          "type": "number"
+        },
+        "pose_refine": {
+          "default": true,
+          "title": "Pose Refine",
+          "type": "boolean"
+        },
+        "seed": {
+          "default": 0,
+          "title": "Seed",
+          "type": "integer"
+        }
+      },
+      "title": "SplatsParams",
+      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -493,6 +594,9 @@
     },
     "semantics": {
       "$ref": "#/$defs/SemanticsParams"
+    },
+    "splats": {
+      "$ref": "#/$defs/SplatsParams"
     }
   },
   "title": "Params",
