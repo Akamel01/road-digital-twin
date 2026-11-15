@@ -175,6 +175,16 @@ def publish_latest(store: Path) -> None:
         say(f"latest build publish failed: {exc!r}")
 
 
+def publish_showcase(store: Path) -> None:
+    """Publish the GO showcase after an area eval, if it improves. Logged, never fatal."""
+    try:
+        say(f"showcase: {site.publish_run(store, TWIN)}")
+    except site.SiteStop as exc:
+        say(f"showcase not published: {exc}")
+    except Exception as exc:  # noqa: BLE001
+        say(f"showcase publish failed: {exc!r}")
+
+
 def p2_area(store: Path, state: dict) -> int:
     """On a new main commit: area merge (it builds each drive itself), area twin (#142), then eval, in one
     detached shell. Then the #143 and #144 hooks. When main is unchanged but a gate changed since
@@ -188,6 +198,7 @@ def p2_area(store: Path, state: dict) -> int:
         say(f"P2 {p2['building'][:7]} finished, exit {code}")
         if code in ("0", "1"):
             publish_latest(store)
+            publish_showcase(store)
         if code == "0":
             leave_one_drive_out(store, AREA)
             rain_test(store, AREA)
@@ -199,6 +210,7 @@ def p2_area(store: Path, state: dict) -> int:
         say(f"P2b re-eval finished, exit {code}")
         if code in ("0", "1"):
             publish_latest(store)
+            publish_showcase(store)
         if code == "0":
             leave_one_drive_out(store, AREA)
             rain_test(store, AREA)

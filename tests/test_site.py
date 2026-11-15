@@ -74,13 +74,10 @@ def test_better_publishes_worse_or_equal_skips(env):
     assert [e["run_id"] for e in site.history(store)] == ["r1", "r2"]
 
 
-def test_no_go_skips(env):
+def test_no_go_first_run_publishes(env):
     store, calls, run, _ = env
-    assert (
-        site.publish_run(store, run("r1", verdict="no-go"))
-        == "skipped: verdict is no-go"
-    )
-    assert calls == []
+    assert site.publish_run(store, run("r1", verdict="no-go")) == "published r1"
+    assert calls == [("build", "r1"), ("deploy", "secret")]
 
 
 def test_missing_token_stops_with_message(env):

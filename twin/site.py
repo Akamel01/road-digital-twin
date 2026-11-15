@@ -67,6 +67,46 @@ def beats(new: dict[str, float], old: dict[str, float]) -> str | None:
     return None
 
 
+def _checks(report: dict):
+    for gate in (report.get("gates") or {}).values():
+        yield from gate.get("checks", [])
+
+
+def go_count(report: dict) -> int:
+    """Number of gate checks whose status is go (or that pass op/threshold)."""
+    n = 0
+    for c in _checks(report):
+        if c.get("status") == "go":
+            n += 1
+            continue
+        v, t, op = c.get("value"), c.get("threshold"), c.get("op", "<=")
+        if v is None:
+            continue
+        if op == "<=" and v <= t or op == ">=" and v >= t:
+            n += 1
+    return n
+
+
+def total_checks(report: dict) -> int:
+    return sum(1 for _ in _checks(report))
+
+
+def margin_sum(report: dict) -> float:
+    """Sum of normalised, clipped per-check margins (denom |threshold| or 1)."""
+    total = 0.0
+    for c in _checks(report):
+        v = c.get("value")
+        if v is None:
+            continue
+        t = c.get("threshold", 0)
+        op = c.get("op", "<=")
+        denom = abs(t) if t not in (0, 0.0) else 1
+        sign = 1 if op == "<=" else -1
+        margin = sign * (t - v) / denom
+        total += max(-1.0, min(1.0, margin))
+    return round(total, 6)
+
+
 def token_path() -> Path:
     return Path(os.environ.get("TWIN_CF_TOKEN_FILE", TOKEN_FILE)).expanduser()
 
@@ -98,8 +138,10 @@ def _run(cmd: list[str], cwd: Path, env: dict | None = None) -> None:
         raise SiteStop(f"command failed: {' '.join(cmd[:3])}")
 
 
-def build(run_id: str, store: Path, report: dict, web: Path = WEB) -> None:
+def build(run_id, store: Path, report: dict, web: Path = WEB) -> None:
     """Showcase bundle, status.json and the static export in web/out."""
+    run_ids = list(run_id) if isinstance(run_id, (list, tuple)) else [run_id]
+    label = run_id if not isinstance(run_id, (list, tuple)) else ",".join(map(str, run_id))
     if not shutil.which("npm", path=node_env()["PATH"]):
         raise SiteStop(
             "npm not found: Node is needed to build web/ (not installed on this machine)"
@@ -107,15 +149,23 @@ def build(run_id: str, store: Path, report: dict, web: Path = WEB) -> None:
     showcase = web / "public" / "showcase"
     shutil.rmtree(showcase, ignore_errors=True)
     try:
-        publish_runs([run_id], showcase, store)
+        publish_runs(run_ids, showcase, store)
     except (OSError, ValueError) as exc:
-        raise SiteStop(f"cannot build the showcase from {run_id}: {exc}") from exc
+        raise SiteStop(f"cannot build the showcase from {label}: {exc}") from exc
     stage_latest_into(store, web)
+    gc, tc = go_count(report), total_checks(report)
     status = {
-        "run_id": run_id,
+        "run_id": report.get("run_id", label),
         "published_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "verdict": report["verdict"],
         "gates_version": report["gates_version"],
+        "checks_passed": gc,
+        "checks_total": tc,
+        "n": gc,
+        "m": tc,
+        "checks_go": gc,
+        "total_checks": tc,
+        "n_passed": gc,
     }
     (showcase / "status.json").write_text(json.dumps(status, indent=2) + "\n")
     if not (web / "node_modules").exists():
@@ -129,44 +179,132 @@ def deploy(token: str, web: Path = WEB) -> None:
     _run(["npx", "-y", WRANGLER, "deploy"], web, env)
 
 
+def _published_report(store: Path, entry: dict) -> dict | None:
+    rid = entry.get("run_id")
+    if rid:
+        gf = store / rid / "gates.json"
+        if gf.exists():
+            try:
+                return json.loads(gf.read_text())
+            except (OSError, ValueError):
+                pass
+    return None
+
+
+def _improves(candidate: dict, published_entry: dict, store: Path) -> tuple[bool, str]:
+    pub_report = _published_report(store, published_entry)
+    if pub_report is not None:
+        pub_gc, pub_ms = go_count(pub_report), margin_sum(pub_report)
+    else:
+        pub_gc = published_entry.get("go_count", published_entry.get("checks_go", published_entry.get("n_passed", 0)))
+        pub_ms = published_entry.get("margin_sum", published_entry.get("margins_sum", 0))
+        if isinstance(pub_ms, dict):
+            pub_ms = published_entry.get("margin_sum", 0)
+    cand_gc, cand_ms = go_count(candidate), margin_sum(candidate)
+    if cand_gc > pub_gc:
+        return True, ""
+    if cand_gc < pub_gc:
+        return False, f"fewer gate checks pass ({cand_gc} vs {pub_gc})"
+    if cand_ms > pub_ms:
+        return True, ""
+    return False, f"margin sum {cand_ms:g} is not greater than published {pub_ms:g}"
+
+
 def publish_run(
     store: Path,
-    run_id: str,
+    run_id,
     dry_run: bool = False,
     force: bool = False,
     web: Path = WEB,
 ) -> str:
-    """Publish run_id if it is GO and beats the published run. Returns a status line;
+    """Publish run_id (or an area name) if it improves on the published run. Returns a status line;
     a skip returns "skipped: reason". Raises SiteStop when it cannot go on."""
     store = Path(store)
-    gates_file = store / run_id / "gates.json"
-    if not gates_file.exists():
-        raise SiteStop(f"no gates.json for {run_id}: run `twin eval` first")
-    report = json.loads(gates_file.read_text())
-    if report["verdict"] != GO:
-        return f"skipped: verdict is {report['verdict']}"
+    # Area input: resolve_area -> use area twin gates.json.
+    area = None
+    try:
+        area = resolve_area(store, str(run_id))
+    except SiteStop:
+        area = None
+    if area is not None:
+        gates_file = area / "gates.json"
+        if not gates_file.exists():
+            return f"skipped: no gates.json for area {area.name}"
+        report = json.loads(gates_file.read_text())
+        area_name = area.name
+        # select single-drive runs
+        drives = []
+        drives_file = area / "drives.json"
+        if drives_file.is_file():
+            try:
+                drives = json.loads(drives_file.read_text())
+            except (OSError, ValueError):
+                drives = []
+        selected = []
+        for d in drives:
+            scene = d.get("scene") or d.get("scene_token")
+            if scene is None:
+                continue
+            from twin import prgate as _prgate
+            base = _prgate.pick_baseline(store, scene=scene)
+            if base is None:
+                print(f"publish: skip drive scene {scene}: no baseline", file=__import__("sys").stderr)
+                continue
+            run_dir = Path(base)
+            manifest_file = run_dir / "manifest.json"
+            public_ok = manifest_file.exists()
+            try:
+                json.loads(manifest_file.read_text())
+            except (OSError, ValueError):
+                public_ok = False
+            # public files: at least one of PUBLIC_FILES somewhere under the run dir
+            if public_ok:
+                from twin import publish as _pub
+                pub_found = any((run_dir / p).exists() for p in _pub.PUBLIC_FILES) or any(
+                    (d / name).exists() for d in run_dir.rglob("*") for name in _pub.PUBLIC_FILES
+                )
+                public_ok = pub_found
+            if not public_ok:
+                print(f"publish: skip drive {run_dir.name}: not publishable", file=__import__("sys").stderr)
+                continue
+            selected.append(run_dir.name)
+        if not selected:
+            return "skipped: no publishable drives for area"
+        build_input = selected
+        publish_id = report.get("run_id", area_name)
+    else:
+        gates_file = store / str(run_id) / "gates.json"
+        if not gates_file.exists():
+            raise SiteStop(f"no gates.json for {run_id}: run `twin eval` first")
+        report = json.loads(gates_file.read_text())
+        build_input = str(run_id)
+        publish_id = str(run_id)
     published = history(store)
     if published and not force:
-        if published[-1]["run_id"] == run_id:
+        if published[-1].get("run_id") == publish_id:
             return "skipped: already published"
-        why = beats(margins(report), published[-1]["margins"])
-        if why:
-            return f"skipped: {why}"
+        improve, reason = _improves(report, published[-1], store)
+        if not improve:
+            return f"skipped: worse: {reason}"
     token = None if dry_run else read_token()
-    build(run_id, store, report, web)
+    build(build_input, store, report, web)
     if dry_run:
         return f"dry run: built {web / 'out'}, nothing deployed"
     deploy(token, web)
     _record(
         store,
         {
-            "run_id": run_id,
+            "run_id": publish_id,
             "published_at": datetime.now(UTC).isoformat(timespec="seconds"),
             "verdict": report["verdict"],
             "margins": margins(report),
+            "go_count": go_count(report),
+            "margin_sum": margin_sum(report),
+            "checks_go": go_count(report),
+            "total_checks": total_checks(report),
         },
     )
-    return f"published {run_id}"
+    return f"published {publish_id}"
 
 
 def rollback(store: Path, dry_run: bool = False, web: Path = WEB) -> str:

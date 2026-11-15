@@ -159,6 +159,28 @@ export default function Shell() {
           ) : (
             <p>Loading map…</p>
           )}
+          {!missing && status && status.verdict !== "go" && (
+            <div
+              className="vp-banner"
+              style={{
+                position: "absolute",
+                top: 12,
+                left: "50%",
+                transform: "translateX(-50%)",
+                padding: "8px 14px",
+                borderRadius: 12,
+                background: "rgba(20,24,32,0.55)",
+                backdropFilter: "blur(8px)",
+                color: "#fff",
+                fontSize: 13,
+                zIndex: 5,
+              }}
+            >
+              Not gate-passed yet: {status.checks_passed ?? status.checks_go ?? status.n ?? status.n_passed ?? 0} of{" "}
+              {status.checks_total ?? status.total_checks ?? status.m ?? 0} checks pass. See the{" "}
+              <Link href="/latest">Latest build</Link> page for the gate results.
+            </div>
+          )}
           <div className="legal">{LEGAL}</div>
         </div>
         {!phone && !missing && (
