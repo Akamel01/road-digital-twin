@@ -35,6 +35,10 @@ PREFLIGHT_STAGES = ("load", "mask", "align", "ground", "features", "accuracy")
 PREFLIGHT_DRIVES = 2
 
 
+def _say(text: str) -> None:
+    print(text, flush=True)
+
+
 class StepFailed(RuntimeError):
     pass
 
@@ -281,7 +285,7 @@ def _runner(say: Callable[[str], None], budget: int):
 
 
 # --- smoke --------------------------------------------------------------------------------
-def smoke(work: Path | None = None, say: Callable[[str], None] = print) -> int:
+def smoke(work: Path | None = None, say: Callable[[str], None] = _say) -> int:
     """Fake data, two fake drives. Returns 0 when every step passed within SMOKE_BUDGET_S."""
     work = Path(work or tempfile.mkdtemp(prefix="twin-smoke-"))
     store = work / "store"
@@ -444,7 +448,7 @@ def _autopilot_pass(store: Path, say) -> None:
 def _preflight(
     store: Path | None = None,
     work: Path | None = None,
-    say: Callable[[str], None] = print,
+    say: Callable[[str], None] = _say,
 ) -> int:
     """Real data on the box: 2 seaport drives through load, mask, align, ground, features and accuracy, then
     area merge, eval and publish_latest (dry run). Runs in a scratch folder; never touches the live store.
@@ -509,7 +513,7 @@ def _preflight(
     )
 
 
-def preflight(store: Path | None = None, work: Path | None = None, say: Callable[[str], None] = print) -> int:
+def preflight(store: Path | None = None, work: Path | None = None, say: Callable[[str], None] = _say) -> int:
     """_preflight, then <store>/health/preflight.json for the health monitor (twin.health raises an alarm on a failure)."""
     last: list[str] = []
 
