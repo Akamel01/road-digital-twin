@@ -45,6 +45,9 @@ def test_poll_marks_other_prs_na(tmp_path):
 
     assert prgate.poll(tmp_path, gh=gh) == []
     assert "state=success" in calls[-1] and jobqueue.list_jobs(tmp_path) == []
+    posts = sum("state=success" in c for c in calls)
+    prgate.poll(tmp_path, gh=gh)  # a second poll of the same head posts nothing new
+    assert sum("state=success" in c for c in calls) == posts
 
 
 def test_prgate_job_needs_sha(tmp_path):
