@@ -76,7 +76,6 @@ def poll(store: Path, repo: str = REPO, dry_run: bool = False, gh=gh, extra: dic
         if j["type"] == "prgate"
     }
     lines = []
-    # Post the n/a status once per head commit: GitHub caps statuses per SHA and context (1000).
     na_file = Path(store) / "queue" / "prgate-na.json"
     na = set(json.loads(na_file.read_text())) if na_file.exists() else set()
     for p in open_prs(repo, gh):
@@ -84,12 +83,12 @@ def poll(store: Path, repo: str = REPO, dry_run: bool = False, gh=gh, extra: dic
         if p["method"] and (p["pr"], p["sha"]) not in seen and not touches_single_drive(repo, p["pr"], gh):
             why = "n/a: no single-drive stage changed"  # e.g. a merge-only PR: the scene-0757 run would not differ
         if why != "n/a: not a method PR" or not p["method"]:
-            if p["sha"] not in na:
-                set_status(repo, p["sha"], "success", why, dry_run, gh)
-                if not dry_run:
-                    na.add(p["sha"])
-                    na_file.parent.mkdir(parents=True, exist_ok=True)
-                    na_file.write_text(json.dumps(sorted(na)))
+            if p["sha"] in na:
+                continue
+            if set_status(repo, p["sha"], "success", why, dry_run, gh) and not dry_run:
+                na.add(p["sha"])
+                na_file.parent.mkdir(parents=True, exist_ok=True)
+                na_file.write_text(json.dumps(sorted(na)))
             continue
         if (p["pr"], p["sha"]) in seen:
             continue
@@ -155,11 +154,23 @@ def status_args(repo: str, sha: str, state: str, text: str) -> list[str]:
             "-f", f"context={CONTEXT}", "-f", f"description={text[:140]}"]  # fmt: skip
 
 
-def set_status(repo, sha, state, text, dry_run, gh=gh) -> None:
+CAP = "reached the maximum number of statuses"
+
+
+def set_status(repo, sha, state, text, dry_run, gh=gh) -> bool:
+    """Post a commit status. True when it is on GitHub, or can never be (the SHA is at GitHub's
+    per-SHA cap of 1000). Other errors are logged and return False: posting never kills a poll."""
     if dry_run:
         print(f"[dry-run] status {CONTEXT}={state}: {text}")
-    else:
+        return True
+    try:
         gh(*status_args(repo, sha, state, text))
+    except Exception as exc:  # noqa: BLE001
+        if CAP in str(exc):
+            return True
+        print(f"prgate: set_status failed for {sha[:7]}: {exc}", file=sys.stderr)
+        return False
+    return True
 
 
 def post_comment(repo: str, pr: int, body: str, dry_run: bool, gh=gh) -> None:

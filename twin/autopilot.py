@@ -25,6 +25,8 @@ from filelock import FileLock, Timeout
 
 from twin import gates, jobqueue, prgate, site, sweep, telemetry
 from twin.contracts import Params
+from twin.reload import CodeWatch
+from twin.runner import REPO as REPO_ROOT
 from twin.runner import dataset_version
 
 TAGS = {"tags": ["autopilot"]}
@@ -208,6 +210,17 @@ def p2_area(store: Path, state: dict) -> int:
     # eval exit 1 is a no-go verdict, not a failure
     eval_cmd = f"({twin} eval areas/{TWIN} --store {store}; [ $? -le 1 ])"
     commit = main_commit()
+    _new_commit = commit is not None and commit != p2.get("built")
+    if _new_commit:
+        try:
+            done = subprocess.run(["git", "-C", str(REPO_ROOT), "pull", "--ff-only"],
+                                  capture_output=True, text=True, check=False)
+            if done.returncode:
+                say(f"pull failed: {done.stderr.strip()}")
+            else:
+                say(f"pull: {done.stdout.strip()}")
+        except Exception as exc:  # noqa: BLE001
+            say(f"pull failed: {exc}")
     if commit is not None and commit != p2.get("built"):
         pid, exit_file = _detached(store, f"p2-{commit[:7]}", f"{twin} area merge {AREA} --store {store} && {twin} area twin {AREA} --store {store} && {eval_cmd}")
         p2.update(building=commit, pid=pid, exit_file=exit_file)
@@ -567,12 +580,18 @@ def autopilot_command(store: Path | None, poll: float, once: bool, skip: tuple =
     except Timeout:
         print("twin autopilot: another autopilot is running", file=sys.stderr)
         return 3
+    watch = CodeWatch()
     try:
         while True:
             try:
                 say(step(store, skip=skip))
             except Exception as exc:  # noqa: BLE001 - one bad pass must not end the loop
                 say(f"pass failed: {type(exc).__name__}: {exc}")
+            changed = watch.changed()
+            if changed:
+                old, new = changed
+                say(f"code changed {old}..{new}: exiting for restart")
+                sys.exit(75)
             if once:
                 return 0
             time.sleep(poll)

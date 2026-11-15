@@ -24,6 +24,7 @@ from filelock import FileLock, Timeout
 from twin import gpulease, jobqueue, runner
 from twin.contracts import STAGE_NAMES, Pipeline
 from twin.gpulease import GPU_STAGES
+from twin.reload import CodeWatch
 
 RESERVE_CORES = 2  # left for the box itself
 RESERVE_GB = 8  # left for Librarian
@@ -148,6 +149,7 @@ class Scheduler:
         self.log: list[str] = []
         self.gpu_record: dict = {}
         self._lease = None
+        self._watch = CodeWatch()
 
     # --- costs -------------------------------------------------------------------------
     def cost(self, name: str, enabled: bool = True) -> Cost:
@@ -370,6 +372,12 @@ class Scheduler:
 
     def _loop(self, poll: float, exit_when_idle: bool) -> None:
         while True:
+            if not self.running:
+                changed = self._watch.changed()
+                if changed:
+                    old, new = changed
+                    self._say(f"code changed {old}..{new}: exiting for restart")
+                    sys.exit(75)
             self.fill()
             for a in list(self.active):
                 if a.phase == "post" and a.run_dir and not a.busy and not a.checked:

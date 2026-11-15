@@ -18,6 +18,7 @@ import yaml
 from filelock import FileLock, Timeout
 
 from twin import gpulease
+from twin.reload import CodeWatch
 from twin.runner import (
     LowDisk,
     RunBusy,
@@ -282,8 +283,14 @@ def worker(
             ValueError
         ) as exc:  # a run from another code version has an unreadable manifest
             print(f"run recovery skipped: {exc}", flush=True)
+        watch = CodeWatch()
         count = 0
         while not jobs or count < jobs:
+            changed = watch.changed()
+            if changed:
+                old, new = changed
+                print(f"code changed {old}..{new}: exiting for restart", flush=True)
+                sys.exit(75)
             status = process_one(store, hold)
             if status is None or status.startswith("held"):
                 if status:
