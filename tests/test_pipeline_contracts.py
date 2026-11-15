@@ -145,7 +145,7 @@ def _rows_around(rng, paths, k=5):
     for _ in range(k):
         o = {}
         for p in paths:
-            lo, hi = autopilot._bounds(p)
+            lo, hi = (Params().bounds(p) or (None, None))
             o[p] = rng.choice([lo, hi, rng.uniform(lo, hi)])
         rows.append(
             {
@@ -161,7 +161,7 @@ def _rows_around(rng, paths, k=5):
 
 def _bounded_paths():
     return [f"{g}.{n}" for g in autopilot.GROUPS for n, f in type(getattr(Params(), g)).model_fields.items()
-            if f.annotation in (int, float) and autopilot._bounds(f"{g}.{n}") != (None, None)]  # fmt: skip
+            if f.annotation in (int, float) and (Params().bounds(f"{g}.{n}") or (None, None)) != (None, None)]  # fmt: skip
 
 
 def test_p3_narrowed_space_stays_inside_params_ranges(store, monkeypatch):
@@ -173,7 +173,7 @@ def test_p3_narrowed_space_stays_inside_params_ranges(store, monkeypatch):
         picked = rng.sample(paths, 3)
         space = autopilot.narrow(_rows_around(rng, picked))["params"]
         for path, dim in space.items():
-            lo, hi = autopilot._bounds(path)
+            lo, hi = (Params().bounds(path) or (None, None))
             assert (lo is None or dim["min"] >= lo) and (
                 hi is None or dim["max"] <= hi
             ), (seed, path, dim)

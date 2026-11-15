@@ -17,7 +17,15 @@ from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 from twin.access import Verifier, verifier_from_env
-from twin.contracts import PARAM_STAGE, STAGE_NAMES, STAGES, Manifest, Params, Pipeline
+from twin.contracts import (
+    PARAM_STAGE,
+    STAGE_NAMES,
+    STAGES,
+    Manifest,
+    Params,
+    Pipeline,
+    flatten,
+)
 from twin.runner import (
     INTERRUPTED,
     LowDisk,
@@ -53,21 +61,6 @@ def _status(m: Manifest) -> str:
         if name in statuses:
             return name
     return "ok" if statuses else "pending"
-
-
-def _flat(node: Any, path: str = "") -> dict[str, Any]:
-    """Leaf values keyed by dotted path; list items as [i]."""
-    if isinstance(node, dict):
-        out: dict[str, Any] = {}
-        for key, value in node.items():
-            out.update(_flat(value, f"{path}.{key}" if path else str(key)))
-        return out
-    if isinstance(node, list):
-        out = {}
-        for i, value in enumerate(node):
-            out.update(_flat(value, f"{path}[{i}]"))
-        return out
-    return {path: node}
 
 
 def _safe_file(run_dir: Path, rel: str) -> Path:
@@ -182,8 +175,8 @@ def create_app(store: Path, verifier: Verifier | None = None) -> FastAPI:
     def compare(a: str = Query(...), b: str = Query(...)) -> list[dict[str, Any]]:
         dump_a = _load(store, a).model_dump(mode="json")
         dump_b = _load(store, b).model_dump(mode="json")
-        flat_a = _flat({k: dump_a[k] for k in COMPARE_SECTIONS})
-        flat_b = _flat({k: dump_b[k] for k in COMPARE_SECTIONS})
+        flat_a = flatten({k: dump_a[k] for k in COMPARE_SECTIONS})
+        flat_b = flatten({k: dump_b[k] for k in COMPARE_SECTIONS})
         return [
             {"path": p, "a": flat_a.get(p), "b": flat_b.get(p)}
             for p in sorted(set(flat_a) | set(flat_b))
