@@ -132,6 +132,8 @@ class Running:
 
 
 class Scheduler:
+    DRAIN_TIMEOUT = 3600  # seconds a code-change drain may wait for running tasks
+
     def __init__(self, store, max_tasks: int | None = None, max_active: int = 24,
                  hold=jobqueue.disk_hold, cores: int | None = None, gb: float | None = None):
         self.store = Path(store)
@@ -150,6 +152,7 @@ class Scheduler:
         self.gpu_record: dict = {}
         self._lease = None
         self._watch = CodeWatch()
+        self._drain_until: float | None = None  # set when code changed: admit nothing new
 
     # --- costs -------------------------------------------------------------------------
     def cost(self, name: str, enabled: bool = True) -> Cost:
@@ -372,18 +375,21 @@ class Scheduler:
 
     def _loop(self, poll: float, exit_when_idle: bool) -> None:
         while True:
-            if not self.running:
-                changed = self._watch.changed()
-                if changed:
-                    old, new = changed
-                    self._say(f"code changed {old}..{new}: exiting for restart")
-                    sys.exit(75)
-            self.fill()
+            if self._drain_until is None and (changed := self._watch.changed()):
+                old, new = changed
+                self._say(f"code changed {old}..{new}: draining {len(self.running)} tasks")
+                self._drain_until = time.time() + self.DRAIN_TIMEOUT
+            if self._drain_until is not None and (not self.running or time.time() >= self._drain_until):
+                self._say("drained: exiting for restart" if not self.running else "drain timeout: exiting for restart")
+                sys.exit(75)
+            if self._drain_until is None:
+                self.fill()
             for a in list(self.active):
                 if a.phase == "post" and a.run_dir and not a.busy and not a.checked:
                     a.checked = True
                     self._after_stages(a)
-            self.admit()
+            if self._drain_until is None:
+                self.admit()
             if self._lease is not None and not self._gpu_wanted():
                 self.release_gpu()
             if not self.running:

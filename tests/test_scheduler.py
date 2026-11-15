@@ -210,3 +210,78 @@ def test_stop_after_ends_the_run_early(tmp_path, stubs):
     done = _done(tmp_path)
     manifest = json.loads((tmp_path / done["a"]["run_id"] / "manifest.json").read_text())
     assert [s["name"] for s in manifest["stages"]] == ["load", "mask"]
+
+
+def test_drain_under_constant_load_exits_75(tmp_path, stubs, monkeypatch):
+    stubs(0.05)
+    monkeypatch.setattr(
+        scheduler, "DEFAULT_COST", {n: scheduler.Cost(8, 1) for n in STAGE_NAMES}
+    )
+    for scene in "abc":
+        jobqueue.add(tmp_path, {"type": "run", "scene": scene})
+
+    calls = {"n": 0}
+
+    def changed(self):
+        calls["n"] += 1
+        return None if calls["n"] == 1 else ("old", "new")
+
+    monkeypatch.setattr(scheduler.CodeWatch, "changed", changed)
+
+    exited = {}
+
+    def fake_exit(code):
+        exited["code"] = code
+        raise SystemExit(code)
+
+    monkeypatch.setattr(scheduler.sys, "exit", fake_exit)
+
+    with pytest.raises(SystemExit):
+        s = scheduler.Scheduler(
+            tmp_path, cores=16, gb=64, hold=lambda: None, max_tasks=8
+        )
+        s.run(poll=0.05, exit_when_idle=True)
+    assert exited.get("code") == 75
+
+
+def test_drain_timeout_forces_exit_75(tmp_path, stubs, monkeypatch):
+    stubs(0.05)
+    monkeypatch.setattr(
+        scheduler, "DEFAULT_COST", {n: scheduler.Cost(8, 1) for n in STAGE_NAMES}
+    )
+    for scene in "ab":
+        jobqueue.add(tmp_path, {"type": "run", "scene": scene})
+
+    calls = {"n": 0}
+
+    def changed(self):
+        calls["n"] += 1
+        return None if calls["n"] == 1 else ("old", "new")
+
+    monkeypatch.setattr(scheduler.CodeWatch, "changed", changed)
+    monkeypatch.setattr(scheduler.Scheduler, "DRAIN_TIMEOUT", 0)
+
+    exited = {}
+
+    def fake_exit(code):
+        exited["code"] = code
+        raise SystemExit(code)
+
+    monkeypatch.setattr(scheduler.sys, "exit", fake_exit)
+
+    with pytest.raises(SystemExit):
+        s = scheduler.Scheduler(
+            tmp_path, cores=16, gb=64, hold=lambda: None, max_tasks=8
+        )
+        s.run(poll=0.05, exit_when_idle=True)
+    assert exited.get("code") == 75
+
+
+def test_no_change_normal_admission(tmp_path, stubs, monkeypatch):
+    stubs(0.0)
+    monkeypatch.setattr(scheduler.CodeWatch, "changed", lambda self: None)
+    for scene in "ab":
+        jobqueue.add(tmp_path, {"type": "run", "scene": scene})
+    s = scheduler.Scheduler(tmp_path, cores=16, gb=64, hold=lambda: None, max_tasks=8)
+    s.run(poll=0.05, exit_when_idle=True)
+    assert set(_done(tmp_path)) == {"a", "b"}
