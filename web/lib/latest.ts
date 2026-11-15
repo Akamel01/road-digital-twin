@@ -93,3 +93,26 @@ export function fmt(v: number | null): string {
   const a = Math.abs(v);
   return a !== 0 && (a < 0.001 || a >= 10000) ? v.toExponential(2) : String(Math.round(v * 1e4) / 1e4);
 }
+
+// Shape written by twin/health.py (public()). Optional: older bundles have no health.json.
+export interface Health {
+  updated: string;
+  processes: Record<string, { alive: boolean; uptime_s: number | null; restarts_1h: number }>;
+  queue: { running: number; pending: number };
+  tiers: Record<string, { queued: string | null; finished: string | null; failed: { at: string } | null; runs: number; job_hours: number }>;
+  idle_min: { cpu: number; gpu: number; queue: number; all: number };
+  paused: Record<string, string>;
+  disk_free_gb: Record<string, number | null>;
+  gpu: { vram_used_mb: number | null; vram_total_mb: number | null; lease: string };
+  progress: {
+    builds: number;
+    g2_ratchet: { threshold: number; passing_in_a_row: number } | null;
+    metrics: Record<string, { gate: string; op: string; threshold: number; latest: number; best: number; trend: number[] }>;
+  };
+  throughput: { runs_per_hour: number };
+}
+
+export async function loadHealth(): Promise<Health | null> {
+  const res = await fetch("/latest-build/health.json", { cache: "no-cache" });
+  return res.ok ? ((await res.json()) as Health) : null;
+}
