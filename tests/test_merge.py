@@ -115,3 +115,43 @@ def test_fit_heights_lifts_a_drive_that_sits_low(tmp_path):
     assert qa["summary"]["n_fitted"] == 60
     # a and b meet halfway: the mean correction is zero, the gap of 0.4 m closes
     assert abs((deltas["a"][:, 2, 3] - deltas["b"][:, 2, 3]).mean() + 0.4) < 0.01
+
+
+def _ground(rng, offset, tilt):
+    """Synthetic ground on a 40 x 40 m patch, a gentle bump plus a drive's height offset and tilt (slope along x, y)."""
+    xy = rng.uniform(-20, 20, (80000, 2))
+    z = 0.05 * np.sin(xy[:, 0] / 8) + offset + xy @ np.array(tilt)
+    return np.column_stack([xy, z])
+
+
+def _p95(a, b):
+    return merge.ground_disagreement(merge.ground_cells(a), merge.ground_cells(b))[
+        "p95_m"
+    ]
+
+
+def test_fit_zplanes_removes_offset_and_tilt_across_drives():
+    rng = np.random.default_rng(1)
+    truth = {
+        "a": (0.0, (0.0, 0.0)),
+        "b": (1.2, (0.05, -0.02)),
+        "c": (-0.7, (-0.04, 0.03)),
+    }
+    clouds = {k: _ground(rng, o, t) for k, (o, t) in truth.items()}
+    cells = {k: merge.ground_cells(v) for k, v in clouds.items()}
+    assert _p95(clouds["a"], clouds["b"]) > 1.0
+    planes = merge.fit_zplanes(cells, "a")
+    assert np.allclose(planes["a"], 0)
+    fixed = {k: merge.apply_zplane(v, planes[k]) for k, v in clouds.items()}
+    for x, y in (("a", "b"), ("a", "c"), ("b", "c")):
+        assert _p95(fixed[x], fixed[y]) < 0.05
+
+
+def test_fit_zplanes_ignores_a_layer_outlier_and_is_deterministic():
+    rng = np.random.default_rng(2)
+    a, b = _ground(rng, 0.0, (0, 0)), _ground(rng, 0.5, (0.02, 0))
+    b[b[:, 0] > 14, 2] += 4.0  # 15% of b's ground sits on another layer (overpass)
+    cells = {"a": merge.ground_cells(a), "b": merge.ground_cells(b)}
+    p1, p2 = merge.fit_zplanes(cells, "a"), merge.fit_zplanes(cells, "a")
+    assert np.array_equal(p1["b"], p2["b"])
+    assert np.allclose(p1["b"], [-0.5, -0.02, 0.0], atol=0.03)

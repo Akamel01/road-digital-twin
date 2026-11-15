@@ -12,9 +12,10 @@ gates:
     name: Cross-drive ground agreement after registration
     # 2026-11-10 amendment (ADR 0005): measured on ground-class points only (lidarseg driveable_surface, sidewalk,
     # terrain where labels exist, else the RANSAC ground). Name and threshold unchanged.
-    note: not produced yet (multi-drive registration, #141)
+    # 2026-11-10 operator: start loose at 0.20 m, then ratchet 0.20 -> 0.10 -> 0.05 once three area builds
+    # in a row pass at the current value. Target stays 0.05 m.
     checks:
-      - {metric: align.cross_drive_ground_p95_m, op: "<=", value: 0.05}
+      - {metric: align.cross_drive_ground_p95_m, op: "<=", value: 0.20}
   G3:
     name: Ground height QA
     # 2026-11-10 amendment (ADR 0005): the sweep disagreement counts ground-class points only (lidarseg driveable_surface,

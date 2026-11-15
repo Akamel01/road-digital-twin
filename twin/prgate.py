@@ -61,9 +61,17 @@ def poll(store: Path, repo: str = REPO, dry_run: bool = False, gh=gh, extra: dic
         if j["type"] == "prgate"
     }
     lines = []
+    # Post the n/a status once per head commit: GitHub caps statuses per SHA and context (1000).
+    na_file = Path(store) / "queue" / "prgate-na.json"
+    na = set(json.loads(na_file.read_text())) if na_file.exists() else set()
     for p in open_prs(repo, gh):
         if not p["method"]:
-            set_status(repo, p["sha"], "success", "n/a: not a method PR", dry_run, gh)
+            if p["sha"] not in na:
+                set_status(repo, p["sha"], "success", "n/a: not a method PR", dry_run, gh)
+                if not dry_run:
+                    na.add(p["sha"])
+                    na_file.parent.mkdir(parents=True, exist_ok=True)
+                    na_file.write_text(json.dumps(sorted(na)))
             continue
         if (p["pr"], p["sha"]) in seen:
             continue

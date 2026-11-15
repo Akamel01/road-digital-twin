@@ -141,6 +141,7 @@ def build_parser() -> argparse.ArgumentParser:
     site = sub.add_parser("site", help="publish a run to the public site, or roll back")
     site.add_argument("action", choices=("publish", "rollback", "history"))
     site.add_argument("run_id", nargs="?", help="run to publish (for publish)")
+    site.add_argument("--latest", metavar="AREA", help="publish the area's latest build (any verdict)")
     site.add_argument("--dry-run", action="store_true", help="build, do not deploy")
     site.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
     fake = sub.add_parser("fake-run", help="write synthetic runs and a showcase bundle")
@@ -175,6 +176,9 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--poll", type=float, default=60, help="seconds between checks")
     ap.add_argument("--once", action="store_true", help="one pass, then exit")
     ap.add_argument("--skip", action="append", default=[], metavar="P2|P3|P4", help="leave a source off")
+    hl = sub.add_parser("health", help="write <store>/health.json and raise or clear box-alarm issues")
+    hl.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
+    hl.add_argument("--no-alert", action="store_true", help="write health.json only, touch no issues")
     serve = sub.add_parser("serve", help="run the control API")
     serve.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
     serve.add_argument("--host", default="127.0.0.1")
@@ -237,7 +241,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "site":
         from twin.site import site_command
 
-        return site_command(args.action, args.run_id, args.dry_run, args.store)
+        return site_command(args.action, args.run_id, args.dry_run, args.store, args.latest)
     if args.command == "fake-run":
         from twin.fake_run import write_fake_runs
 
@@ -268,6 +272,10 @@ def main(argv: list[str] | None = None) -> int:
         from twin.autopilot import autopilot_command
 
         return autopilot_command(args.store, args.poll, args.once, tuple(args.skip))
+    if args.command == "health":
+        from twin.health import health_command
+
+        return health_command(args.store, args.no_alert)
     if args.command == "serve":
         from twin.api import serve_command
 

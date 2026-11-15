@@ -45,6 +45,11 @@ XY_MATCH_M = 0.5
 # vertical difference is the point-to-plane distance to within cos(slope).
 CELL_M = 0.5
 GROUND_PCT = 10
+# DECISION (#190): after ICP the drives still differ by a height offset and a tilt along the drive (diagnosis in the
+# PR), so each drive gets a height plane fitted to all pairs at once. The scale and iterations are for the
+# per-pair robust fit (layer mix-ups and car tops are outliers).
+PLANE_SCALE_M = 0.15
+PLANE_ITER = 10
 MIN_CELL_POINTS = 5
 MIN_CELLS = 200
 
@@ -141,6 +146,58 @@ def ground_disagreement(ca: dict, cb: dict) -> dict | None:
     }
 
 
+def plane_fit(xy: np.ndarray, dz: np.ndarray) -> np.ndarray:
+    """Robust (IRLS, weight 1 within PLANE_SCALE_M then falling as 1/r^2) fit of dz = a + bx*x + by*y. Returns (a, bx, by). xy is centred on the polygon."""
+    A = np.column_stack([np.ones(len(dz)), xy])
+    w = np.ones(len(dz))
+    for _ in range(PLANE_ITER):
+        sw = np.sqrt(w)
+        coef = np.linalg.lstsq(A * sw[:, None], dz * sw, rcond=None)[0]
+        r = np.abs(dz - A @ coef)
+        w = np.minimum(1.0, (PLANE_SCALE_M / np.maximum(r, 1e-9)) ** 2)
+    return coef
+
+
+def fit_zplanes(cells: dict[str, dict], ref: str) -> dict[str, np.ndarray]:
+    """Per-drive height plane z += a + bx*x + by*y (x, y from the polygon centre) that makes all drives' ground agree.
+
+    Every pair with enough shared cells gives a robust plane difference; one linear least squares over all pairs
+    (weighted by cells shared, ref held at zero) then spreads the disagreement over the drives instead of
+    pinning everything to the reference. Drives with no pair stay at zero.
+    """
+    ids = sorted(cells)
+    col = {k: i for i, k in enumerate(k for k in ids if k != ref)}
+    rows, rhs = [], []
+    for i, a in enumerate(ids):
+        for b in ids[i + 1 :]:
+            keys = sorted(cells[a].keys() & cells[b].keys())
+            if len(keys) < MIN_CELLS:
+                continue
+            xy = np.array(keys, float) * CELL_M
+            d = plane_fit(xy, np.array([cells[a][k] - cells[b][k] for k in keys]))
+            w = np.sqrt(len(keys))
+            for j in range(3):
+                row = np.zeros(3 * len(col))
+                for k, sign in ((a, 1.0), (b, -1.0)):
+                    if k in col:
+                        row[3 * col[k] + j] = sign * w
+                rows.append(row)
+                rhs.append(d[j] * w)
+    out = {k: np.zeros(3) for k in ids}
+    if rows:
+        sol = np.linalg.lstsq(np.array(rows), np.array(rhs), rcond=None)[0]
+        for k, i in col.items():
+            out[k] = -sol[3 * i : 3 * i + 3]
+    return out
+
+
+def apply_zplane(xyz: np.ndarray, plane: np.ndarray) -> np.ndarray:
+    """xyz centred on the polygon; adds the drive's height plane to z."""
+    out = xyz.copy()
+    out[:, 2] += plane[0] + xyz[:, :2] @ plane[1:]
+    return out
+
+
 def thin(xyz: np.ndarray, voxel: float) -> np.ndarray:
     return xyz[np.sort(ground.voxel_first(xyz, voxel))]
 
@@ -155,8 +212,8 @@ def register_drives(
 
     The reference is the drive with the most points. Then, repeatedly, the unregistered drive with
     the most overlap with the registered cloud is aligned to it. Returns per-drive corrections
-    (4x4, in the frame centred on `centre`), a note per drive, and the ground disagreement
-    per pair before and after. `ground` (drive id -> (N, 3), same frame) are the drives' ground-class points; the
+    (4x4, in the frame centred on `centre`), a height plane per drive (zplanes: a, bx, by), a note per drive, and the
+    ground disagreement per pair before, after ICP (registered) and after the planes (after). `ground` (drive id -> (N, 3), same frame) are the drives' ground-class points; the
     ground disagreement is measured on them (2026-11-10 amendment to ADR 0005), or on `clouds` when absent.
     """
     o3d.utility.random.seed(seed)
@@ -187,7 +244,18 @@ def register_drives(
         target = np.vstack([target, apply(t, pts[k])])
     eye = np.eye(4)
     before = {k: ground_cells(gnd[k]) for k in ids}
-    after = {k: ground_cells(apply(corr.get(k, eye), gnd[k])) for k in ids}
+    registered = {k: ground_cells(apply(corr.get(k, eye), gnd[k])) for k in ids}
+    # DECISION (#190): ICP leaves each drive with a height offset and tilt; fit one plane per drive over all pairs.
+    # Only registered drives take part (an unregistered drive's overlap is unknown); the reference stays at zero.
+    zplane = {k: np.zeros(3) for k in ids}
+    zplane.update(fit_zplanes({k: registered[k] for k in corr}, ref))
+    after = {
+        k: {
+            c: z + zplane[k][0] + CELL_M * (c[0] * zplane[k][1] + c[1] * zplane[k][2])
+            for c, z in registered[k].items()
+        }
+        for k in ids
+    }
     pairs = []
     for i, a in enumerate(ids):
         for b in ids[i + 1 :]:
@@ -195,11 +263,18 @@ def register_drives(
                 "a": a,
                 "b": b,
                 "before": ground_disagreement(before[a], before[b]),
+                "registered": ground_disagreement(registered[a], registered[b]),
                 "after": ground_disagreement(after[a], after[b]),
             }
-            if row["before"] or row["after"]:
+            if row["before"] or row["registered"] or row["after"]:
                 pairs.append(row)
-    return {"reference": ref, "corrections": corr, "info": info, "pairs": pairs}
+    return {
+        "reference": ref,
+        "corrections": corr,
+        "zplanes": zplane,
+        "info": info,
+        "pairs": pairs,
+    }
 
 
 def correction_summary(t: np.ndarray) -> dict:
@@ -390,7 +465,8 @@ def merge_area(area: dict, out: Path, params: Params, log) -> dict:
     parts = []
     for i, k in enumerate(names):
         p = clouds[k]
-        xyz = apply(res["corrections"].get(k, np.eye(4)), p[:, :3] - centre) + centre
+        xyz = apply(res["corrections"].get(k, np.eye(4)), p[:, :3] - centre)
+        xyz = apply_zplane(xyz, res["zplanes"][k]) + centre
         if k in deltas:
             xyz = move_sweeps(np.column_stack([xyz, p[:, 3:]]), deltas[k])
         parts.append(np.column_stack([xyz, p[:, 3], np.full(len(p), i)]))
@@ -404,23 +480,17 @@ def merge_area(area: dict, out: Path, params: Params, log) -> dict:
         drive=allp[:, 4].astype(np.uint16),
     )
     if params.merge.heights:
-        # the pair table: "after" includes the height fit; "registered" is the registration alone
-        cells, reg_cells = {}, {}
+        # the pair table: "after" is the planes plus the height fit; "registered" stays ICP alone
+        cells = {}
         for k in names:
-            g = (
-                apply(res["corrections"].get(k, np.eye(4)), ground_pts[k] - centre)
-                + centre
-            )
-            reg_cells[k] = ground_cells(g)
+            g = apply(res["corrections"].get(k, np.eye(4)), ground_pts[k] - centre)
+            g = apply_zplane(g, res["zplanes"][k]) + centre
             if k in deltas and k in gworld:
                 g = move_sweeps(
                     np.column_stack([g, g[:, 0], gworld[k][:, 3]]), deltas[k]
                 )
             cells[k] = ground_cells(g)
         for row in res["pairs"]:
-            row["registered"] = ground_disagreement(
-                reg_cells[row["a"]], reg_cells[row["b"]]
-            )
             row["after"] = ground_disagreement(cells[row["a"]], cells[row["b"]])
     drives = [
         {
@@ -432,6 +502,9 @@ def merge_area(area: dict, out: Path, params: Params, log) -> dict:
             "correction": correction_summary(res["corrections"][k])
             if k in res["corrections"]
             else None,
+            "z_plane": dict(
+                zip(("a_m", "bx", "by"), map(float, res["zplanes"][k]), strict=True)
+            ),
         }
         for i, k in enumerate(names)
     ]
