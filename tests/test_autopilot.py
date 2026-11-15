@@ -246,7 +246,7 @@ def test_p2b_reevals_when_gates_change(tmp_path, monkeypatch):
 
 
 def test_g2_history_and_ratchet(tmp_path, capsys):
-    out = tmp_path / "areas" / "seaport-merged"
+    out = tmp_path / "areas" / "seaport-twin"
     out.mkdir(parents=True)
 
     def build(run_id, value, threshold=0.20):
@@ -287,7 +287,7 @@ def test_latest_build_published_after_p2_and_p2b_and_failures_do_not_crash(tmp_p
     autopilot.p2_area(tmp_path, {"p2": {"building": "a" * 40, "pid": 1}})
     autopilot.p2_area(tmp_path, {"p2": {"built": "a" * 40}, "p2b": {"running": True, "gates": autopilot.gates_hash()}})
     autopilot.p2_area(tmp_path, {"p2": {"building": "b" * 40, "pid": 1}})  # SiteStop, then RuntimeError: no raise
-    assert calls == ["seaport-merged"] * 3
+    assert calls == ["seaport-twin"] * 3
 
 
 def test_narrow_stays_inside_contract_range():
@@ -295,3 +295,14 @@ def test_narrow_stays_inside_contract_range():
     space = autopilot.narrow(rows)["params"]["features.cluster_eps_m"]
     lo, _ = autopilot._bounds("features.cluster_eps_m")
     assert space["min"] >= lo
+
+
+def test_p2_chain_is_merge_then_twin_then_eval_on_the_twin_folder(tmp_path, monkeypatch):
+    monkeypatch.setattr(autopilot, "main_commit", lambda: "a" * 40)
+    monkeypatch.setattr(autopilot, "_alive", lambda pid: False)
+    cmds = []
+    monkeypatch.setattr(autopilot, "_detached", lambda s, name, cmd: cmds.append(cmd) or (999999, "x"))
+    autopilot.p2_area(tmp_path, {})
+    merge, twin, ev = (c.strip() for c in cmds[0].split("&&"))
+    assert "area merge seaport" in merge and "area twin seaport" in twin
+    assert "eval areas/seaport-twin" in ev

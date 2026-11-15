@@ -520,6 +520,9 @@ def twin_area(base: Path, name: str, log: logging.Logger, check_date: str | None
         },
     }
     (out / "change.json").write_text(json.dumps(summary, indent=2))
+    for f in ("merged.npz", "drives.json", "qa.json"):  # the site's latest view reads the cloud and drives from the area folder
+        (out / f).unlink(missing_ok=True)
+        (out / f).symlink_to((work / f).resolve())
     # a minimal manifest so `twin eval <folder>` reads G2 (from merge), G3 and G5
     acc = stage_metrics["accuracy"]
     (out / "manifest.json").write_text(json.dumps({
