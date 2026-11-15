@@ -211,6 +211,8 @@ def p2_area(store: Path, state: dict) -> int:
         pid, exit_file = _detached(store, f"p2-{commit[:7]}", f"{twin} area merge {AREA} --store {store} && {eval_cmd}")
         p2.update(building=commit, pid=pid, exit_file=exit_file)
         say(f"P2 new main {commit[:7]}: area {AREA} merge + eval, pid {pid}")
+        # operator 2026-11-14 pipeline automation: a scene-0757 run of current main, so prgate.pick_baseline compares with it
+        jobqueue.add(store, {"type": "run", "scene": prgate.SCENE, "eval": True, "tags": [*TAGS["tags"], "baseline"]})
     elif p2.get("built") and p2b.get("gates") != (now := gates_hash()):
         pid, exit_file = _detached(store, "p2b", eval_cmd)
         p2b.update(running=True, pid=pid, exit_file=exit_file, gates=now)
