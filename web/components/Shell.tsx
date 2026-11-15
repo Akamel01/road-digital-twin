@@ -5,8 +5,9 @@ import MapView from "@/components/MapView";
 import Profile from "@/components/Profile";
 import Rail from "@/components/Rail";
 import type { Sheet } from "@/components/SheetHead";
+import Link from "next/link";
 import TopBar from "@/components/TopBar";
-import { type AreaIndex, loadArea, loadStatus, type SiteStatus } from "@/lib/showcase";
+import { type AreaIndex, loadArea, loadStatus, type SiteStatus, SHOWCASE_MISSING } from "@/lib/showcase";
 import { parseRoute, type Route, routeUrl } from "@/lib/route";
 import { PHONE, TABLET, useMedia } from "@/lib/media";
 
@@ -130,7 +131,18 @@ export default function Shell() {
       />
       <main className="main">
         <div className="vp" role="region" aria-label="Map">
-          {error ? (
+          {error === SHOWCASE_MISSING ? (
+            <section className="vp-empty" style={{ padding: 24 }}>
+              <h1>No gate-passed twin yet</h1>
+              <p>This area has no published twin. Open the latest build to see the newest run.</p>
+              <Link href="/latest" className="btn">
+                Latest build
+              </Link>
+              {process.env.NODE_ENV === "development" && (
+                <p style={{ color: "var(--on-glass-3)", fontSize: 11, marginTop: 12 }}>{SHOWCASE_MISSING}</p>
+              )}
+            </section>
+          ) : error ? (
             <p role="alert">{error}</p>
           ) : area ? (
             <MapView
@@ -172,7 +184,7 @@ export default function Shell() {
           />
         ) : (
           <aside className="insp">
-            <p>{error ?? "Loading showcase…"}</p>
+            <p>{error === SHOWCASE_MISSING ? "No published twin." : (error ?? "Loading showcase…")}</p>
           </aside>
         )}
       </div>
