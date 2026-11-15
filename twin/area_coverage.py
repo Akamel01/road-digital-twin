@@ -262,6 +262,86 @@ def cells_gained(baseline_records, candidate_records) -> int:
     return len(base_low - cand_low)
 
 
+def coverage_path_for_area(area_path: str | Path) -> Path:
+    p = Path(area_path)
+    return p.with_name(f"{p.stem}.coverage.json")
+
+
+TIME_OF_DAY_KEYWORDS = ("night", "dawn", "dusk", "morning", "afternoon", "evening", "day")
+
+
+def time_of_day_bucket(description: str | None) -> str:
+    s = (description or "").lower()
+    for kw in TIME_OF_DAY_KEYWORDS:
+        if kw in s:
+            return kw
+    return "unknown"
+
+
+def drive_flags(description: str | None) -> dict:
+    d = (description or "").lower()
+    return {
+        "rain": "rain" in d,
+        "night": "night" in d,
+        "time_of_day_bucket": time_of_day_bucket(description),
+    }
+
+
+def _existing_presence(existing_drives) -> tuple[bool, bool, set[str]]:
+    has_rain = False
+    has_night = False
+    buckets: set[str] = set()
+    for d in existing_drives:
+        f = drive_flags(d.get("description"))
+        has_rain = has_rain or f["rain"]
+        has_night = has_night or f["night"]
+        if f["time_of_day_bucket"] != "unknown":
+            buckets.add(f["time_of_day_bucket"])
+    return has_rain, has_night, buckets
+
+
+def diversity_score(candidate: dict, existing_drives) -> int:
+    has_rain, has_night, buckets = _existing_presence(existing_drives)
+    f = drive_flags(candidate.get("description"))
+    score = 0
+    if f["rain"] and not has_rain:
+        score += 1
+    if f["night"] and not has_night:
+        score += 1
+    if f["time_of_day_bucket"] != "unknown" and f["time_of_day_bucket"] not in buckets:
+        score += 1
+    return score
+
+
+def rank_candidates(candidates, baseline_records, existing_drives, top_n: int):
+    """candidates: iterable of dicts with scene, scene_token, description, candidate_records."""
+    ranked = []
+    for c in candidates:
+        rec = dict(c)
+        rec["cells_gained"] = int(
+            cells_gained(baseline_records, rec["candidate_records"])
+        )
+        rec["diversity"] = int(diversity_score(rec, existing_drives))
+        f = drive_flags(rec.get("description"))
+        rec["rain"] = f["rain"]
+        rec["night"] = f["night"]
+        rec["time_of_day_bucket"] = f["time_of_day_bucket"]
+        ranked.append(rec)
+    ranked.sort(
+        key=lambda r: (
+            -r["cells_gained"],
+            -r["diversity"],
+            str(r.get("scene", "")),
+            str(r.get("scene_token", "")),
+        )
+    )
+    if top_n < len(ranked):
+        ranked = ranked[:top_n]
+    return ranked
+    cand_low = low_coverage_cells(candidate_records)
+    return len(base_low - cand_low)
+
+
 def coverage_document(
     area_name: str,
     area_path: str | Path,
