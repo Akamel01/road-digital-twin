@@ -175,24 +175,21 @@ def publish_latest(store: Path) -> None:
         say(f"latest build publish failed: {exc!r}")
 
 
+def area_scenes(store: Path) -> list[str]:
+    """The scenes of the area twin's drives (areas/<TWIN>/drives.json); [] when there is none yet."""
+    try:
+        return [d["scene"] for d in json.loads((Path(store) / "areas" / TWIN / "drives.json").read_text())]
+    except (OSError, ValueError, KeyError, TypeError):
+        return []
+
+
 def publish_showcase(store: Path) -> bool:
-    """Publish the GO showcase after an area eval, if it improves. Logged, never fatal.
+    """Publish the newest area twin to / when it improves on the published one (#222). Logged, never fatal.
 
     Returns True when it actually tried to publish (runs finished), False when it had
     to wait for area drive runs to finish first."""
     store = Path(store)
-    scenes: set = set()
-    drives_file = store / "areas" / TWIN / "drives.json"
-    if drives_file.is_file():
-        try:
-            for d in json.loads(drives_file.read_text()):
-                scene = d.get("scene") if isinstance(d, dict) else None
-                if scene is None and isinstance(d, dict):
-                    scene = d.get("scene_token")
-                if scene is not None:
-                    scenes.add(scene)
-        except (OSError, ValueError):
-            scenes = set()
+    scenes = set(area_scenes(store))
     if scenes:
         waiting = [j for j in jobqueue.list_jobs(store)
                    if j.get("state") in ("pending", "running") and j.get("scene") in scenes]
@@ -223,10 +220,7 @@ def p2_area(store: Path, state: dict) -> int:
         say(f"P2 {p2['building'][:7]} finished, exit {code}")
         if code in ("0", "1"):
             publish_latest(store)
-            if publish_showcase(store):
-                p2["showcase_pending"] = False
-            else:
-                p2["showcase_pending"] = True
+            p2["showcase_pending"] = not publish_showcase(store)
         if code == "0":
             leave_one_drive_out(store, AREA)
             rain_test(store, AREA)
@@ -238,10 +232,7 @@ def p2_area(store: Path, state: dict) -> int:
         say(f"P2b re-eval finished, exit {code}")
         if code in ("0", "1"):
             publish_latest(store)
-            if publish_showcase(store):
-                p2["showcase_pending"] = False
-            else:
-                p2["showcase_pending"] = True
+            p2["showcase_pending"] = not publish_showcase(store)
         if code == "0":
             leave_one_drive_out(store, AREA)
             rain_test(store, AREA)
@@ -258,17 +249,7 @@ def p2_area(store: Path, state: dict) -> int:
         # operator 2026-11-14 pipeline automation: a scene-0757 run of current main, so prgate.pick_baseline compares with it
         jobqueue.add(store, {"type": "run", "scene": prgate.SCENE, "eval": True, "tags": [*TAGS["tags"], "baseline"]})
         # per-scene full runs for the showcase: skip drives whose newest full run is already on this commit
-        drives_file = store / "areas" / TWIN / "drives.json"
-        try:
-            drives = json.loads(drives_file.read_text()) if drives_file.is_file() else []
-        except (OSError, ValueError):
-            drives = []
-        for d in drives:
-            scene = d.get("scene") if isinstance(d, dict) else None
-            if scene is None and isinstance(d, dict):
-                scene = d.get("scene_token")
-            if scene is None:
-                continue
+        for scene in area_scenes(store):
             newest = prgate.pick_baseline(store, scene=scene)
             if newest is not None:
                 try:

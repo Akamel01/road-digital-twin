@@ -322,3 +322,45 @@ def test_new_main_queues_a_baseline_run_once(tmp_path, monkeypatch):
     monkeypatch.setattr(autopilot, "_exit_code", lambda job: "1")
     autopilot.p2_area(tmp_path, state)
     assert len(added) == 1  # the same commit is not queued again
+
+
+def _area(store, scenes):
+    d = store / "areas" / autopilot.TWIN
+    d.mkdir(parents=True)
+    (d / "drives.json").write_text(json.dumps([{"scene": s} for s in scenes]))
+
+
+def test_new_main_queues_one_run_per_area_scene_unless_current(tmp_path, monkeypatch):
+    commit = "a" * 40
+    _area(tmp_path, ["scene-1", "scene-2"])
+    current = tmp_path / "r-current"
+    current.mkdir()
+    (current / "manifest.json").write_text(json.dumps({"code": {"git_sha": commit}}))
+    monkeypatch.setattr(autopilot.prgate, "pick_baseline", lambda store, scene: current if scene == "scene-2" else None)
+    monkeypatch.setattr(autopilot, "main_commit", lambda: commit)
+    monkeypatch.setattr(autopilot, "_alive", lambda pid: False)
+    monkeypatch.setattr(autopilot, "_detached", lambda s, name, cmd: (999999, "x"))
+    added = []
+    monkeypatch.setattr(autopilot.jobqueue, "add", lambda store, job: added.append(job) or "id")
+    autopilot.p2_area(tmp_path, {})
+    assert [j["scene"] for j in added[1:]] == ["scene-1"]  # added[0] is the scene-0757 baseline
+
+
+def test_showcase_waits_for_drive_runs_then_publishes_once(tmp_path, monkeypatch):
+    _area(tmp_path, ["scene-1"])
+    published = []
+    monkeypatch.setattr(autopilot.site, "publish_run", lambda store, twin: published.append(twin) or "published x")
+    jobqueue.add(tmp_path, {"type": "run", "scene": "scene-1"})
+    monkeypatch.setattr(autopilot, "main_commit", lambda: "a" * 40)
+    monkeypatch.setattr(autopilot, "_alive", lambda pid: False)
+    monkeypatch.setattr(autopilot, "_exit_code", lambda job: "1")
+    monkeypatch.setattr(autopilot, "publish_latest", lambda store: None)
+    monkeypatch.setattr(autopilot, "_detached", lambda s, name, cmd: (999999, "x"))
+    state = {"p2": {"building": "a" * 40, "built": "a" * 40, "pid": None}, "p2b": {"gates": autopilot.gates_hash()}}
+    autopilot.p2_area(tmp_path, state)
+    assert published == [] and state["p2"]["showcase_pending"]
+    for f in (tmp_path / "queue" / "pending").glob("*.json"):
+        f.unlink()  # the drive run finished
+    autopilot.p2_area(tmp_path, state)
+    autopilot.p2_area(tmp_path, state)
+    assert published == [autopilot.TWIN] and not state["p2"]["showcase_pending"]
