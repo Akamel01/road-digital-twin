@@ -35,6 +35,8 @@ dependencies = [
 gpu = ["cupy-cuda12x[ctk]==14.2.0; sys_platform == 'linux'"]
 # Camera semantics stage (ADR 0006): Mask2Former on the GPU. CI does not install it; tests use a stub segmenter.
 semantics = ["torch==2.10.0", "transformers==5.22.2"]
+# Gaussian splat stage (ADR 0006 Q2c). gsplat (Apache-2.0) builds its CUDA kernels on first use, so the box needs nvcc and g++. CI does not install it.
+splats = ["torch==2.10.0", "gsplat==1.5.3"]
 
 [project.scripts]
 twin = "twin.cli:main"
