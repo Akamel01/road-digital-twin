@@ -25,13 +25,13 @@ def _cells(bump):
 def test_change_found_only_where_dates_differ():
     (lo, hi), shape_yx = _cells(bump=0.5)
     dates = ["d1", "d1", "d2"]
-    noise = at.noise_levels(lo, hi, dates)
+    noise = at.noise_levels(lo, hi, dates, shape_yx)
     # two dates cannot say which one changed: both are listed
-    both = at.change_regions(at.detect_change(lo, hi, dates, noise), np.zeros(2), shape_yx, dates, ["a", "b", "c"])
+    both = at.change_regions(at.detect_change(lo, hi, dates, noise, shape_yx), np.zeros(2), shape_yx, dates, ["a", "b", "c"])
     assert both[0]["properties"]["dates"] == ["d1", "d2"]
     dates = ["d1", "d2", "d3"]
     noise = {"ground_threshold_m": 0.15, "structure_threshold_m": 0.3}
-    det = at.detect_change(lo, hi, dates, noise)
+    det = at.detect_change(lo, hi, dates, noise, shape_yx)
     regions = at.change_regions(det, np.zeros(2), shape_yx, dates, ["a", "b", "c"])
     assert len(regions) == 1
     p = regions[0]["properties"]
@@ -40,9 +40,9 @@ def test_change_found_only_where_dates_differ():
 
 
 def test_same_dates_have_no_change():
-    (lo, hi), _shape_yx = _cells(bump=0.5)
+    (lo, hi), shape_yx = _cells(bump=0.5)
     dates = ["d1"] * 3
-    det = at.detect_change(lo, hi, dates, at.noise_levels(lo, hi, dates))
+    det = at.detect_change(lo, hi, dates, at.noise_levels(lo, hi, dates, shape_yx), shape_yx)
     assert not det["changed"].any()
 
 

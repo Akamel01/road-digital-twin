@@ -46,6 +46,11 @@ MIN_GROUND_DZ_M = 0.15
 MIN_STRUCTURE_DH_M = 0.30
 # DECISION: a region of fewer than MIN_REGION_CELLS changed cells (1 m2) is speckle and is dropped.
 MIN_REGION_CELLS = 4
+# DECISION: registration leaves each drive pair with a smooth height error (metres on the seaport area at the time of
+# writing, ADR 0005 G2) that is not a change. A pair's cell differences are taken relative to their median over
+# RESID_TILE_CELLS x RESID_TILE_CELLS cells (10 m), so a change smaller than a tile stands out and a smooth offset does not.
+RESID_TILE_CELLS = 20
+MIN_TILE_CELLS = 10
 # ---- support
 # DECISION: a drive "supports" a feature when it has at least SUPPORT_MIN_POINTS points within SUPPORT_BUFFER_M of the
 # feature in plan and within SUPPORT_BAND_M above or below the ground of that cell: it saw the place, whatever it saw.
@@ -160,15 +165,31 @@ def by_date(a: np.ndarray, dates: list[str]) -> dict[str, np.ndarray]:
     return out
 
 
-def noise_levels(lo: np.ndarray, hi: np.ndarray, dates: list[str]) -> dict:
+def residual(diff: np.ndarray, shape_yx: tuple[int, int]) -> np.ndarray:
+    """A pair's per-cell difference minus its median over its 10 m tile (NaN where the tile has too few cells)."""
+    ny, nx = shape_yx
+    t = RESID_TILE_CELLS
+    ny2, nx2 = -(-ny // t) * t, -(-nx // t) * t
+    a = np.full((ny2, nx2), np.nan, np.float32)
+    a[:ny, :nx] = diff.reshape(ny, nx)
+    blocks = a.reshape(ny2 // t, t, nx2 // t, t)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        med = np.nanmedian(blocks, axis=(1, 3))
+    med[np.sum(np.isfinite(blocks), axis=(1, 3)) < MIN_TILE_CELLS] = np.nan
+    full = np.repeat(np.repeat(med, t, axis=0), t, axis=1)[:ny, :nx]
+    return (a[:ny, :nx] - full).ravel()
+
+
+def noise_levels(lo: np.ndarray, hi: np.ndarray, dates: list[str], shape_yx: tuple[int, int]) -> dict:
     """Thresholds (ground, structure) from drives of the same date, and what they came from."""
     dg, dh = [], []
     for date in sorted(set(dates)):
         idx = [i for i, d in enumerate(dates) if d == date]
         for k, a in enumerate(idx):
             for b in idx[k + 1 :]:
-                dg.append(np.abs(lo[a] - lo[b]))
-                dh.append(np.abs((hi[a] - lo[a]) - (hi[b] - lo[b])))
+                dg.append(np.abs(residual(lo[a] - lo[b], shape_yx)))
+                dh.append(np.abs(residual((hi[a] - lo[a]) - (hi[b] - lo[b]), shape_yx)))
     dg = np.concatenate(dg) if dg else np.empty(0)
     dh = np.concatenate(dh) if dh else np.empty(0)
     dg, dh = dg[np.isfinite(dg)], dh[np.isfinite(dh)]
@@ -183,7 +204,7 @@ def noise_levels(lo: np.ndarray, hi: np.ndarray, dates: list[str]) -> dict:
     }
 
 
-def detect_change(lo: np.ndarray, hi: np.ndarray, dates: list[str], noise: dict) -> dict:
+def detect_change(lo: np.ndarray, hi: np.ndarray, dates: list[str], noise: dict, shape_yx: tuple[int, int]) -> dict:
     """Per cell: does any pair of dates disagree beyond the noise?
 
     Returns changed (bool per cell), kind (1 ground, 2 structure, 3 both), odd (per date, bool per cell: the date that
@@ -201,7 +222,8 @@ def detect_change(lo: np.ndarray, hi: np.ndarray, dates: list[str], noise: dict)
         warnings.simplefilter("ignore", RuntimeWarning)
         for i, a in enumerate(names):
             for b in names[i + 1 :]:
-                dz, dh = np.abs(g[a] - g[b]), np.abs(s[a] - s[b])
+                dz = np.abs(residual(g[a] - g[b], shape_yx))
+                dh = np.abs(residual(s[a] - s[b], shape_yx))
                 zc = dz > noise["ground_threshold_m"]
                 sc = dh > noise["structure_threshold_m"]
                 kind |= zc.astype(np.uint8) | (sc.astype(np.uint8) << 1)
@@ -416,8 +438,8 @@ def twin_area(base: Path, name: str, log: logging.Logger, check_date: str | None
     inside = shapely.contains_xy(polygon, x, y)
     lo, hi = cell_stats(x[inside], y[inside], z[inside], drive[inside], origin, shape_yx, len(drives))
     del inside
-    noise = noise_levels(lo, hi, dates)
-    det = detect_change(lo, hi, dates, noise)
+    noise = noise_levels(lo, hi, dates, shape_yx)
+    det = detect_change(lo, hi, dates, noise, shape_yx)
     regions = change_regions(det, origin, shape_yx, dates, scenes)
     (out / "change.geojson").write_text(_fc(regions))
     log.info("change: %d regions, noise %s", len(regions), noise)
