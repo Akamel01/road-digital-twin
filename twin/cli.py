@@ -139,7 +139,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--store", type=Path, help="run store (default: $TWIN_RUNS or /data/twin-runs)"
     )
     site = sub.add_parser("site", help="publish a run to the public site, or roll back")
-    site.add_argument("action", choices=("publish", "rollback", "history"))
+    site.add_argument("action", choices=("publish", "rollback", "history", "redeploy"))
     site.add_argument("run_id", nargs="?", help="run to publish (for publish)")
     site.add_argument("--latest", metavar="AREA", help="publish the area's latest build (any verdict)")
     site.add_argument("--dry-run", action="store_true", help="build, do not deploy")

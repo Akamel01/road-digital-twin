@@ -167,6 +167,29 @@ def _exit_code(job: dict) -> str:
     return path.read_text().strip() if path.is_file() else "?"
 
 
+def _head() -> str | None:
+    out = subprocess.run(["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"],
+                         capture_output=True, text=True, check=False)  # fmt: skip
+    return out.stdout.strip() if out.returncode == 0 else None
+
+
+def redeploy_web(store: Path, old: str | None, new: str | None) -> None:
+    """After a pull from old to new: redeploy the published build when web/ changed (#247).
+    A failure is logged and never stops the loop."""
+    if not old or not new or old == new:
+        return
+    changed = subprocess.run(["git", "-C", str(REPO_ROOT), "diff", "--name-only", old, new],
+                             capture_output=True, text=True, check=False)  # fmt: skip
+    if changed.returncode or not any(p.startswith("web/") for p in changed.stdout.split()):
+        return
+    try:
+        say(f"web/ changed: redeploy: {site.redeploy(store)}")
+    except site.SiteStop as exc:
+        say(f"redeploy not done: {exc}")
+    except Exception as exc:  # noqa: BLE001
+        say(f"redeploy failed: {exc!r}")
+
+
 def publish_latest(store: Path) -> None:
     """Update the site's Latest build view after an area eval, whatever the verdict (#192).
     A failure is logged and never stops the loop."""
@@ -244,6 +267,7 @@ def p2_area(store: Path, state: dict) -> int:
     commit = main_commit()
     _new_commit = commit is not None and commit != p2.get("built")
     if _new_commit:
+        before = _head()
         try:
             done = subprocess.run(["git", "-C", str(REPO_ROOT), "pull", "--ff-only"],
                                   capture_output=True, text=True, check=False)
@@ -251,6 +275,8 @@ def p2_area(store: Path, state: dict) -> int:
                 say(f"pull failed: {done.stderr.strip()}")
             else:
                 say(f"pull: {done.stdout.strip()}")
+                if not p2.get("showcase_pending"):  # an area publish waiting: it ships the new web/ itself
+                    redeploy_web(store, before, _head())
         except Exception as exc:  # noqa: BLE001
             say(f"pull failed: {exc}")
     if commit is not None and commit != p2.get("built"):
