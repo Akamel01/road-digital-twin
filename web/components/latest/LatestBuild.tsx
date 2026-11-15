@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Crown } from "@/components/TopBar";
+import { BrandLockup } from "@/components/TopBar";
 import { type Cloud, fmt, type Health, loadCloud, loadHealth, loadScorecard, loadTrend, type Scorecard, type TrendPoint } from "@/lib/latest";
 import CloudView from "./CloudView";
 import LivingMark from "./LivingMark";
@@ -42,10 +42,7 @@ export default function LatestBuild() {
   return (
     <div className={styles.page}>
       <header className={styles.top}>
-        <div className={styles.brand}>
-          <Crown />
-          Road digital twin
-        </div>
+        <BrandLockup />
         <b className={styles.title}>Latest build</b>
         <Link className={styles.back} href="/">
           Published twin

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { Crown } from "@/components/TopBar";
+import { BrandLockup } from "@/components/TopBar";
 import RunDetail from "@/components/dev/RunDetail";
 import RunList from "@/components/dev/RunList";
 import styles from "@/components/dev/dev.module.css";
@@ -88,10 +88,7 @@ export default function DevPanel() {
         <Link className={styles.back} href="/">
           ← Map
         </Link>
-        <div className={styles.brand}>
-          <Crown />
-          Developer panel
-        </div>
+        <BrandLockup />
       </header>
       <div className={styles.banner} role="status">
         {auth.kind === "in" ? (
