@@ -132,6 +132,8 @@ class Running:
 
 
 class Scheduler:
+    DRAIN_TIMEOUT = 3600
+
     def __init__(self, store, max_tasks: int | None = None, max_active: int = 24,
                  hold=jobqueue.disk_hold, cores: int | None = None, gb: float | None = None):
         self.store = Path(store)
@@ -371,13 +373,28 @@ class Scheduler:
             self.release_gpu()
 
     def _loop(self, poll: float, exit_when_idle: bool) -> None:
+        draining = False
+        drain_deadline = 0.0
         while True:
-            if not self.running:
-                changed = self._watch.changed()
-                if changed:
-                    old, new = changed
-                    self._say(f"code changed {old}..{new}: exiting for restart")
-                    sys.exit(75)
+            changed = self._watch.changed()
+            if changed is not None and not draining:
+                n = len(self.running)
+                self._say(f"code changed: draining {n} jobs")
+                draining = True
+                drain_deadline = time.time() + self.DRAIN_TIMEOUT
+            if draining:
+                for a in list(self.active):
+                    if a.phase == "post" and a.run_dir and not a.busy and not a.checked:
+                        a.checked = True
+                        self._after_stages(a)
+                if self.running:
+                    if time.time() >= drain_deadline:
+                        self._say("drain timeout: exiting anyway")
+                        sys.exit(75)
+                    remaining = max(0.0, min(poll, drain_deadline - time.time()))
+                    self.reap(remaining)
+                    continue
+                sys.exit(75)
             self.fill()
             for a in list(self.active):
                 if a.phase == "post" and a.run_dir and not a.busy and not a.checked:
