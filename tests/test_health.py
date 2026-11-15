@@ -5,8 +5,6 @@ import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-import pytest
-
 from twin import autopilot, health, jobqueue, site
 from twin.cli import main
 
@@ -211,7 +209,7 @@ def test_supervisor_restarts_a_killed_process(tmp_path):
     conf.write_text(f"fake|{tag[:-1]}[{tag[-1]}]|exec -a {tag} sleep 300|{tmp_path}/fake.log\n")
     env = {**os.environ, "SUP_CONF": str(conf), "SUP_INTERVAL": "1", "SUP_STORE": str(tmp_path), "SUP_HEALTH": ""}
     sup = subprocess.Popen(["bash", str(Path(__file__).parents[1] / "scripts" / "twin-supervisor.sh")], env=env)
-    pids = lambda: subprocess.run(["pgrep", "-f", f"{tag[:-1]}[{tag[-1]}]"], capture_output=True, text=True).stdout.split()
+    pids = lambda: subprocess.run(["pgrep", "-f", f"{tag[:-1]}[{tag[-1]}]"], capture_output=True, text=True, check=False).stdout.split()
     try:
         assert _wait(lambda: len(pids()) == 1)
         first = pids()

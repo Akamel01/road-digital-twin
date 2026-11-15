@@ -88,8 +88,7 @@ def tiers(store: Path, now: datetime, window_h: float = 24.0) -> dict:
             if not t["failed"] or done > t["failed"]["at"]:
                 t["failed"] = {"at": done, "error": (job.get("error") or "?").strip().splitlines()[-1][:160]}
         if done and done >= since and job.get("started"):
-            if job["type"] == "run":
-                t["runs"] += 1
+            t["runs"] += job["type"] == "run"
             span = datetime.fromisoformat(done) - datetime.fromisoformat(job["started"])
             t["job_hours"] = round(t["job_hours"] + span.total_seconds() / 3600, 3)
     return out
@@ -167,7 +166,7 @@ def collect(store: Path, now: datetime | None = None, ps_text: str | None = None
         "gpu": {"vram_used_mb": gpu_used, "vram_total_mb": gpu_total, "lease": _lease(store)},
         "progress": progress(store),
         "throughput": {"window_h": 24, "runs_per_hour": round(sum(t["runs"] for t in by_tier.values()) / 24, 2),
-                       "job_hours": {k: t["job_hours"] for k, t in by_tier.items()}},  # fmt: skip
+                       "job_hours": {k: t["job_hours"] for k, t in by_tier.items()}},
         "preflight": _json(store / "health" / PREFLIGHT_FILE, None),
     }
 
