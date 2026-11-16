@@ -346,13 +346,15 @@ def extract_curbs(xyz: np.ndarray) -> list[dict]:
     observed = ndimage.binary_erosion(np.isfinite(z), iterations=3)
     edge = up & ~ndimage.binary_erosion(up) & observed
     edge &= (step >= CURB_STEP_MIN_M) & (step <= CURB_STEP_MAX_M)
+    gy, gx = np.gradient(_nan_smooth(z, 1.0))
+    grad = np.nan_to_num(np.hypot(gx, gy))
     curbs = []
     lab, n = ndimage.label(edge, structure=np.ones((3, 3)))
     for i in range(n):
         rc = np.argwhere(lab == i + 1).astype(float)
         if len(rc) * CELL_M < CURB_MIN_LEN_M:
             continue
-        rc = _order(rc)
+        rc = _order(_to_steepest(rc, grad))
         xy = grid.xy(rc[:, 0], rc[:, 1])
         length = float(np.hypot(*np.diff(xy, axis=0).T).sum())
         if length < CURB_MIN_LEN_M:
@@ -371,6 +373,17 @@ def extract_curbs(xyz: np.ndarray) -> list[dict]:
                      {"n_points": len(rc), "length_m": round(length, 3), "points_per_m": round(len(rc) / length, 3)})
         )  # fmt: skip
     return curbs
+
+
+def _to_steepest(rc: np.ndarray, grad: np.ndarray, r: int = 4) -> np.ndarray:
+    """Move each edge cell to the steepest cell within r cells: the curb face, not the raised mask's edge."""
+    out = rc.copy()
+    for i, (y, x) in enumerate(rc.astype(int)):
+        y0, x0 = max(y - r, 0), max(x - r, 0)
+        win = grad[y0 : y + r + 1, x0 : x + r + 1]
+        dy, dx = np.unravel_index(int(np.argmax(win)), win.shape)
+        out[i] = (y0 + dy, x0 + dx)
+    return np.unique(out, axis=0)
 
 
 def _order(rc: np.ndarray) -> np.ndarray:
