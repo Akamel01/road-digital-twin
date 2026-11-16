@@ -11,115 +11,176 @@ Render uses north-up binning: col=floor((x-x0)/cell), row=side-1-floor((y-y0)/ce
 
 from __future__ import annotations
 
+import warnings
+from dataclasses import dataclass
+
 import numpy as np
+from numpy.lib.stride_tricks import sliding_window_view
+from scipy import ndimage
 
 CELL_M = 0.25
 WINDOW_HALF_CELLS = 12
+WINDOW_SIZE = WINDOW_HALF_CELLS * 2 + 1  # 25
+WINDOW_CELLS = WINDOW_SIZE * WINDOW_SIZE
 N_ROAD = 25
 
-# (value_m, r,g,b)
-_STOPS: list[tuple[float, int, int, int]] = [
-    (0.0, 0x0F, 0x14, 0x33),
-    (0.0625, 0x1A, 0x59, 0xA6),
-    (0.125, 0x26, 0xB3, 0x8C),
-    (0.1875, 0xF2, 0xD9, 0x33),
-    (0.25, 0xFF, 0xFF, 0xFF),
-]
+_STOPS_X = np.array([0.0, 0.0625, 0.125, 0.1875, 0.25], dtype=np.float64)
+_STOPS_RGB = np.array(
+    [
+        [0x0F, 0x14, 0x33],
+        [0x1A, 0x59, 0xA6],
+        [0x26, 0xB3, 0x8C],
+        [0xF2, 0xD9, 0x33],
+        [0xFF, 0xFF, 0xFF],
+    ],
+    dtype=np.float64,
+)
+
+
+@dataclass
+class HeightField:
+    h: np.ndarray  # (ny, nx) float64, NaN=no-data
+    ix0: int
+    iy0: int
+
+    def value(self, ix: int, iy: int) -> float | None:
+        x = ix - self.ix0
+        y = iy - self.iy0
+        if x < 0 or y < 0 or y >= self.h.shape[0] or x >= self.h.shape[1]:
+            return None
+        v = float(self.h[y, x])
+        return None if not np.isfinite(v) else v
 
 
 def _lattice_index(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    ix = np.floor(x / CELL_M).astype(np.int64)
-    iy = np.floor(y / CELL_M).astype(np.int64)
+    ix = np.floor(np.asarray(x, dtype=np.float64) / CELL_M).astype(np.int64)
+    iy = np.floor(np.asarray(y, dtype=np.float64) / CELL_M).astype(np.int64)
     return ix, iy
 
 
-def bin_points_to_25cm_means(
-    x: np.ndarray, y: np.ndarray, z: np.ndarray
-) -> dict[tuple[int, int], float]:
-    """Per-drive 25cm lattice mean height. Defined if >=1 point in cell."""
+def _drive_grid(
+    x: np.ndarray, y: np.ndarray, z: np.ndarray, ix0: int, iy0: int, nx: int, ny: int
+) -> tuple[np.ndarray, np.ndarray]:
+    x = np.asarray(x, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64)
+    z = np.asarray(z, dtype=np.float64)
+    grid = np.full((ny, nx), np.nan, dtype=np.float64)
+    defined = np.zeros((ny, nx), dtype=bool)
     if len(x) == 0:
-        return {}
-    ix, iy = _lattice_index(x.astype(np.float64), y.astype(np.float64))
-    zf = z.astype(np.float64)
-    keys = np.column_stack([ix, iy])
-    # stable unique keys + sums/counts
-    uniq, inv = np.unique(keys, axis=0, return_inverse=True)
-    sums = np.bincount(inv, weights=zf, minlength=len(uniq))
-    counts = np.bincount(inv, minlength=len(uniq))
-    means: dict[tuple[int, int], float] = {}
-    for k, s, c in zip(uniq.tolist(), sums.tolist(), counts.tolist()):
-        if c >= 1:
-            means[(int(k[0]), int(k[1]))] = float(s / c)
-    return means
+        return grid, defined
+    ix, iy = _lattice_index(x, y)
+    gx = ix - ix0
+    gy = iy - iy0
+    valid = (gx >= 0) & (gx < nx) & (gy >= 0) & (gy < ny)
+    if not np.any(valid):
+        return grid, defined
+    gx = gx[valid]
+    gy = gy[valid]
+    zv = z[valid]
+    flat = gy * nx + gx
+    n = ny * nx
+    sums = np.bincount(flat, weights=zv, minlength=n)
+    counts = np.bincount(flat, minlength=n)
+    has = counts >= 1
+    means = np.full(n, np.nan, dtype=np.float64)
+    means[has] = sums[has] / counts[has]
+    grid = means.reshape((ny, nx))
+    defined = has.reshape((ny, nx))
+    return grid, defined
 
 
-# (removed unused dataclass)
+def _nan_percentile_linear_last(vals: np.ndarray, p: float) -> np.ndarray:
+    """Percentile p of defined (non-nan) values along last axis, linear method.
+    Assumes each row has >=1 defined value."""
+    # sort puts nans at end
+    s = np.sort(vals, axis=-1)
+    valid = np.isfinite(s)
+    n = valid.sum(axis=-1)  # shape prefix
+    # index in valid prefix: (n-1)*p/100
+    idxf = (n.astype(np.float64) - 1.0) * (p / 100.0)
+    i0 = np.floor(idxf).astype(np.int64)
+    i1 = np.ceil(idxf).astype(np.int64)
+    i1 = np.minimum(i1, n - 1)
+    # gather
+    prefix_shape = vals.shape[:-1]
+    flat_s = s.reshape(-1, s.shape[-1])
+    flat_i0 = i0.reshape(-1)
+    flat_i1 = i1.reshape(-1)
+    rows = np.arange(flat_s.shape[0])
+    v0 = flat_s[rows, flat_i0]
+    v1 = flat_s[rows, flat_i1]
+    frac = (idxf.reshape(-1) - flat_i0.astype(np.float64))
+    out = v0 + (v1 - v0) * frac
+    return out.reshape(prefix_shape)
 
 
 def compute_height_above_road(
     drive_points: list[tuple[np.ndarray, np.ndarray, np.ndarray]],
-) -> dict[tuple[int, int], float]:
+) -> HeightField:
     """Compute build-wide H (meters above road) from one or more drives.
 
     drive_points: list of (x,y,z) arrays per drive (EPSG:32619 meters).
-    Returns map (ix,iy)->H for defined cells; missing means no-data.
+    Returns HeightField; NaN means no-data.
     """
     if not drive_points:
-        return {}
-    drive_means = [bin_points_to_25cm_means(x, y, z) for x, y, z in drive_points]
+        return HeightField(np.zeros((0, 0), dtype=np.float64), 0, 0)
 
-    # union of all lattice cells present
-    all_cells: set[tuple[int, int]] = set()
-    for dm in drive_means:
-        all_cells.update(dm.keys())
-    if not all_cells:
-        return {}
+    bounds_ix: list[int] = []
+    bounds_iy: list[int] = []
+    norm: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
+    for x, y, z in drive_points:
+        xa = np.asarray(x, dtype=np.float64)
+        ya = np.asarray(y, dtype=np.float64)
+        za = np.asarray(z, dtype=np.float64)
+        norm.append((xa, ya, za))
+        if len(xa):
+            ix, iy = _lattice_index(xa, ya)
+            bounds_ix.extend([int(ix.min()), int(ix.max())])
+            bounds_iy.extend([int(iy.min()), int(iy.max())])
+    if not bounds_ix:
+        return HeightField(np.zeros((0, 0), dtype=np.float64), 0, 0)
 
-    h_map: dict[tuple[int, int], float] = {}
-    for cell in all_cells:
-        deltas: list[float] = []
-        for dm in drive_means:
-            if cell not in dm:
-                continue
-            mean_d = dm[cell]
-            cx, cy = cell
-            # build window population of defined cell means for this drive
-            pop: list[float] = []
-            for dx in range(-WINDOW_HALF_CELLS, WINDOW_HALF_CELLS + 1):
-                for dy in range(-WINDOW_HALF_CELLS, WINDOW_HALF_CELLS + 1):
-                    nk = (cx + dx, cy + dy)
-                    if nk in dm:
-                        pop.append(dm[nk])
-            if len(pop) < N_ROAD:
-                continue
-            road_d = float(np.percentile(np.asarray(pop, dtype=np.float64), 10, method="linear"))
-            deltas.append(mean_d - road_d)
-        if not deltas:
+    ix0, ix1 = min(bounds_ix), max(bounds_ix)
+    iy0, iy1 = min(bounds_iy), max(bounds_iy)
+    nx = ix1 - ix0 + 1
+    ny = iy1 - iy0 + 1
+
+    pad = WINDOW_HALF_CELLS
+    deltas: list[np.ndarray] = []
+    for xa, ya, za in norm:
+        mean_grid, defined = _drive_grid(xa, ya, za, ix0, iy0, nx, ny)
+        delta = np.full((ny, nx), np.nan, dtype=np.float64)
+        if not np.any(defined):
+            deltas.append(delta)
             continue
-        h_map[cell] = float(np.mean(np.asarray(deltas, dtype=np.float64)))
-    return h_map
+        support = ndimage.uniform_filter(
+            defined.astype(np.float64), size=WINDOW_SIZE, mode="constant", cval=0.0
+        ) * WINDOW_CELLS
+        road_ok = (support >= N_ROAD) & defined
+        if np.any(road_ok):
+            pad_mean = np.pad(mean_grid, pad, mode="constant", constant_values=np.nan)
+            pad_def = np.pad(defined, pad, mode="constant", constant_values=False)
+            win_mean = sliding_window_view(pad_mean, (WINDOW_SIZE, WINDOW_SIZE))
+            win_def = sliding_window_view(pad_def, (WINDOW_SIZE, WINDOW_SIZE))
+            wm = win_mean.reshape(ny, nx, WINDOW_CELLS)
+            wd = win_def.reshape(ny, nx, WINDOW_CELLS)
+            vals = np.where(wd, wm, np.nan)
+            road = _nan_percentile_linear_last(vals, 10.0)
+            delta[road_ok] = mean_grid[road_ok] - road[road_ok]
+        deltas.append(delta)
 
-
-def _lerp_color(v: float) -> tuple[int, int, int]:
-    # v in [0,0.25]
-    if v <= _STOPS[0][0]:
-        return (_STOPS[0][1], _STOPS[0][2], _STOPS[0][3])
-    if v >= _STOPS[-1][0]:
-        return (_STOPS[-1][1], _STOPS[-1][2], _STOPS[-1][3])
-    for i in range(len(_STOPS) - 1):
-        v0, r0, g0, b0 = _STOPS[i]
-        v1, r1, g1, b1 = _STOPS[i + 1]
-        if v <= v1:
-            t = (v - v0) / (v1 - v0) if v1 > v0 else 0.0
-            r = round(r0 + (r1 - r0) * t)
-            g = round(g0 + (g1 - g0) * t)
-            b = round(b0 + (b1 - b0) * t)
-            return (r, g, b)
-    return (_STOPS[-1][1], _STOPS[-1][2], _STOPS[-1][3])
+    stack = np.stack(deltas, axis=0)
+    all_nan = np.all(~np.isfinite(stack), axis=0)
+    all_nan = np.all(~np.isfinite(stack), axis=0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        h = np.nanmean(stack, axis=0)
+    h = np.where(all_nan, np.nan, h)
+    return HeightField(h, ix0, iy0)
 
 
 def render_height_rgba(
-    h_map: dict[tuple[int, int], float],
+    h_map: HeightField,
     x0: float,
     y0: float,
     cell: float,
@@ -129,24 +190,27 @@ def render_height_rgba(
     col=floor((x-x0)/cell), row=side-1-floor((y-y0)/cell). Nearest-containing 25cm cell.
     """
     out = np.zeros((side, side, 4), dtype=np.uint8)
-    if side <= 0:
+    if side <= 0 or h_map.h.size == 0:
         return out
-    # iterate pixels by centers
-    for row in range(side):
-        for col in range(side):
-            x = x0 + (col + 0.5) * cell
-            y = y0 + (side - 1 - row + 0.5) * cell
-            ix = int(np.floor(x / CELL_M))
-            iy = int(np.floor(y / CELL_M))
-            key = (ix, iy)
-            if key not in h_map:
-                continue
-            h = float(h_map[key])
-            h = max(h, 0.0)
-            h = min(0.25, h)
-            r, g, b = _lerp_color(h)
-            out[row, col, 0] = np.uint8(r)
-            out[row, col, 1] = np.uint8(g)
-            out[row, col, 2] = np.uint8(b)
-            out[row, col, 3] = np.uint8(255)
+    cols = np.arange(side)
+    rows = np.arange(side)
+    px = x0 + (cols + 0.5) * cell
+    py = y0 + (side - 1 - rows + 0.5) * cell
+    ix = np.floor(px / CELL_M).astype(np.int64) - h_map.ix0
+    iy = np.floor(py / CELL_M).astype(np.int64) - h_map.iy0
+    ixg, iyg = np.meshgrid(ix, iy)
+    inside = (iyg >= 0) & (iyg < h_map.h.shape[0]) & (ixg >= 0) & (ixg < h_map.h.shape[1])
+    vals = np.full((side, side), np.nan, dtype=np.float64)
+    vals[inside] = h_map.h[iyg[inside], ixg[inside]]
+    valid = np.isfinite(vals)
+    if not np.any(valid):
+        return out
+    hv = np.clip(vals[valid], 0.0, 0.25)
+    r = np.interp(hv, _STOPS_X, _STOPS_RGB[:, 0])
+    g = np.interp(hv, _STOPS_X, _STOPS_RGB[:, 1])
+    b = np.interp(hv, _STOPS_X, _STOPS_RGB[:, 2])
+    out[valid, 0] = np.rint(r).astype(np.uint8)
+    out[valid, 1] = np.rint(g).astype(np.uint8)
+    out[valid, 2] = np.rint(b).astype(np.uint8)
+    out[valid, 3] = 255
     return out
