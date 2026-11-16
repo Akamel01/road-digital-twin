@@ -96,7 +96,7 @@ STAGES: dict[str, StageSpec] = {
         number=5,
         methods=("intensity", "raster"),
         requires=("ground",),
-        outputs=("markings.geojson", "crosswalks.geojson", "curbs.geojson"),
+        outputs=("markings.geojson", "crosswalks.geojson", "curbs.geojson", "ramps.geojson"),
         optional=False,
     ),
     "colour": StageSpec(
@@ -215,6 +215,22 @@ class CurbsParams(_Strict):
     step_max_m: float = Field(0.25, ge=0.1, le=0.5)
 
 
+class RampsParams(_Strict):
+    enabled: bool = True
+    gap_min_m: float = Field(1.0, ge=0.1, le=5.0)
+    gap_max_m: float = Field(3.0, ge=0.5, le=10.0)
+    height_step_max_m: float = Field(0.02, ge=0.001, le=0.1)
+    crosswalk_end_m: float = Field(3.0, ge=0.5, le=20.0)
+    measure_cell_m: float = Field(0.25, ge=0.05, le=2.0)
+    min_measure_cells: int = Field(4, ge=1, le=1000)
+
+    @model_validator(mode="after")
+    def _gap_order(self) -> "RampsParams":
+        if self.gap_min_m > self.gap_max_m:
+            raise ValueError("gap_min_m must be <= gap_max_m")
+        return self
+
+
 class FeaturesParams(_Strict):
     intensity_pct: float = Field(95.0, ge=50, le=99.9)
     cluster_eps_m: float = Field(0.3, ge=0.05, le=2)
@@ -224,6 +240,7 @@ class FeaturesParams(_Strict):
     lidarseg_flat_share: float = Field(0.8, ge=0, le=1)
     lidarseg_min_points: int = Field(10, ge=1, le=1000)
     curbs: CurbsParams = Field(default_factory=CurbsParams)
+    ramps: RampsParams = Field(default_factory=RampsParams)
 
 
 class ColourParams(_Strict):
