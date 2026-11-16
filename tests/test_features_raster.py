@@ -47,8 +47,8 @@ def test_dashes_chain_into_one_line():
 def test_ladder_crosswalk_is_one_polygon():
     # Rails along x at y = 0 and y = 3 (20 cm), bars 40 cm wide every 1 m between them, 8 m across.
     xs, ys = _grid(-2, 10, -2, 5)
-    rails = lambda x, y: ((np.abs(y) < 0.1) | (np.abs(y - 3) < 0.1)) & (x >= 0) & (x <= 8)  # noqa: E731
-    bars = lambda x, y: ((x % 1.0) < 0.4) & (y >= 0) & (y <= 3) & (x >= 0) & (x <= 8)  # noqa: E731
+    rails = lambda x, y: ((np.abs(y) < 0.1) | (np.abs(y - 3) < 0.1)) & (x >= 0) & (x <= 8)
+    bars = lambda x, y: ((x % 1.0) < 0.4) & (y >= 0) & (y <= 3) & (x >= 0) & (x <= 8)
     pts = _ground(xs, ys, lambda x, y: rails(x, y) | bars(x, y))
     markings, crosswalks, _ = fr.extract(pts)
     assert len(crosswalks) == 1
