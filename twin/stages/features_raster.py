@@ -26,6 +26,9 @@ LINE_MAX_W_M = 0.30
 BAR_MAX_W_M = 0.90
 LINE_MIN_LEN_M = 1.0
 COMB_MIN_BARS = 3  # a ladder crosswalk is one component: rails joined by 3+ bars
+COMB_LEN_M = (3.0,)  # spans at least one lane
+COMB_WID_M = (1.5, 5.0)  # crosswalk width (bar length)
+COMB_PITCH_M = (0.5, 1.6)
 BAR_MIN_LEN_M = 1.2
 BIN_M = 1.0  # cross-section spacing along a line
 SIMPLIFY_M = 0.02
@@ -148,10 +151,18 @@ def centreline(comp: dict, weight: np.ndarray) -> np.ndarray:
 def _bars_across(comp: dict) -> int:
     """Bars in a comb-shaped component: runs of the pixel profile along its long axis above half the peak
     (rails add a low constant, each bar a tall peak)."""
+    if not (COMB_LEN_M[0] <= comp["len"] and COMB_WID_M[0] <= comp["wid"] <= COMB_WID_M[1]):
+        return 0
     t = np.round(comp["t"]).astype(int)
     prof = np.bincount(t - t.min())
-    high = prof > 0.5 * prof.max()
-    return int(np.count_nonzero(np.diff(high.astype(int)) == 1) + high[0])
+    high = np.concatenate([[False], prof > 0.5 * prof.max(), [False]])
+    starts = np.flatnonzero(np.diff(high.astype(int)) == 1)
+    if len(starts) < COMB_MIN_BARS:
+        return 0
+    gap = np.diff(starts) * CELL_M  # bar pitch, MUTCD continental/ladder about 0.6-1.5 m
+    if not (COMB_PITCH_M[0] <= np.median(gap) <= COMB_PITCH_M[1]) or gap.std() > 0.35 * gap.mean():
+        return 0
+    return len(starts)
 
 
 def _chain_dashes(lines: list[dict]) -> list[list[int]]:
