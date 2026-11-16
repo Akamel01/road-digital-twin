@@ -9,6 +9,7 @@ smoothed with a B-spline.
 
 from __future__ import annotations
 
+import itertools
 from typing import Any
 
 import numpy as np
@@ -29,6 +30,7 @@ COMB_MIN_BARS = 3  # a ladder crosswalk is one component: rails joined by 3+ bar
 COMB_LEN_M = (3.0,)  # spans at least one lane
 COMB_WID_M = (1.5, 5.0)  # crosswalk width (bar length)
 COMB_PITCH_M = (0.5, 1.6)
+CROSS_MERGE_M = 1.0
 BAR_MIN_LEN_M = 1.2
 BIN_M = 1.0  # cross-section spacing along a line
 SIMPLIFY_M = 0.02
@@ -102,7 +104,7 @@ def paint_mask(intensity: np.ndarray, road: np.ndarray | None = None) -> tuple[n
     # One-cell gaps between scan lines are filled from neighbours so stripes stay whole.
     filled = np.where(ok, norm, _nan_smooth(norm, 1.0))
     filled = np.nan_to_num(filled, nan=0.0)
-    k = int(round(TOPHAT_M / CELL_M)) | 1
+    k = round(TOPHAT_M / CELL_M) | 1
     tophat = filled - ndimage.grey_opening(filled, size=(k, k))
     near = ndimage.binary_dilation(ok, iterations=1) & road
     t = tophat[near]
@@ -138,7 +140,7 @@ def centreline(comp: dict, weight: np.ndarray) -> np.ndarray:
     step = BIN_M / CELL_M
     edges = np.arange(t.min(), t.max() + step, step)
     pts = []
-    for a, b in zip(edges[:-1], edges[1:], strict=False):
+    for a, b in itertools.pairwise(edges):
         k = (t >= a) & (t <= b)
         if k.sum() < 3:
             continue
@@ -146,6 +148,24 @@ def centreline(comp: dict, weight: np.ndarray) -> np.ndarray:
     ends = [c + u * t.min() + n * float(np.average(s, weights=w)), c + u * t.max() + n * float(np.average(s, weights=w))]
     line = np.array([ends[0], *pts, ends[1]]) if pts else np.array(ends)
     return line[np.argsort((line - c) @ u)]
+
+
+def _merge_crosswalks(cws: list[dict]) -> list[dict]:
+    """One crosswalk per crossing: pieces within CROSS_MERGE_M of each other become their convex hull."""
+    polys = [shapely.Polygon([c[:2] for c in f["geometry"]["coordinates"][0]]) for f in cws]
+    k = len(polys)
+    adj = np.array([[polys[i].distance(polys[j]) <= CROSS_MERGE_M for j in range(k)] for i in range(k)], bool)
+    n, lab = _graph_components(adj) if k else (0, [])
+    out = []
+    for g in range(n):
+        idx = [i for i in range(k) if lab[i] == g]
+        hull = shapely.union_all([polys[i] for i in idx]).convex_hull
+        zc = float(np.median([cws[i]["geometry"]["coordinates"][0][0][2] for i in idx]))
+        props = {"n_points": sum(cws[i]["properties"]["n_points"] for i in idx),
+                 "stripes": sum(cws[i]["properties"]["stripes"] for i in idx), "area_m2": round(float(hull.area), 3)}  # fmt: skip
+        out.append(_feature("crosswalk", f"crosswalk-{len(out) + 1:04d}", "Polygon",
+                            [[[x, y, zc] for x, y in mapping(hull)["coordinates"][0]]], props))  # fmt: skip
+    return out
 
 
 def _bars_across(comp: dict) -> int:
@@ -231,7 +251,7 @@ def extract(xyzi: np.ndarray) -> tuple[list[dict], list[dict], dict]:
         crosswalks.append(
             _feature("crosswalk", f"crosswalk-{len(crosswalks) + 1:04d}", "Polygon",
                      [[[x, y, zc] for x, y in mapping(hull)["coordinates"][0]]],
-                     {"n_points": int(len(comb["rc"])), "stripes": _bars_across(comb), "area_m2": round(float(hull.area), 3)})
+                     {"n_points": len(comb["rc"]), "stripes": _bars_across(comb), "area_m2": round(float(hull.area), 3)})
         )  # fmt: skip
     for g in range(n_groups):
         members = np.flatnonzero(glab == g)
@@ -248,9 +268,11 @@ def extract(xyzi: np.ndarray) -> tuple[list[dict], list[dict], dict]:
         crosswalks.append(
             _feature("crosswalk", f"crosswalk-{len(crosswalks) + 1:04d}", "Polygon",
                      [[[x, y, zc] for x, y in mapping(hull)["coordinates"][0]]],
-                     {"n_points": int(len(rc)), "stripes": int(len(members)), "area_m2": round(float(hull.area), 3)})
+                     {"n_points": len(rc), "stripes": len(members), "area_m2": round(float(hull.area), 3)})
         )  # fmt: skip
         used_bars.update(members.tolist())
+
+    crosswalks = _merge_crosswalks(crosswalks)
 
     # Lines (and bars that are not part of a crosswalk, i.e. stop lines) become centre lines.
     singles = [lines[i] for i in range(len(lines)) if i not in used_lines]
@@ -346,7 +368,7 @@ def extract_curbs(xyz: np.ndarray) -> list[dict]:
         curbs.append(
             _feature("curb", f"curb-{len(curbs) + 1:04d}", "LineString",
                      [[float(x), float(y), float(zz)] for (x, y), zz in zip(sm, zs, strict=True)],
-                     {"n_points": int(len(rc)), "length_m": round(length, 3), "points_per_m": round(len(rc) / length, 3)})
+                     {"n_points": len(rc), "length_m": round(length, 3), "points_per_m": round(len(rc) / length, 3)})
         )  # fmt: skip
     return curbs
 

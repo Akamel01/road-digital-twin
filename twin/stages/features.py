@@ -27,8 +27,8 @@ from shapely.ops import unary_union
 
 from twin.contracts import CurbsParams, FeaturesParams, SelectParams, StageResult
 from twin.registry import register
-from twin.stages import features_raster
 from twin.select import go, paint_contrast, road_density
+from twin.stages import features_raster
 
 OUTPUT_FILES = ("markings.geojson", "crosswalks.geojson", "qa.json")
 # Lidarseg gate. DECISION: ground.laz does not carry the lidarseg label (align and ground are separate stages), so
