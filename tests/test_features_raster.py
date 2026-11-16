@@ -145,32 +145,24 @@ def test_raster_method_keeps_intensity_markings(tmp_path):
 # ---- ramps (M3)
 
 def _synthetic_ramp_cloud(with_gap=True, gap_x=4.0, width=1.5, run_m=1.5, h=0.125):
-    # Synthetic: road at z=0 (y < curb_y), sidewalk at z=h (y >= curb_y). Ramp at 1:12 (1.5m run, 0.125m rise)
-    # with flares; small flat landing at curb line keeps local height step low for candidate detection.
+    # Synthetic 1.5 m ramp at 1:12 with flares: road z=0, sidewalk z=h, ramp rises over run_m.
     xs = np.arange(0, 12, 0.1)
-    ys = np.arange(-3, 4, 0.1)
+    ys = np.arange(-3, 2.2, 0.1)
     gx, gy = np.meshgrid(xs, ys)
     x, y = gx.ravel(), gy.ravel()
     curb_y = 0.4
     z = np.where(y >= curb_y, h, 0.0)
     if with_gap:
-        # ramp body: slopes up over sidewalk from curb_y+flat to curb_y+run_m
-        flat = 0.2
-        t = np.clip((y - (curb_y + flat)) / max(run_m - flat, 1e-6), 0.0, 1.0)
-        ramp_z = t * h
-        ramp_zone = (x >= gap_x) & (x <= gap_x + width) & (y >= curb_y) & (y <= curb_y + run_m)
-        z = np.where(ramp_zone, np.where(y <= curb_y + flat, 0.0, ramp_z), z)
-        # small flat lip at edges to keep local step low for detection at boundaries
-        lip = (x >= gap_x - 0.05) & (x <= gap_x + width + 0.05) & (y >= curb_y - 0.05) & (y <= curb_y + flat)
-        z = np.where(lip & (y >= curb_y), 0.0, z)
-        # flares
+        ramp_zone = (x >= gap_x) & (x <= gap_x + width) & (y >= curb_y)
+        t = np.clip((y - curb_y) / run_m, 0.0, 1.0)
+        z = np.where(ramp_zone, t * h, z)
         for side, sign in ((gap_x, -1), (gap_x + width, 1)):
-            fx_in = (x >= side - 0.6) & (x < side) if sign < 0 else (x > side) & (x <= side + 0.6)
-            m = fx_in & (y >= curb_y) & (y <= curb_y + run_m)
+            fx = (x >= side - 0.6) & (x < side) if sign < 0 else (x > side) & (x <= side + 0.6)
+            m = fx & (y >= curb_y)
             xt = np.clip(np.abs(x[m] - side) / 0.6, 0.0, 1.0)
-            yt = np.clip((y[m] - (curb_y + flat)) / max(run_m - flat, 1e-6), 0.0, 1.0)
-            edge = np.where(y[m] <= curb_y + flat, 0.0, yt * h)
-            z[m] = edge + xt * (h - edge)
+            yt = np.clip((y[m] - curb_y) / run_m, 0.0, 1.0)
+            ramp_edge = yt * h
+            z[m] = xt * h + (1.0 - xt) * ramp_edge
     return np.column_stack([x, y, z])
 
 
@@ -178,13 +170,11 @@ def _ramp_inputs(with_gap=True, with_crosswalk=True, gap_x=4.0, width=1.5):
     pts = _synthetic_ramp_cloud(with_gap=with_gap, gap_x=gap_x, width=width)
     curb_y = 0.4
     h = 0.125
-    # continuous curb line; low-step (z=0) along ramp width gives detected candidate width ~width
     if with_gap:
-        # uniform curb samples; low step (z=0) over [gap_x, gap_x+width] gives candidate width = width
         xs_c = np.arange(0.0, 12.0001, 0.25)
         dense = []
         for xx in xs_c:
-            zz = 0.0 if (gap_x - 1e-9 <= xx <= gap_x + width + 1e-9) else float(h)
+            zz = 0.0 if (gap_x <= xx <= gap_x + width) else float(h)
             dense.append([float(xx), curb_y, zz])
         curbs = [{"type": "Feature", "properties": {"id": "curb-0001", "kind": "curb"},
                   "geometry": {"type": "LineString", "coordinates": dense}}]
@@ -201,12 +191,7 @@ def _ramp_inputs(with_gap=True, with_crosswalk=True, gap_x=4.0, width=1.5):
 
 def test_ramp_at_crosswalk_width_and_slope():
     pts, curbs, cw = _ramp_inputs()
-    # synthetic 1.5m ramp at 1:12 with flares: boundary curb samples sit on 12.5cm edge so step~0.114cm
-    # in 35cm window; relax candidate threshold to include full 1.5m gap span.
-    ramps = fr.extract_ramps(pts, curbs, cw, params=type("P", (), {
-        "gap_min_m": 1.0, "gap_max_m": 3.0, "height_step_max_m": 0.12,
-        "crosswalk_end_m": 3.0, "measure_cell_m": 0.25, "min_measure_cells": 4,
-    })())
+    ramps = fr.extract_ramps(pts, curbs, cw)
     assert ramps, "expected a detected ramp"
     curb_ramps = [r for r in ramps if r["properties"]["kind"] == "curb_ramp"]
     assert curb_ramps, f"expected curb_ramp, got {[r['properties']['kind'] for r in ramps]}"

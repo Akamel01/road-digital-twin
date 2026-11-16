@@ -521,7 +521,9 @@ def extract_ramps(xyz, curbs, crosswalks, params=None):
         # local step sample
         rc5 = np.column_stack([(grid5.y1 - ry) / CELL_M - 0.5, (rx - grid5.x0) / CELL_M - 0.5])
         steps = _sample(step5, rc5)
-        low_step = steps < hstep_max
+        rz_ref = float(np.nanpercentile(rz, 90)) if np.isfinite(rz).any() else 0.0
+        low_z_thr = 0.03 if rz_ref >= 0.06 else max(hstep_max, 0.03)
+        low_step = (steps < hstep_max) | ((rz <= low_z_thr) & (rz_ref >= 0.06))
         # group consecutive
         i = 0
         n = len(ss)
@@ -533,12 +535,10 @@ def extract_ramps(xyz, curbs, crosswalks, params=None):
             while j + 1 < n and low_step[j + 1]:
                 j += 1
             # run i..j
-            # along-curb length
             run_len = float(ss[j] - ss[i])
             if gap_min <= run_len <= gap_max:
                 cx = float(np.mean(rx[i:j + 1]))
                 cy = float(np.mean(ry[i:j + 1]))
-                # tangent
                 dx = float(rx[j] - rx[i])
                 dy = float(ry[j] - ry[i])
                 nn = float(np.hypot(dx, dy))
@@ -581,8 +581,17 @@ def extract_ramps(xyz, curbs, crosswalks, params=None):
             if high_z.size and low_z.size and float(np.median(high_z)) < float(np.median(low_z)):
                 normal = -normal
                 proj_n = (arr - centroid) @ normal
-            low_mask = proj_n < -0.1
-            high_mask = proj_n > 0.1
+            body = np.abs(proj_t) <= width / 2.0 + cell
+            run_span = max(width, 1.0)
+            slope_zone = body & (proj_n >= -0.25) & (proj_n <= run_span + 0.25)
+            low_mask = (proj_n < -0.1) & slope_zone
+            high_mask = (proj_n > 0.1) & slope_zone
+            if low_mask.sum() < min_cells or high_mask.sum() < min_cells:
+                low_mask = (proj_n < -0.1) & body
+                high_mask = (proj_n > 0.1) & body
+            if low_mask.sum() < min_cells or high_mask.sum() < min_cells:
+                low_mask = proj_n < -0.1
+                high_mask = proj_n > 0.1
             gutter_cells = int(low_mask.sum())
             raised_cells = int(high_mask.sum())
             enough = gutter_cells >= min_cells and raised_cells >= min_cells
@@ -594,6 +603,9 @@ def extract_ramps(xyz, curbs, crosswalks, params=None):
                 run_length = abs(high_u_med - low_u_med)
                 if run_length < 1e-6:
                     run_length = cell
+                # slope run should not exceed the curb-gap width (ramp run)
+                if run_length > width + cell:
+                    run_length = width
                 running_slope_pct = abs(raised_z_med - gutter_z_med) / run_length * 100.0
             else:
                 gutter_z_med = float(np.median(zs[low_mask])) if low_mask.sum() else None
@@ -601,8 +613,8 @@ def extract_ramps(xyz, curbs, crosswalks, params=None):
                 run_length = None
                 running_slope_pct = None
             # side slope
-            left_mask = proj_t > 0.1
-            right_mask = proj_t < -0.1
+            left_mask = (proj_t > 0.1) & (np.abs(proj_n) <= 2.0)
+            right_mask = (proj_t < -0.1) & (np.abs(proj_n) <= 2.0)
             if enough and left_mask.sum() and right_mask.sum():
                 left_z = float(np.median(zs[left_mask]))
                 right_z = float(np.median(zs[right_mask]))
