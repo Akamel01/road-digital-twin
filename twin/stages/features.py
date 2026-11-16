@@ -66,6 +66,7 @@ CURB_CELL_M = 0.25
 # DECISION: curb-top points within this distance (m) of each other form one curb line.
 CURB_EPS_M = 0.5
 CURB_FILE = "curbs.geojson"
+RAMP_FILE = "ramps.geojson"
 # DECISION: non-ground points count as curb input when they are at most step_max_m + this (m) above the
 # ground surface. Ground's per-tile plane leaves a straddling sidewalk in nonground.laz. Taller
 # non-ground (cars, walls, poles) stays out.
@@ -584,6 +585,7 @@ def _run(ctx: Any, params: FeaturesParams, method: str) -> StageResult:
     counts["n_markings_by_type"] = type_markings(markings, reference)
     fc = lambda feats: json.dumps({"type": "FeatureCollection", "features": feats})
     curbs: list[dict] = []
+    ramps: list[dict] = []
     files = list(OUTPUT_FILES)
     if params.curbs.enabled:
         near = _near_ground_nonground(
@@ -597,6 +599,41 @@ def _run(ctx: Any, params: FeaturesParams, method: str) -> StageResult:
         )
         files.append(CURB_FILE)
         counts["n_curbs"] = len(curbs)
+        if method == "raster" and params.ramps.enabled:
+            crosswalks_for_ramps = crosswalks
+            ramps = features_raster.extract_ramps(
+                cloud, curbs, crosswalks_for_ramps, params.ramps
+            )
+            # Gate ramp status on the drive's height validity (M1/M2): when height is invalid,
+            # all slope fields are null and every ramp is indeterminate.
+            height_valid = ground_qa.get("height_valid", True)
+            if not height_valid:
+                for r in ramps:
+                    p = r["properties"]
+                    p["running_slope_pct"] = None
+                    p["side_slope_pct"] = None
+                    p["gutter_step_m"] = None
+                    p["running_slope_status"] = "indeterminate"
+                    p["side_slope_status"] = "indeterminate"
+                    p["gutter_step_status"] = "indeterminate"
+                    p["status"] = "indeterminate"
+            files.append(RAMP_FILE)
+            counts["n_ramps"] = len(ramps)
+            counts["n_curb_ramps"] = sum(
+                1 for r in ramps if r["properties"].get("kind") == "curb_ramp"
+            )
+            counts["n_driveway_or_ramp"] = sum(
+                1 for r in ramps if r["properties"].get("kind") == "driveway_or_ramp"
+            )
+            counts["n_ramps_ok"] = sum(
+                1 for r in ramps if r["properties"].get("status") == "ok"
+            )
+            counts["n_ramps_exceeds"] = sum(
+                1 for r in ramps if r["properties"].get("status") == "exceeds"
+            )
+            counts["n_ramps_indeterminate"] = sum(
+                1 for r in ramps if r["properties"].get("status") == "indeterminate"
+            )
     # Pose quality of the drive, copied onto every element so an auditor sees it per element.
     align_qa = json.loads((ctx.input_dir("align") / "qa.json").read_text())
     pose = {
@@ -604,7 +641,7 @@ def _run(ctx: Any, params: FeaturesParams, method: str) -> StageResult:
         "fallback_used": align_qa["fallback_used"],
         "xy_drift_p95_m": align_qa.get("xy_drift_p95_m"),
     }
-    for feat in (*markings, *crosswalks, *curbs):
+    for feat in (*markings, *crosswalks, *curbs, *ramps):
         feat["properties"]["pose"] = pose
     # Markings extractability: the select check (density plus paint contrast) on this drive's ground.
     density = road_density(xyz[:, :3], _measured_footprint(ground_dir))
@@ -617,6 +654,12 @@ def _run(ctx: Any, params: FeaturesParams, method: str) -> StageResult:
         (out / CURB_FILE).unlink(
             missing_ok=True
         )  # off means no curb file, even from an earlier pass
+    if params.curbs.enabled and params.ramps.enabled and method == "raster":
+        (out / RAMP_FILE).write_text(fc(ramps))
+    else:
+        (out / RAMP_FILE).unlink(
+            missing_ok=True
+        )  # off means no ramp file, even from an earlier pass
     qa = {
         "method": method,
         "intensity_pct": params.intensity_pct,
