@@ -1,8 +1,19 @@
 import copy
 import json
 
+import pytest
+
 from twin.cli import main
-from twin.gates import GO, NO_GO, NOT_MEASURED, evaluate, load_gates, render_markdown
+from twin.gates import (
+    GO,
+    NO_GO,
+    NOT_MEASURED,
+    GateReport,
+    evaluate,
+    g2_ratchet,
+    load_gates,
+    render_markdown,
+)
 
 GOOD = {
     "run_id": "20261109-000000-aaaaaa",
@@ -106,3 +117,28 @@ def test_cli_exit_codes_and_files(tmp_path, capsys):
     assert (tmp_path / "a" / "gates.json").exists()
     assert (tmp_path / "a" / "gates.md").exists()
     assert main(["eval", "a", "--store", str(tmp_path)]) == 1  # G1 not measured
+
+
+def _report(*checks):
+    return {"run_id": "r", "verdict": "no-go", "gates": {"G": {"checks": [dict(zip(("metric", "op", "threshold", "value", "status"), c)) for c in checks]}}}
+
+
+def test_gate_report_counts_margins_and_rooms():
+    rep = GateReport(_report(("a_p95_m", "<=", 0.2, 0.1, "go"), ("cov", ">=", 0.7, 0.35, "no-go"), ("n", "<=", 0, None, "not measured")))
+    assert (rep.passed, rep.total) == (1, 3)
+    assert rep.score() == 0.5 - 0.5
+    assert rep.rooms() == pytest.approx({"a_p95_m": 0.1, "cov": -0.35})
+    assert rep.values() == {"a_p95_m": 0.1, "cov": 0.35}
+    assert rep.check("cov").margin() == -0.5 and rep.check("missing") is None
+
+
+def test_zero_threshold_margin_is_pass_or_fail():
+    assert GateReport(_report(("n", "<=", 0, 0, "go"))).score() == 0
+    assert GateReport(_report(("n", "<=", 0, 4, "no-go"))).score() == -1
+
+
+def test_g2_ratchet_due_after_three_passes_in_a_row():
+    rows = [{"threshold": 0.2, "status": s} for s in ("no-go", "go", "go")]
+    assert g2_ratchet(rows) == {"threshold": 0.2, "passing_in_a_row": 2, "due": None}
+    assert g2_ratchet([*rows, {"threshold": 0.2, "status": "go"}])["due"] == 0.10
+    assert g2_ratchet([]) is None

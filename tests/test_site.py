@@ -4,6 +4,7 @@ import pytest
 
 from twin import jobqueue, site
 from twin.cli import main
+from twin.gates import GateReport
 
 
 def report(verdict="go", marking=0.2, cov=0.8):
@@ -237,7 +238,7 @@ def test_build_writes_parseable_status_with_check_counts(tmp_path, monkeypatch):
     site.build(["r1"], tmp_path, rep, web)
     status = json.loads((web / "public" / "showcase" / "status.json").read_text())  # the browser must parse it
     assert status["verdict"] == "no-go"
-    assert (status["checks_passed"], status["checks_total"]) == (site.go_count(rep), site.total_checks(rep))
+    assert (status["checks_passed"], status["checks_total"]) == (GateReport(rep).passed, GateReport(rep).total)
 
 
 def test_area_entry_rebuilds_from_recorded_runs_and_report(tmp_path):

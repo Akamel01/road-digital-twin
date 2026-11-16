@@ -28,11 +28,10 @@ import yaml
 
 from twin import jobqueue
 from twin.contracts import PARAM_STAGE, STAGE_NAMES, Params
-from twin.gates import GO, NO_GO, margin_score
+from twin.gates import GO, RANK, GateReport
 from twin.runner import RUN_ID_RE, default_store
 
 MAX_VARIANTS = 500
-RANK = {GO: 0, NO_GO: 2}  # anything else (not measured) ranks 1
 
 
 def _dim_values(path: str, spec: dict, grid: bool, rng: random.Random) -> list:
@@ -174,12 +173,12 @@ def leaderboard(store: Path, sweep_id: str) -> dict:
         ):
             waiting += job.get("state") not in ("done", "failed")
             continue
-        report = json.loads(gates.read_text())
+        report = GateReport.load(gates)
         rows.append(
             {
                 "run_id": job["run_id"],
-                "verdict": report["verdict"],
-                "score": margin_score(report),
+                "verdict": report.verdict,
+                "score": report.score(),
                 "overrides": var["overrides"],
                 "from_stage": var["from_stage"],
             }
@@ -197,7 +196,7 @@ def leaderboard(store: Path, sweep_id: str) -> dict:
         "",
         (
             f"{len(rows)} scored, {waiting} still queued or running. "
-            "Rank: verdict, then margin score (twin.gates.margin_score)."
+            "Rank: verdict, then margin score (twin.gates.GateReport.score)."
         ),
         "",
         "| # | Verdict | Score | Run | Changed from | Overrides |",
