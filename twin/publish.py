@@ -16,6 +16,7 @@ from twin.runner import default_store
 from twin.tiles import TILE, write_tiles
 
 MAX_FILE_BYTES = 25 * 1024 * 1024  # Pages limit per file
+INTENSITY_WHITE = 60  # nuScenes ground LAZ intensity white point (P99.5 ~59, max 110, run 20261115-183951-13e4b7)
 MAX_FILES = 20_000  # Pages limit per build, exclusive
 FALLBACK_GSD_M = 0.1  # raster cell when the colour stage did not run
 MAX_ZOOM = (
@@ -96,7 +97,7 @@ def _rasters(
     """Lidar intensity, orthoimage and coverage on one square grid over the ground points."""
     las = laspy.read(_stage(run_dir, "ground") / "ground.laz")
     x, y = np.asarray(las.x), np.asarray(las.y)
-    intensity = np.asarray(las.intensity, dtype=np.float64) / 65535
+    intensity = np.clip(np.asarray(las.intensity, dtype=np.float64) / INTENSITY_WHITE, 0.0, 1.0)
     gsd = _gsd(manifest)
     x0, y0 = float(x.min()), float(y.min())
     extent = max(float(x.max()) - x0, float(y.max()) - y0, gsd)
