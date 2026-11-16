@@ -54,9 +54,9 @@ RAMP_HEIGHT_STEP_MAX_M = 0.02
 RAMP_CROSSWALK_END_M = 3.0
 RAMP_MEASURE_CELL_M = 0.25
 RAMP_MIN_MEASURE_CELLS = 4
-RUNNING_SLOPE_MAX_PCT = 8.33
-SIDE_SLOPE_MAX_PCT = 10.0
-GUTTER_STEP_MAX_M = 0.006
+RUNNING_SLOPE_MAX_PCT = 8.33  # TODO(clause): ADA 405.2 running slope max 8.33%
+SIDE_SLOPE_MAX_PCT = 10.0  # TODO(clause): ADA 405.3 cross slope max 10.0%
+GUTTER_STEP_MAX_M = 0.006  # TODO(clause): gutter step max 6 mm
 
 
 class Grid:
@@ -433,8 +433,8 @@ def _default_ramps_params():
 def extract_ramps(xyz, curbs, crosswalks, params=None):
     """Curb ramps (Point) from ground (plus near-ground) points and raster curb LineStrings.
 
-    A ramp is a 1-3 m gap in a curb where the height step is < 2 cm. Measurements are taken on a
-    RAMP_MEASURE_CELL_M grid; status is ok/exceeds/indeterminate per check plus a roll-up.
+    Candidate = 1-3 m curb run where the local height step < 2 cm (resampled curb).
+    Measurements on a 25 cm grid (median z per cell, _nan_smooth hole-fill).
     """
     if params is None:
         params = _default_ramps_params()
@@ -443,6 +443,7 @@ def extract_ramps(xyz, curbs, crosswalks, params=None):
     crosswalk_end = getattr(params, "crosswalk_end_m", RAMP_CROSSWALK_END_M) if params is not None else RAMP_CROSSWALK_END_M
     cell = getattr(params, "measure_cell_m", RAMP_MEASURE_CELL_M) if params is not None else RAMP_MEASURE_CELL_M
     min_cells = getattr(params, "min_measure_cells", RAMP_MIN_MEASURE_CELLS) if params is not None else RAMP_MIN_MEASURE_CELLS
+    hstep_max = getattr(params, "height_step_max_m", RAMP_HEIGHT_STEP_MAX_M) if params is not None else RAMP_HEIGHT_STEP_MAX_M
 
     pts = np.asarray(xyz, dtype=float)
     if pts.size == 0:
@@ -457,53 +458,36 @@ def extract_ramps(xyz, curbs, crosswalks, params=None):
     curbs = curbs or []
     crosswalks = crosswalks or []
 
-    # curb endpoints with their tangent (pointing along the curb)
-    ends = []  # (xy, tangent, curb_index)
-    for ci, curb in enumerate(curbs):
-        try:
-            coords = np.asarray(curb["geometry"]["coordinates"], dtype=float)
-        except Exception:
-            continue
-        if coords.ndim != 2 or len(coords) < 2:
-            continue
-        t0 = coords[1, :2] - coords[0, :2]
-        n0 = float(np.linalg.norm(t0))
-        t0 = t0 / n0 if n0 > 0 else np.array([1.0, 0.0])
-        t1 = coords[-1, :2] - coords[-2, :2]
-        n1 = float(np.linalg.norm(t1))
-        t1 = t1 / n1 if n1 > 0 else np.array([1.0, 0.0])
-        ends.append((coords[0, :2].copy(), t0, ci))
-        ends.append((coords[-1, :2].copy(), t1, ci))
+    # 5 cm height raster + local step (for candidate detection)
+    grid5 = Grid(pxy)
+    z5 = _nan_smooth(grid5.mean(pts[:, 2]), 1.5)
+    zf5 = np.nan_to_num(z5, nan=float(np.nanmedian(z5)) if np.isfinite(z5).any() else 0.0)
+    step5 = ndimage.maximum_filter(zf5, size=7) - ndimage.minimum_filter(zf5, size=7)
 
-    # candidate gaps between endpoints of distinct curbs that face each other
-    cands = []  # (centroid xy, width)
-    seen_pairs = set()
-    for i in range(len(ends)):
-        for j in range(i + 1, len(ends)):
-            ci, cj = ends[i][2], ends[j][2]
-            if ci == cj:
-                continue
-            p1, t1v = ends[i][0], ends[i][1]
-            p2, t2v = ends[j][0], ends[j][1]
-            v = p2 - p1
-            d = float(np.linalg.norm(v))
-            if d < gap_min or d > gap_max:
-                continue
-            key = (min(ci, cj), max(ci, cj), round(p1[0], 2), round(p1[1], 2), round(p2[0], 2), round(p2[1], 2))
-            if key in seen_pairs:
-                continue
-            # tangents must be roughly opposite (gap along the curb)
-            if float(np.dot(t1v, t2v)) > -0.3:
-                continue
-            # lateral offset must be small
-            u = v / d
-            perp = abs(float(v[0] * (-t1v[1]) + v[1] * t1v[0]))
-            if perp > 0.5:
-                continue
-            seen_pairs.add(key)
-            cands.append((0.5 * (p1 + p2), d))
+    # 25 cm measurement grid: median z per cell, _nan_smooth hole-fill
+    xmin, ymin = float(pxy[:, 0].min()), float(pxy[:, 1].min())
+    xmax, ymax = float(pxy[:, 0].max()), float(pxy[:, 1].max())
+    mw = int((xmax - xmin) / cell) + 1
+    mh = int((ymax - ymin) / cell) + 1
+    meas = np.full((mh, mw), np.nan)
+    counts = np.zeros((mh, mw), int)
+    from collections import defaultdict
+    buckets = defaultdict(list)
+    for i in range(len(pxy)):
+        c = int(np.floor((pxy[i, 0] - xmin) / cell))
+        r = int(np.floor((pxy[i, 1] - ymin) / cell))
+        if 0 <= r < mh and 0 <= c < mw:
+            buckets[(r, c)].append(pz[i])
+    for (r, c), vals in buckets.items():
+        meas[r, c] = float(np.median(vals))
+        counts[r, c] = len(vals)
+    meas_smooth = _nan_smooth(meas, 1.0)
+    meas_smooth = np.where(np.isfinite(meas_smooth), meas_smooth, np.nanmedian(meas))
 
-    # crosswalk polygons
+    def cell_center(r, c):
+        return np.array([xmin + (c + 0.5) * cell, ymin + (r + 0.5) * cell])
+
+    # crosswalk polys
     cw_polys = []
     for cw in crosswalks:
         try:
@@ -515,101 +499,135 @@ def extract_ramps(xyz, curbs, crosswalks, params=None):
             except Exception:
                 continue
 
+    # candidate detection: resample each curb, mark samples with local step < hstep_max
+    candidates = []  # (centroid xy, run_length along curb, tangent)
+    for curb in curbs:
+        try:
+            coords = np.asarray(curb["geometry"]["coordinates"], dtype=float)
+        except Exception:
+            continue
+        if coords.ndim != 2 or len(coords) < 2:
+            continue
+        seglen = np.hypot(np.diff(coords[:, 0]), np.diff(coords[:, 1]))
+        cum = np.concatenate([[0.0], np.cumsum(seglen)])
+        total = float(cum[-1])
+        if total < gap_min:
+            continue
+        n_samp = max(int(total / CURB_SAMPLE_M) + 1, 2)
+        ss = np.linspace(0.0, total, n_samp)
+        rx = np.interp(ss, cum, coords[:, 0])
+        ry = np.interp(ss, cum, coords[:, 1])
+        rz = np.interp(ss, cum, coords[:, 2]) if coords.shape[1] >= 3 else np.zeros_like(ss)
+        # local step sample
+        rc5 = np.column_stack([(grid5.y1 - ry) / CELL_M - 0.5, (rx - grid5.x0) / CELL_M - 0.5])
+        steps = _sample(step5, rc5)
+        low_step = steps < hstep_max
+        # group consecutive
+        i = 0
+        n = len(ss)
+        while i < n:
+            if not low_step[i]:
+                i += 1
+                continue
+            j = i
+            while j + 1 < n and low_step[j + 1]:
+                j += 1
+            # run i..j
+            # along-curb length
+            run_len = float(ss[j] - ss[i])
+            if gap_min <= run_len <= gap_max:
+                cx = float(np.mean(rx[i:j + 1]))
+                cy = float(np.mean(ry[i:j + 1]))
+                # tangent
+                dx = float(rx[j] - rx[i])
+                dy = float(ry[j] - ry[i])
+                nn = float(np.hypot(dx, dy))
+                tangent = np.array([dx / nn, dy / nn]) if nn > 0 else np.array([1.0, 0.0])
+                candidates.append((np.array([cx, cy]), run_len, tangent))
+            i = j + 1
+
     out = []
-    for idx, (centroid, width) in enumerate(cands, start=1):
+    for idx, (centroid, width, tangent) in enumerate(candidates, start=1):
         cx, cy = float(centroid[0]), float(centroid[1])
-        # z at centroid (median of nearby points)
-        near_mask = np.hypot(pxy[:, 0] - cx, pxy[:, 1] - cy) <= 1.0
-        if near_mask.any():
-            cz = float(np.median(pz[near_mask]))
+        normal = np.array([-tangent[1], tangent[0]])
+
+        # orient normal so raised side higher z (use 5cm raster)
+        # sample window
+        # measurement: use 25cm cells within 2m
+        cell_centers = []
+        for r in range(mh):
+            for c in range(mw):
+                cc = cell_center(r, c)
+                if np.hypot(cc[0] - cx, cc[1] - cy) <= 2.0:
+                    if np.isfinite(meas_smooth[r, c]):
+                        cell_centers.append((r, c, cc))
+        if not cell_centers:
+            enough = False
+            running_slope_pct = None
+            side_slope_pct = None
+            gutter_step = None
+            gutter_z_med = None
+            run_length = None
+            n_pts = 0
         else:
-            cz = 0.0
-
-        # determine across-curb normal: direction of steepest z gradient
-        window = np.hypot(pxy[:, 0] - cx, pxy[:, 1] - cy) <= 2.0
-        if window.sum() < 4:
-            # still produce candidate but indeterminate
-            pass
-
-        # project window points
-        # estimate normal from height difference in a few directions
-        if window.sum() >= 4:
-            # PCA on xy of window to get tangent along width
-            wxy = pxy[window]
-            wc = wxy.mean(axis=0)
-            cov = np.cov((wxy - wc).T) if len(wxy) > 1 else np.zeros((2, 2))
-            _, vecs = np.linalg.eigh(cov)
-            tangent = vecs[:, 1]
-            normal = np.array([-tangent[1], tangent[0]])
-            # orient normal so raised side has higher z
-            pos = (pxy[window] - centroid) @ normal
-            high_z = pz[window][pos > 0.25]
-            low_z = pz[window][pos < -0.25]
-            if high_z.size and low_z.size and np.median(high_z) < np.median(low_z):
+            arr = np.array([(cc[0], cc[1]) for (_, _, cc) in cell_centers])
+            zs = np.array([meas_smooth[r, c] for (r, c, _) in cell_centers])
+            proj_n = (arr - centroid) @ normal
+            proj_t = (arr - centroid) @ tangent
+            # orient normal
+            pos = proj_n
+            high_z = zs[pos > 0.25]
+            low_z = zs[pos < -0.25]
+            if high_z.size and low_z.size and float(np.median(high_z)) < float(np.median(low_z)):
                 normal = -normal
-            tproj = (pxy[window] - centroid) @ tangent
-            nproj = (pxy[window] - centroid) @ normal
-
-            # bin counts per side in cell units
-            gutter_cells = set()
-            raised_cells = set()
-            for u in nproj:
-                binv = int(np.floor(u / cell))
-                if u < 0:
-                    gutter_cells.add(binv)
-                elif u > 0:
-                    raised_cells.add(binv)
-            enough = len(gutter_cells) >= min_cells and len(raised_cells) >= min_cells
-
-            # compute medians
-            low_mask = nproj < -0.1
-            high_mask = nproj > 0.1
-            gutter_z_med = float(np.median(pz[window][low_mask])) if low_mask.sum() else None
-            raised_z_med = float(np.median(pz[window][high_mask])) if high_mask.sum() else None
-
-            if enough and gutter_z_med is not None and raised_z_med is not None:
-                low_u_med = float(np.median(nproj[low_mask]))
-                high_u_med = float(np.median(nproj[high_mask]))
+                proj_n = (arr - centroid) @ normal
+            low_mask = proj_n < -0.1
+            high_mask = proj_n > 0.1
+            gutter_cells = int(low_mask.sum())
+            raised_cells = int(high_mask.sum())
+            enough = gutter_cells >= min_cells and raised_cells >= min_cells
+            if enough:
+                gutter_z_med = float(np.median(zs[low_mask]))
+                raised_z_med = float(np.median(zs[high_mask]))
+                low_u_med = float(np.median(proj_n[low_mask]))
+                high_u_med = float(np.median(proj_n[high_mask]))
                 run_length = abs(high_u_med - low_u_med)
                 if run_length < 1e-6:
                     run_length = cell
                 running_slope_pct = abs(raised_z_med - gutter_z_med) / run_length * 100.0
             else:
+                gutter_z_med = float(np.median(zs[low_mask])) if low_mask.sum() else None
+                raised_z_med = None
                 run_length = None
                 running_slope_pct = None
-
-            # side slope: lateral variation
-            left_mask = tproj > 0.1
-            right_mask = tproj < -0.1
+            # side slope
+            left_mask = proj_t > 0.1
+            right_mask = proj_t < -0.1
             if enough and left_mask.sum() and right_mask.sum():
-                left_z = float(np.median(pz[window][left_mask]))
-                right_z = float(np.median(pz[window][right_mask]))
-                side_run = abs(float(np.median(tproj[left_mask]) - np.median(tproj[right_mask])))
+                left_z = float(np.median(zs[left_mask]))
+                right_z = float(np.median(zs[right_mask]))
+                side_run = abs(float(np.median(proj_t[left_mask]) - np.median(proj_t[right_mask])))
                 if side_run < 1e-6:
                     side_run = cell
                 side_slope_pct = abs(left_z - right_z) / side_run * 100.0
             else:
                 side_slope_pct = None
-
-            # gutter step: step across curb at centroid
-            near2 = np.hypot(pxy[:, 0] - cx, pxy[:, 1] - cy) <= 0.5
-            if near2.sum() >= 4:
-                low2 = pz[near2][(pxy[near2] - centroid) @ normal < 0]
-                high2 = pz[near2][(pxy[near2] - centroid) @ normal >= 0]
-                if low2.size and high2.size:
-                    gutter_step = abs(float(np.median(high2) - np.median(low2)))
-                else:
-                    gutter_step = 0.0
+            # gutter step within 0.5m
+            near2_mask = np.hypot(arr[:, 0] - cx, arr[:, 1] - cy) <= 0.5
+            low2 = zs[near2_mask & (proj_n < 0)]
+            high2 = zs[near2_mask & (proj_n >= 0)]
+            if low2.size and high2.size:
+                gutter_step = abs(float(np.median(high2) - np.median(low2)))
             else:
                 gutter_step = None
-        else:
-            enough = False
-            run_length = None
-            running_slope_pct = None
-            side_slope_pct = None
-            gutter_step = None
+            # n_points: original points in footprint (cells within 2m and |tproj| <= width/2+cell)
+            footprint_cells = set()
+            for r, c, cc in cell_centers:
+                if abs((cc - centroid) @ tangent) <= width / 2.0 + cell:
+                    footprint_cells.add((r, c))
+            n_pts = int(sum(counts[r, c] for (r, c) in footprint_cells))
 
-        # status checks
+        # status
         def _status(value, thr):
             if value is None:
                 return "indeterminate"
@@ -621,19 +639,27 @@ def extract_ramps(xyz, curbs, crosswalks, params=None):
         side_status = _status(side_slope_pct, SIDE_SLOPE_MAX_PCT)
         if gutter_step is None:
             gutter_status = "indeterminate"
+        elif not enough:
+            gutter_status = "indeterminate"
         else:
             gutter_status = "ok" if gutter_step <= GUTTER_STEP_MAX_M else "exceeds"
 
         statuses = [running_status, side_status, gutter_status]
-        if "indeterminate" in statuses:
-            rollup = "indeterminate"
-        elif "exceeds" in statuses:
+        if "exceeds" in statuses:
             rollup = "exceeds"
+        elif "indeterminate" in statuses:
+            rollup = "indeterminate"
         else:
             rollup = "ok"
 
-        # crosswalk association
-        nearest_cw = None
+        # cz: median gutter elevation (low side)
+        if gutter_z_med is not None:
+            cz = float(gutter_z_med)
+        else:
+            near_mask = np.hypot(pxy[:, 0] - cx, pxy[:, 1] - cy) <= 1.0
+            cz = float(np.median(pz[near_mask])) if near_mask.any() else 0.0
+
+        # crosswalk assoc
         nearest_dist = None
         nearest_id = None
         pt = Point(cx, cy)
@@ -644,7 +670,6 @@ def extract_ramps(xyz, curbs, crosswalks, params=None):
                 continue
             if nearest_dist is None or dist < nearest_dist:
                 nearest_dist = dist
-                nearest_cw = cw
                 nearest_id = cw.get("properties", {}).get("id")
         if nearest_dist is None:
             nearest_crosswalk_m = None
@@ -655,15 +680,15 @@ def extract_ramps(xyz, curbs, crosswalks, params=None):
         kind = "curb_ramp" if (nearest_dist is not None and nearest_dist <= crosswalk_end) else "driveway_or_ramp"
 
         if run_length is None:
-            run_length = width  # fallback
+            run_length = width
 
         prop = {
             "id": f"ramp-{idx:04d}",
             "kind": kind,
-            "width_m": round(float(width), 3),
-            "run_length_m": round(float(run_length), 3),
-            "running_slope_pct": (None if running_slope_pct is None else round(float(running_slope_pct), 3)),
-            "side_slope_pct": (None if side_slope_pct is None else round(float(side_slope_pct), 3)),
+            "width_m": round(float(width), 2),
+            "run_length_m": round(float(run_length), 2),
+            "running_slope_pct": (None if running_slope_pct is None else round(float(running_slope_pct), 1)),
+            "side_slope_pct": (None if side_slope_pct is None else round(float(side_slope_pct), 1)),
             "gutter_step_m": (None if gutter_step is None else round(float(gutter_step), 3)),
             "running_slope_status": running_status,
             "side_slope_status": side_status,
@@ -671,7 +696,7 @@ def extract_ramps(xyz, curbs, crosswalks, params=None):
             "status": rollup,
             "nearest_crosswalk_m": (None if nearest_crosswalk_m is None else round(float(nearest_crosswalk_m), 3)),
             "crosswalk_id": crosswalk_id,
-            "n_points": int(window.sum()) if 'window' in locals() else 0,
+            "n_points": int(n_pts),
         }
         out.append(_feature("ramp", f"ramp-{idx:04d}", "Point", [[cx, cy, cz]], prop))
 
