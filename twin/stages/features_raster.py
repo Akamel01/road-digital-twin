@@ -24,7 +24,8 @@ PAINT_MIN_T = 0.12  # top-hat floor on the 0-1 normalised intensity
 PAINT_MIN_AREA_M2 = 0.05
 LINE_MAX_W_M = 0.30
 BAR_MAX_W_M = 0.90
-LINE_MIN_LEN_M = 0.5
+LINE_MIN_LEN_M = 1.0
+COMB_MIN_BARS = 3  # a ladder crosswalk is one component: rails joined by 3+ bars
 BAR_MIN_LEN_M = 1.2
 BIN_M = 1.0  # cross-section spacing along a line
 SIMPLIFY_M = 0.02
@@ -144,6 +145,15 @@ def centreline(comp: dict, weight: np.ndarray) -> np.ndarray:
     return line[np.argsort((line - c) @ u)]
 
 
+def _bars_across(comp: dict) -> int:
+    """Bars in a comb-shaped component: runs of the pixel profile along its long axis above half the peak
+    (rails add a low constant, each bar a tall peak)."""
+    t = np.round(comp["t"]).astype(int)
+    prof = np.bincount(t - t.min())
+    high = prof > 0.5 * prof.max()
+    return int(np.count_nonzero(np.diff(high.astype(int)) == 1) + high[0])
+
+
 def _chain_dashes(lines: list[dict]) -> list[list[int]]:
     """Groups of collinear dashes: same direction, on one line, gaps up to DASH_MAX_GAP_M."""
     k = len(lines)
@@ -189,6 +199,7 @@ def extract(xyzi: np.ndarray) -> tuple[list[dict], list[dict], dict]:
     z = _nan_smooth(grid.mean(xyzi[:, 2]), 1.5)
     mask, weight = paint_mask(intensity, road=~raised(z))
     comps = [_shape(rc) for rc in _components(mask)]
+    combs = [c for c in comps if c["wid"] > BAR_MAX_W_M and _bars_across(c) >= COMB_MIN_BARS]
     lines = [c for c in comps if c["wid"] <= LINE_MAX_W_M and c["len"] >= LINE_MIN_LEN_M]
     bars = [c for c in comps if LINE_MAX_W_M < c["wid"] <= BAR_MAX_W_M and c["len"] >= BAR_MIN_LEN_M]
 
@@ -203,6 +214,14 @@ def extract(xyzi: np.ndarray) -> tuple[list[dict], list[dict], dict]:
             adj[i, j] = adj[j, i] = near and par
     n_groups, glab = (0, np.zeros(0, int)) if k == 0 else _graph_components(adj)
     crosswalks, used_bars, used_lines = [], set(), set()
+    for comb in combs:
+        hull = MultiPoint([tuple(p) for p in grid.xy(comb["rc"][:, 0], comb["rc"][:, 1])]).convex_hull
+        zc = float(np.nanmedian(_sample(z, comb["rc"])))
+        crosswalks.append(
+            _feature("crosswalk", f"crosswalk-{len(crosswalks) + 1:04d}", "Polygon",
+                     [[[x, y, zc] for x, y in mapping(hull)["coordinates"][0]]],
+                     {"n_points": int(len(comb["rc"])), "stripes": _bars_across(comb), "area_m2": round(float(hull.area), 3)})
+        )  # fmt: skip
     for g in range(n_groups):
         members = np.flatnonzero(glab == g)
         if len(members) < CROSS_MIN_BARS:
