@@ -11,6 +11,10 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from twin.dataset import DEFAULT_VERSION
 
+HOLDOUT_EVERY = 4
+HOLDOUT_SEED = 0
+
+
 StageName = Literal[
     "load",
     "mask",
@@ -101,7 +105,7 @@ STAGES: dict[str, StageSpec] = {
     ),
     "colour": StageSpec(
         number=6,
-        methods=("zbuffer-topk",),
+        methods=("zbuffer-topk", "zbuffer-pose-refine"),
         requires=("mask", "align", "ground", "features"),
         outputs=("ortho.png", "ortho.pgw", "rgb.npz", "qa.json"),
         optional=True,
@@ -235,6 +239,15 @@ class ColourParams(_Strict):
     max_range_m: float = Field(12.0, ge=3, le=50)
     # auto: the GPU when cupy is installed and enough GPU memory is free, otherwise the CPU (ADR 0005).
     device: Literal["auto", "cpu"] = "auto"
+    pose_refine: bool = True
+    pose_max_deg: float = Field(0.5, ge=0.01, le=5)
+    pose_max_m: float = Field(0.05, ge=0.001, le=1)
+    pose_flag_deg: float = Field(0.25, ge=0.01, le=5)
+    pose_flag_m: float = Field(0.025, ge=0.001, le=1)
+    pose_iterations: int = Field(20, ge=1, le=100)
+    pose_min_anchors: int = Field(20, ge=1, le=10000)
+    pose_max_anchors: int = Field(200, ge=1, le=100000)
+    pose_max_nfev: int = Field(200, ge=1, le=100000)
 
 
 class SemanticsParams(_Strict):

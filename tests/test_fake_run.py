@@ -1,3 +1,4 @@
+# Channel fixture: tests/fixtures/ (or tests/conftest.py).
 import json
 import re
 from pathlib import Path
@@ -61,9 +62,11 @@ def test_manifest_valid_all_stages_ok(out):
         assert all(s.status == "ok" for s in m.stages)
         assert m.metrics["ground"]["height_valid"] is True
         assert m.metrics["ground"]["rmse_m"] < 0.05
-        # The real colour stage does not measure edge offset yet, so the fake writes None too.
+        assert "edge_offset_p50_m" in m.metrics["colour"]
+        assert m.metrics["colour"]["edge_offset_p50_m"] is None
         assert "edge_offset_p95_m" in m.metrics["colour"]
         assert m.metrics["colour"]["edge_offset_p95_m"] is None
+        assert m.metrics["colour"]["pose_corrections"] is None
 
 
 def test_fake_accuracy_matches_real_stage(out, tmp_path):

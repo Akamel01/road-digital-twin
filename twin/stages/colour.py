@@ -25,10 +25,11 @@ import laspy
 import numpy as np
 from PIL import Image
 
-from twin.contracts import ColourParams, StageResult
+from twin import pose as pose_mod
+from twin.contracts import HOLDOUT_EVERY, ColourParams, StageResult
 from twin.dataset import DatasetConfig
 from twin.registry import register
-from twin.stages import zbuffer
+from twin.stages import colour_pose, zbuffer
 
 log = logging.getLogger(__name__)
 OUTPUT_FILES = ("ortho.png", "ortho.pgw", "rgb.npz", "qa.json")
@@ -304,8 +305,7 @@ def camera_confirmed(offsets: dict[str, np.ndarray]) -> list[str]:
     )
 
 
-@register("colour", "zbuffer-topk")
-def run(ctx: Any, params: ColourParams) -> StageResult:
+def _run(ctx: Any, params: ColourParams, refine: bool = False) -> StageResult:
     out: Path = ctx.stage_dir("colour")
     out.mkdir(exist_ok=True)
     gdir = ctx.input_dir("ground")
@@ -327,13 +327,114 @@ def run(ctx: Any, params: ColourParams) -> StageResult:
     usable = [c for c in cams if times[0] <= c["timestamp_us"] <= times[-1]]
     root = Path(DatasetConfig.from_env().root)
 
+    # Hold-out split of markings: sorted observed marking ids, every HOLDOUT_EVERY-th (indices
+    # HOLDOUT_EVERY-1, 2*HOLDOUT_EVERY-1, ...) held out (HOLDOUT_SEED = 0, fixed rule).
+    try:
+        _all_markings = json.loads((ctx.input_dir("features") / "markings.geojson").read_text())["features"]
+    except (OSError, KeyError, ValueError, json.JSONDecodeError):
+        _all_markings = []
+    _observed_ids = sorted(
+        m.get("properties", {}).get("id")
+        for m in _all_markings
+        if isinstance(m, dict) and m.get("properties", {}).get("reliability") == "observed"
+    )
+    _observed_ids = [i for i in _observed_ids if i is not None]
+    _holdout_ids = {iid for idx, iid in enumerate(_observed_ids) if idx % HOLDOUT_EVERY == HOLDOUT_EVERY - 1}
+    _train_markings = [m for m in _all_markings if not (isinstance(m, dict) and m.get("properties", {}).get("id") in _holdout_ids)]
+    _holdout_markings = [m for m in _all_markings if isinstance(m, dict) and m.get("properties", {}).get("id") in _holdout_ids]
+
+    # Anchors for pose refinement use the training (complement) subset.
+    _anchors_cache = {"v": None}
+    def _anchors():
+        if _anchors_cache["v"] is not None:
+            return _anchors_cache["v"]
+        surf_path = ctx.input_dir("ground") / "surface.npz"
+        surf = surf_path if surf_path.exists() else None
+        a = colour_pose.lidar_paint_edges(_train_markings, surf, nonground_xyz)
+        if a.ndim == 2 and a.shape[1] >= 3:
+            a = a[:, :3]
+        _anchors_cache["v"] = np.asarray(a, float).reshape(-1, 3)
+        return _anchors_cache["v"]
+
+    # Collected per-camera deltas for pose_corrections (refine mode only).
+    pose_deltas: list[np.ndarray] = []
+    pose_channels: list[str] = []
+    channel_infos: list[dict] = []
+    n_reverted = 0
+    n_skipped = 0
+    n_refined = 0
+
+    # Precompute per-channel corrected extrinsics (not per frame).
+    corrected_by_cam: dict[int, np.ndarray] = {}
+    if refine:
+        # channel grouping
+        _channels: list[Any] = []
+        for cam in usable:
+            ch = cam.get("channel", "default")
+            if ch not in _channels:
+                _channels.append(ch)
+        # map channel -> index
+        _ch_index = {ch: i for i, ch in enumerate(_channels)}
+        for ci, ch in enumerate(_channels):
+            cams_ch = [c for c in usable if c.get("channel", "default") == ch]
+            views_list = []
+            for cam in cams_ch:
+                t = int(cam["timestamp_us"])
+                base_c2w = zbuffer.camera_to_world(ego, times, t, cam["extrinsics"])
+                K = np.asarray(cam["intrinsics"], float)
+                img = np.asarray(Image.open(root / cam["image"]).convert("RGB"))
+                boxes = boxes_at(sweep_boxes, t)
+                views_list.append({
+                    "image": img,
+                    "K": K,
+                    "base_c2w": base_c2w,
+                    "anchors": _anchors(),
+                    "nonground": nonground_xyz,
+                    "boxes": boxes,
+                    "channel": ci,
+                })
+            anchors = _anchors()
+            base_rep = views_list[0]["base_c2w"].copy() if views_list else np.eye(4)
+            corrected_rep, _res, info = colour_pose.refine_channel_extrinsics(
+                base_rep, views_list, anchors, channel_index=ci, params=params,
+            )
+            channel_infos.append(info)
+            if info.get("applied", False):
+                n_refined += len(cams_ch)
+            else:
+                n_reverted += len(cams_ch)
+            if info.get("reason", "") in ("no_anchors",) or len(views_list) == 0:
+                n_skipped += 1
+            # delta from representative base
+            try:
+                delta_mat = np.linalg.inv(base_rep) @ corrected_rep
+                from scipy.spatial.transform import Rotation as _R
+                rv = _R.from_matrix(delta_mat[:3, :3]).as_rotvec()
+            except (ValueError, RuntimeError, OSError, KeyError, TypeError, ImportError):
+                rv = np.zeros(3)
+            dt = corrected_rep[:3, 3] - base_rep[:3, 3]
+            delta = np.concatenate([rv, dt])
+            for cam in cams_ch:
+                t = int(cam["timestamp_us"])
+                base_c2w = zbuffer.camera_to_world(ego, times, t, cam["extrinsics"])
+                from scipy.spatial.transform import Rotation as _R2
+                T = np.eye(4)
+                T[:3, :3] = _R2.from_rotvec(delta[:3]).as_matrix()
+                T[:3, 3] = delta[3:]
+                corrected = base_c2w @ T
+                corrected_by_cam[id(cam)] = corrected
+                pose_deltas.append(delta)
+                pose_channels.append(str(cam.get("channel", ch)))
+
     def views():
         for cam in usable:
             t = int(cam["timestamp_us"])
-            c2w = zbuffer.camera_to_world(ego, times, t, cam["extrinsics"])
+            base_c2w = zbuffer.camera_to_world(ego, times, t, cam["extrinsics"])
             K = np.asarray(cam["intrinsics"], float)
             img = np.asarray(Image.open(root / cam["image"]).convert("RGB"))
-            yield c2w, K, img, boxes_at(sweep_boxes, t)
+            boxes = boxes_at(sweep_boxes, t)
+            c2w = corrected_by_cam.get(id(cam), base_c2w) if refine else base_c2w
+            yield c2w, K, img, boxes
 
     stats: dict = {}
     rgb, observed, n_views = colour_points(points, nonground_xyz, views(), params, stats)
@@ -358,9 +459,14 @@ def run(ctx: Any, params: ColourParams) -> StageResult:
         "features"
     ]
     offsets = marking_offsets(ortho, origin, cell, markings)
-    pooled = np.abs(np.concatenate([np.empty(0), *offsets.values()]))
+    # Hold-out acceptance metric: only held-out markings count.
+    if refine and _holdout_ids:
+        offsets_acc = {k: v for k, v in offsets.items() if k in _holdout_ids}
+    else:
+        offsets_acc = offsets
+    pooled = np.abs(np.concatenate([np.empty(0), *offsets_acc.values()]))
     qa = {
-        "method": "zbuffer-topk",
+        "method": "zbuffer-pose-refine" if refine else "zbuffer-topk",
         "ortho_label": label,
         "height_valid": height_valid,
         "views_median": float(np.median(n_views[observed])) if observed.any() else None,
@@ -372,9 +478,23 @@ def run(ctx: Any, params: ColourParams) -> StageResult:
         "gsd_m": cell,
         "device": stats["device"],
         # P95 of |offset| over every measured cross-section of every observed marking (spec section 6, QA).
+        "edge_offset_p50_m": float(np.percentile(pooled, 50)) if pooled.size else None,
         "edge_offset_p95_m": float(np.percentile(pooled, 95)) if pooled.size else None,
         "edge_offset_samples": int(pooled.size),
         "edge_offset_tol_m": EDGE_TOL_M,
+        "pose_corrections": (
+            pose_mod.pose_report(
+                np.asarray(pose_deltas) if pose_deltas else np.zeros((0, 6)),
+                pose_channels,
+                params,
+                info=channel_infos,
+            )
+            if refine
+            else None
+        ),
+        "n_skipped": int(n_skipped) if refine else 0,
+        "n_reverted": int(n_reverted) if refine else 0,
+        "n_refined": int(n_refined) if refine else 0,
         "camera_confirmed": camera_confirmed(offsets),
     }
     (out / "qa.json").write_text(json.dumps(qa, indent=2))
@@ -384,3 +504,17 @@ def run(ctx: Any, params: ColourParams) -> StageResult:
         metrics=qa,
         message=label,
     )
+
+
+@register("colour", "zbuffer-topk")
+def run_zbuffer_topk(ctx: Any, params: ColourParams) -> StageResult:
+    return _run(ctx, params, False)
+
+
+@register("colour", "zbuffer-pose-refine")
+def run_zbuffer_pose_refine(ctx: Any, params: ColourParams) -> StageResult:
+    return _run(ctx, params, True)
+
+
+# Backward-compatible alias (colour.run symbol decision).
+run = run_zbuffer_topk

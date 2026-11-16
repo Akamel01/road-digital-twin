@@ -552,7 +552,9 @@ def _colour(d: Path, c: _Ctx) -> dict:
     pts, _ = _all(c)  # same order as ground.laz then nonground.laz
     observed = pts[:, 0] <= OBSERVED_MAX_X
     np.savez_compressed(d / "rgb.npz", rgb=_class_colour(pts), observed=observed)
-    # Same keys as twin/stages/colour.py. edge_offset_p95_m stays None: the real stage does not measure it yet.
+    # Same keys as twin/stages/colour.py qa (enumerated). pose_corrections is None for zbuffer-topk.
+    from twin.stages.colour import EDGE_TOL_M
+
     colour = {
         "method": "zbuffer-topk",
         "ortho_label": "",
@@ -564,7 +566,16 @@ def _colour(d: Path, c: _Ctx) -> dict:
         "n_cameras_skipped_outside_sweeps": 0,
         "top_k": Params().colour.top_k,
         "gsd_m": Params().colour.gsd_m,
+        "device": "cpu",
+        "edge_offset_p50_m": None,
         "edge_offset_p95_m": None,
+        "edge_offset_samples": 0,
+        "edge_offset_tol_m": EDGE_TOL_M,
+        "pose_corrections": None,
+        "n_skipped": 0,
+        "n_reverted": 0,
+        "n_refined": 0,
+        "camera_confirmed": [],
     }
     _dump(d / "qa.json", colour)
     return colour
