@@ -128,6 +128,11 @@ def _published_report(store: Path, entry: dict) -> dict | None:
     return None
 
 
+# Margin-sum noise between rebuilds of the same code (seen 0.005); within it a build counts as a tie and
+# publishes, so merged code reaches the site. Operator, 2026-11-16: "publish if not worse".
+TIE_MARGIN = 0.01
+
+
 def _improves(candidate: dict, published_entry: dict, store: Path) -> tuple[bool, str]:
     pub_gc = published_entry.get("go_count")
     pub_ms = published_entry.get("margin_sum")
@@ -138,9 +143,9 @@ def _improves(candidate: dict, published_entry: dict, store: Path) -> tuple[bool
         return True, ""
     if cand_gc < pub_gc:
         return False, f"fewer gate checks pass ({cand_gc} vs {pub_gc})"
-    if cand_ms > pub_ms:
+    if cand_ms >= pub_ms - TIE_MARGIN:
         return True, ""
-    return False, f"margin sum {cand_ms:g} is not greater than published {pub_ms:g}"
+    return False, f"margin sum {cand_ms:g} is worse than published {pub_ms:g}"
 
 
 def area_runs(store: Path, area) -> list[str]:

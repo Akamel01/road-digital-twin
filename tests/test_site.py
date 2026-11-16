@@ -62,17 +62,15 @@ def test_go_first_run_publishes(env):
     assert site.history(store)[-1]["run_id"] == "r1"
 
 
-def test_better_publishes_worse_or_equal_skips(env):
+def test_not_worse_publishes_worse_skips(env):
     store, _calls, run, _ = env
     site.publish_run(store, run("r1"))
     assert site.publish_run(store, run("r2", marking=0.1)) == "published r2"
-    assert site.publish_run(store, run("r3", marking=0.1)).startswith(
-        "skipped"
-    )  # equal
+    assert site.publish_run(store, run("r3", marking=0.1)) == "published r3"  # a tie publishes
     assert "worse" in site.publish_run(
         store, run("r4", marking=0.1, cov=0.75)
     )  # one worse
-    assert [e["run_id"] for e in site.history(store)] == ["r1", "r2"]
+    assert [e["run_id"] for e in site.history(store)] == ["r1", "r2", "r3"]
 
 
 def test_no_go_first_run_publishes(env):
