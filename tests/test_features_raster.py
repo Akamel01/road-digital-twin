@@ -77,3 +77,14 @@ def test_raster_method_runs_in_the_stage(tmp_path):
     out = ctx.stage_dir("features")
     assert json.loads((out / "qa.json").read_text())["method"] == "raster"
     assert json.loads((out / "markings.geojson").read_text())["features"]
+
+
+def test_raster_method_keeps_intensity_markings(tmp_path):
+    xs, ys = _grid(0, 12, -2, 2)
+    pts = _ground(xs, ys, lambda x, y: np.abs(y) < 0.075)
+    out = {}
+    for method in ("intensity", "raster"):
+        ctx = _ctx(tmp_path / method, pts)
+        assert registry.lookup("features", method)(ctx, FeaturesParams()).status == "ok"
+        out[method] = json.loads((ctx.stage_dir("features") / "markings.geojson").read_text())["features"]
+    assert out["raster"] and out["raster"] == out["intensity"]
