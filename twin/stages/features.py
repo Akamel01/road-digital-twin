@@ -563,7 +563,12 @@ def _run(ctx: Any, params: FeaturesParams, method: str) -> StageResult:
     if len(xyz) == 0:
         return StageResult(status="failed", message="no ground points to extract from")
 
-    markings, crosswalks, counts = features_raster.extract(xyz) if method == "raster" else extract(xyz, params)
+    markings, crosswalks, counts = extract(xyz, params)
+    if method == "raster":
+        # DECISION (#276): raster lines lose to the intensity method on G5 (coverage 0.046 vs 0.067, false share
+        # 0.049 vs 0.013 on Seaport), so raster keeps the intensity markings and replaces crosswalks (and curbs).
+        _, crosswalks, raster_counts = features_raster.extract(xyz)
+        counts["n_crosswalks"] = raster_counts["n_crosswalks"]
     load_dir = ctx.stage_dir("load")
     load_dir = load_dir if load_dir.is_dir() else None
     counts["n_markings_extracted"] = len(markings)
