@@ -4,11 +4,12 @@ import { useState } from "react";
 import { ERR_COL } from "@/lib/mapdata";
 import { PHONE, useMedia } from "@/lib/media";
 
-export type Layer = "lidar" | "ortho" | "markings" | "crosswalks" | "curbs";
+export type Layer = "height" | "lidar" | "ortho" | "markings" | "crosswalks" | "curbs";
 export type Analysis = "accuracy" | "safety" | "coverage";
 export type Layers = Record<Layer, boolean>;
 
 const LAYERS: [Layer, string, string][] = [
+  ["height", "Height", "#26b38c"],
   ["lidar", "Lidar", "#9aa3a7"],
   ["ortho", "Orthoimage", "#8a9a6a"],
   ["markings", "Markings", "var(--feat-mark)"],
