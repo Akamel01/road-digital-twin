@@ -362,3 +362,18 @@ def test_modelled_markings_are_not_measured():
         rgba, origin, 0.05, [_marking("inferred", LIDAR_LINE, reliability="modelled")]
     )
     assert offs == {}
+
+
+def test_colour_methods_registered_exactly_once():
+    from twin import registry
+    from twin.contracts import STAGES
+
+    methods = STAGES["colour"].methods
+    colour_entries = [k for k in registry._REGISTRY if k[0] == "colour"]
+    assert len(colour_entries) == len(methods), (
+        f"expected one registration per colour method, got {colour_entries}"
+    )
+    assert sorted(k[1] for k in colour_entries) == sorted(methods)
+    assert len({k[1] for k in colour_entries}) == len(colour_entries), (
+        "duplicate colour method registration"
+    )

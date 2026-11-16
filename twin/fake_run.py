@@ -37,6 +37,7 @@ from twin.contracts import (
     stage_dir,
 )
 from twin.runner import StageContext
+from twin.stages.colour import EDGE_TOL_M
 from twin.stages.profile import facility_lines, sample_line
 
 RUN_DATE = "20261108"
@@ -553,7 +554,6 @@ def _colour(d: Path, c: _Ctx) -> dict:
     observed = pts[:, 0] <= OBSERVED_MAX_X
     np.savez_compressed(d / "rgb.npz", rgb=_class_colour(pts), observed=observed)
     # Same keys as twin/stages/colour.py qa (enumerated). pose_corrections is None for zbuffer-topk.
-    from twin.stages.colour import EDGE_TOL_M
 
     colour = {
         "method": "zbuffer-topk",
