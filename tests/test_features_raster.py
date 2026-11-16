@@ -143,44 +143,63 @@ def test_raster_method_keeps_intensity_markings(tmp_path):
 
 
 # ---- ramps (M3)
+# ---- ramps (M3)
 
-def _synthetic_ramp_cloud(with_gap=True, gap_x=4.0, width=1.5, run_m=1.5, h=0.125):
-    # Synthetic 1.5 m ramp at 1:12 with flares: road z=0, sidewalk z=h, ramp rises over run_m.
-    xs = np.arange(0, 12, 0.1)
-    ys = np.arange(-3, 2.2, 0.1)
+def _synthetic_ramp_cloud(with_gap=True, gap_x=4.0, width=1.5, run_m=1.5, h=None, cross_slope=0.0):
+    # road z=0, sidewalk z=h, ramp rises over run_m along +y from curb_y
+    if h is None:
+        h = run_m / 12.0
+    xs = np.arange(-1.0, 14.0, 0.05)
+    ys = np.arange(-4.0, 4.0, 0.05)
     gx, gy = np.meshgrid(xs, ys)
     x, y = gx.ravel(), gy.ravel()
     curb_y = 0.4
     z = np.where(y >= curb_y, h, 0.0)
+    if cross_slope:
+        z = z + np.where(y >= curb_y, (x - gap_x - width / 2.0) * cross_slope, 0.0)
     if with_gap:
         ramp_zone = (x >= gap_x) & (x <= gap_x + width) & (y >= curb_y)
         t = np.clip((y - curb_y) / run_m, 0.0, 1.0)
-        z = np.where(ramp_zone, t * h, z)
+        ramp_z = t * h
+        if cross_slope:
+            ramp_z = ramp_z + (x - gap_x - width / 2.0) * cross_slope
+        z = np.where(ramp_zone, ramp_z, z)
         for side, sign in ((gap_x, -1), (gap_x + width, 1)):
             fx = (x >= side - 0.6) & (x < side) if sign < 0 else (x > side) & (x <= side + 0.6)
             m = fx & (y >= curb_y)
             xt = np.clip(np.abs(x[m] - side) / 0.6, 0.0, 1.0)
             yt = np.clip((y[m] - curb_y) / run_m, 0.0, 1.0)
             ramp_edge = yt * h
+            if cross_slope:
+                ramp_edge = ramp_edge + (x[m] - gap_x - width / 2.0) * cross_slope
             z[m] = xt * h + (1.0 - xt) * ramp_edge
     return np.column_stack([x, y, z])
 
 
-def _ramp_inputs(with_gap=True, with_crosswalk=True, gap_x=4.0, width=1.5):
-    pts = _synthetic_ramp_cloud(with_gap=with_gap, gap_x=gap_x, width=width)
+def _ramp_inputs(with_gap=True, with_crosswalk=True, gap_x=4.0, width=1.5, run_m=1.5, h=None, cross_slope=0.0, split_curb=False):
+    pts = _synthetic_ramp_cloud(with_gap=with_gap, gap_x=gap_x, width=width, run_m=run_m, h=h, cross_slope=cross_slope)
     curb_y = 0.4
-    h = 0.125
-    if with_gap:
+    if h is None:
+        h = run_m / 12.0
+    if with_gap and split_curb:
+        left = [[0.0, curb_y, h], [gap_x, curb_y, h]]
+        right = [[gap_x + width, curb_y, h], [12.0, curb_y, h]]
+        curbs = [
+            {"type": "Feature", "properties": {"id": "curb-0001", "kind": "curb"}, "geometry": {"type": "LineString", "coordinates": left}},
+            {"type": "Feature", "properties": {"id": "curb-0002", "kind": "curb"}, "geometry": {"type": "LineString", "coordinates": right}},
+        ]
+    elif with_gap:
         xs_c = np.arange(0.0, 12.0001, 0.25)
+        # ensure exact gap edges present for non-grid widths (e.g. 1.2m)
+        xs_c = np.unique(np.concatenate([xs_c, [gap_x, gap_x + width]]))
         dense = []
         for xx in xs_c:
-            zz = 0.0 if (gap_x <= xx <= gap_x + width) else float(h)
+            # low-step (gap) samples span width along curb
+            zz = 0.0 if (gap_x - 1e-9 <= xx <= gap_x + width + 1e-9) else float(h)
             dense.append([float(xx), curb_y, zz])
-        curbs = [{"type": "Feature", "properties": {"id": "curb-0001", "kind": "curb"},
-                  "geometry": {"type": "LineString", "coordinates": dense}}]
+        curbs = [{"type": "Feature", "properties": {"id": "curb-0001", "kind": "curb"}, "geometry": {"type": "LineString", "coordinates": dense}}]
     else:
-        curbs = [{"type": "Feature", "properties": {"id": "curb-0001", "kind": "curb"},
-                  "geometry": {"type": "LineString", "coordinates": [[0.0, curb_y, h], [12.0, curb_y, h]]}}]
+        curbs = [{"type": "Feature", "properties": {"id": "curb-0001", "kind": "curb"}, "geometry": {"type": "LineString", "coordinates": [[0.0, curb_y, h], [12.0, curb_y, h]]}}]
     cw = []
     if with_crosswalk:
         cx = gap_x + width / 2
@@ -191,38 +210,103 @@ def _ramp_inputs(with_gap=True, with_crosswalk=True, gap_x=4.0, width=1.5):
 
 def test_ramp_at_crosswalk_width_and_slope():
     pts, curbs, cw = _ramp_inputs()
-    ramps = fr.extract_ramps(pts, curbs, cw)
+    ramps = fr.extract_ramps(pts, curbs, cw, fr.RampsParams())
     assert ramps, "expected a detected ramp"
     curb_ramps = [r for r in ramps if r["properties"]["kind"] == "curb_ramp"]
     assert curb_ramps, f"expected curb_ramp, got {[r['properties']['kind'] for r in ramps]}"
-    r = curb_ramps[0]
-    p = r["properties"]
+    p = curb_ramps[0]["properties"]
     assert abs(p["width_m"] - 1.5) <= 0.1
+    assert p["run_length_m"] is not None
     assert p["running_slope_pct"] is not None
     assert abs(p["running_slope_pct"] - 8.33) <= 1.0
 
 
+def test_exact_1_12_ramp_1_48_cross_slope():
+    # exact 1:12 running (8.33%) over 1.5m run, 1:48 cross slope (~2.08%) across ramp body
+    pts, curbs, cw = _ramp_inputs(width=1.5, run_m=1.5, cross_slope=1.0 / 48.0)
+    ramps = fr.extract_ramps(pts, curbs, cw, fr.RampsParams())
+    assert ramps
+    p = next(r for r in ramps if r["properties"]["kind"] == "curb_ramp")["properties"]
+    assert abs(p["width_m"] - 1.5) <= 0.1
+    assert p["run_length_m"] is not None
+    assert abs(p["run_length_m"] - 1.5) <= 0.2
+    assert p["running_slope_pct"] is not None
+    assert abs(p["running_slope_pct"] - 8.33) <= 0.5
+    assert p["cross_slope_pct"] is not None
+    assert abs(p["cross_slope_pct"] - 2.08) <= 0.5
+
+
+def test_1_10_ramp_running_exceeds():
+    pts, curbs, cw = _ramp_inputs(run_m=1.2, h=0.12)  # 10%
+    ramps = fr.extract_ramps(pts, curbs, cw, fr.RampsParams())
+    assert ramps
+    p = ramps[0]["properties"]
+    assert p["running_slope_pct"] is not None
+    assert p["running_slope_pct"] > 8.33
+    assert p["running_slope_status"] == "exceeds"
+
+
+def test_13mm_gutter_lip_exceeds():
+    pts, curbs, cw = _ramp_inputs()
+    # add a 13mm lip at gutter line (y around curb_y) on ramp side
+    m = (pts[:, 0] >= 4.0) & (pts[:, 0] <= 5.5) & (pts[:, 1] >= 0.38) & (pts[:, 1] <= 0.45)
+    pts[m, 2] += 0.013
+    ramps = fr.extract_ramps(pts, curbs, cw, fr.RampsParams())
+    assert ramps
+    p = ramps[0]["properties"]
+    assert p["gutter_step_m"] is not None
+    assert p["gutter_step_m"] >= 0.010
+    assert p["gutter_step_status"] == "exceeds"
+
+
 def test_curb_without_gap_gives_no_ramp():
     pts, curbs, cw = _ramp_inputs(with_gap=False, with_crosswalk=False)
-    ramps = fr.extract_ramps(pts, curbs, cw)
+    ramps = fr.extract_ramps(pts, curbs, cw, fr.RampsParams())
     assert ramps == []
 
 
 def test_gap_away_from_crosswalk_is_driveway_or_ramp():
     pts, curbs, cw = _ramp_inputs(with_crosswalk=False)
-    ramps = fr.extract_ramps(pts, curbs, cw)
+    ramps = fr.extract_ramps(pts, curbs, cw, fr.RampsParams())
     assert ramps, "expected a detected ramp"
     kinds = {r["properties"]["kind"] for r in ramps}
     assert "driveway_or_ramp" in kinds
     assert "curb_ramp" not in kinds
 
 
+def test_two_polyline_gap_detected():
+    pts, curbs, cw = _ramp_inputs(with_crosswalk=False, split_curb=True)
+    ramps = fr.extract_ramps(pts, curbs, cw, fr.RampsParams())
+    assert ramps, "expected ramp from two separate curb polylines with 1.5m gap"
+
+
 def test_ramp_indeterminate_when_too_few_cells_per_side():
     pts, curbs, cw = _ramp_inputs()
-    ramps = fr.extract_ramps(pts, curbs, cw, params=type("P", (), {
-        "gap_min_m": 1.0, "gap_max_m": 3.0, "height_step_max_m": 0.02,
-        "crosswalk_end_m": 3.0, "measure_cell_m": 0.25, "min_measure_cells": 100,
-    })())
+    ramps = fr.extract_ramps(pts, curbs, cw, fr.RampsParams(min_measure_cells=100))
     assert ramps
     assert all(r["properties"]["status"] == "indeterminate" for r in ramps)
     assert all(r["properties"]["running_slope_pct"] is None for r in ramps)
+
+
+def test_extract_ramps_timing_2m_points():
+    import time
+    rng = np.random.default_rng(0)
+    n = 2_000_000
+    # dense-ish area around a simple ramp so candidate/path exercised on 2M cloud
+    x = rng.uniform(-2, 14, n)
+    y = rng.uniform(-4, 4, n)
+    curb_y = 0.4
+    h = 0.125
+    z = np.where(y >= curb_y, h, 0.0)
+    ramp_zone = (x >= 4.0) & (x <= 5.5) & (y >= curb_y)
+    t = np.clip((y - curb_y) / 1.5, 0.0, 1.0)
+    z = np.where(ramp_zone, t * h, z)
+    pts = np.column_stack([x, y, z])
+    curbs = [{"type": "Feature", "properties": {"id": "curb-0001", "kind": "curb"},
+              "geometry": {"type": "LineString", "coordinates": [[0.0, curb_y, h], [4.0, curb_y, h], [5.5, curb_y, 0.0], [12.0, curb_y, h]]}}]
+    cw = []
+    t0 = time.perf_counter()
+    ramps = fr.extract_ramps(pts, curbs, cw, fr.RampsParams())
+    dt = time.perf_counter() - t0
+    assert dt < 10.0, f"extract_ramps took {dt:.2f}s on 2M points"
+    assert isinstance(ramps, list)

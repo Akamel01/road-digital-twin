@@ -536,7 +536,7 @@ def _features(d: Path, c: _Ctx) -> dict:
             width_m=1.5,
             run_length_m=1.5,
             running_slope_pct=5.0,
-            side_slope_pct=2.0,
+            cross_slope_pct=1.0,
             gutter_step_m=0.001,
             running_slope_status="ok",
             side_slope_status="ok",

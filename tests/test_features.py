@@ -560,7 +560,7 @@ def test_ramp_pose_stamping(tmp_path, monkeypatch):
             "type": "Feature",
             "properties": {
                 "id": "ramp-0001", "kind": "curb_ramp", "evidence": ["lidar"], "reliability": "observed",
-                "status": "ok", "running_slope_pct": 8.0, "side_slope_pct": 1.0, "gutter_step_m": 0.001,
+                "status": "ok", "running_slope_pct": 8.0, "cross_slope_pct": 1.0, "flare_slope_pct": None, "gutter_step_m": 0.001,
             },
             "geometry": {"type": "Point", "coordinates": [0.0, 0.0, 0.0]},
         }]
@@ -586,7 +586,7 @@ def test_ramp_height_valid_false_is_indeterminate(tmp_path, monkeypatch):
             "type": "Feature",
             "properties": {
                 "id": "ramp-0001", "kind": "curb_ramp", "evidence": ["lidar"], "reliability": "observed",
-                "status": "ok", "running_slope_pct": 8.0, "side_slope_pct": 1.0, "gutter_step_m": 0.001,
+                "status": "ok", "running_slope_pct": 8.0, "cross_slope_pct": 1.0, "flare_slope_pct": None, "gutter_step_m": 0.001,
             },
             "geometry": {"type": "Point", "coordinates": [0.0, 0.0, 0.0]},
         }]
@@ -601,5 +601,6 @@ def test_ramp_height_valid_false_is_indeterminate(tmp_path, monkeypatch):
     p = ramps[0]["properties"]
     assert p["status"] == "indeterminate"
     assert p["running_slope_pct"] is None
-    assert p["side_slope_pct"] is None
+    assert p["cross_slope_pct"] is None
+    assert p["flare_slope_pct"] is None
     assert p["gutter_step_m"] is None

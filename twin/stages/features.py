@@ -624,10 +624,12 @@ def _run(ctx: Any, params: FeaturesParams, method: str) -> StageResult:
                 for r in ramps:
                     p = r["properties"]
                     p["running_slope_pct"] = None
-                    p["side_slope_pct"] = None
+                    p["cross_slope_pct"] = None
+                    p["flare_slope_pct"] = None
                     p["gutter_step_m"] = None
                     p["running_slope_status"] = "indeterminate"
-                    p["side_slope_status"] = "indeterminate"
+                    p["cross_slope_status"] = "indeterminate"
+                    p["flare_slope_status"] = "indeterminate"
                     p["gutter_step_status"] = "indeterminate"
                     p["status"] = "indeterminate"
             files.append(RAMP_FILE)

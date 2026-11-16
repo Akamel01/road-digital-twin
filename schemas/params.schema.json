@@ -386,6 +386,14 @@
     "RampsParams": {
       "additionalProperties": false,
       "properties": {
+        "cross_slope_max_pct": {
+          "default": 2.08,
+          "description": "ADA 2010 406.1/405.3: ramp run cross slope max 1:48 (~2.08%).",
+          "maximum": 100.0,
+          "minimum": 0.0,
+          "title": "Cross Slope Max Pct",
+          "type": "number"
+        },
         "crosswalk_end_m": {
           "default": 3.0,
           "maximum": 20.0,
@@ -397,6 +405,14 @@
           "default": true,
           "title": "Enabled",
           "type": "boolean"
+        },
+        "flare_slope_max_pct": {
+          "default": 10.0,
+          "description": "ADA 2010 406.3: curb ramp flares max 1:10 (10%), reported separately from ramp run cross slope.",
+          "maximum": 100.0,
+          "minimum": 0.0,
+          "title": "Flare Slope Max Pct",
+          "type": "number"
         },
         "gap_max_m": {
           "default": 3.0,
@@ -410,6 +426,14 @@
           "maximum": 5.0,
           "minimum": 0.1,
           "title": "Gap Min M",
+          "type": "number"
+        },
+        "gutter_step_max_m": {
+          "default": 0.006,
+          "description": "ADA 2010 405.4/302-303: level changes max 6 mm at transitions/gutters.",
+          "maximum": 0.1,
+          "minimum": 0.0,
+          "title": "Gutter Step Max M",
           "type": "number"
         },
         "height_step_max_m": {
@@ -432,6 +456,14 @@
           "minimum": 1,
           "title": "Min Measure Cells",
           "type": "integer"
+        },
+        "running_slope_max_pct": {
+          "default": 8.33,
+          "description": "ADA 2010 405.2: ramp running slope max 1:12 (8.33%).",
+          "maximum": 100.0,
+          "minimum": 0.0,
+          "title": "Running Slope Max Pct",
+          "type": "number"
         }
       },
       "title": "RampsParams",

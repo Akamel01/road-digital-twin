@@ -223,6 +223,30 @@ class RampsParams(_Strict):
     crosswalk_end_m: float = Field(3.0, ge=0.5, le=20.0)
     measure_cell_m: float = Field(0.25, ge=0.05, le=2.0)
     min_measure_cells: int = Field(4, ge=1, le=1000)
+    running_slope_max_pct: float = Field(
+        8.33,
+        ge=0.0,
+        le=100.0,
+        description="ADA 2010 405.2: ramp running slope max 1:12 (8.33%).",
+    )
+    cross_slope_max_pct: float = Field(
+        2.08,
+        ge=0.0,
+        le=100.0,
+        description="ADA 2010 406.1/405.3: ramp run cross slope max 1:48 (~2.08%).",
+    )
+    flare_slope_max_pct: float = Field(
+        10.0,
+        ge=0.0,
+        le=100.0,
+        description="ADA 2010 406.3: curb ramp flares max 1:10 (10%), reported separately from ramp run cross slope.",
+    )
+    gutter_step_max_m: float = Field(
+        0.006,
+        ge=0.0,
+        le=0.1,
+        description="ADA 2010 405.4/302-303: level changes max 6 mm at transitions/gutters.",
+    )
 
     @model_validator(mode="after")
     def _gap_order(self) -> "RampsParams":
