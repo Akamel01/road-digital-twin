@@ -77,3 +77,35 @@ def test_raster_method_runs_in_the_stage(tmp_path):
     out = ctx.stage_dir("features")
     assert json.loads((out / "qa.json").read_text())["method"] == "raster"
     assert json.loads((out / "markings.geojson").read_text())["features"]
+
+
+def test_paint_mask_returns_two_tuple():
+    import numpy as np
+    xs, ys = _grid(0, 4, -1, 1)
+    pts = _ground(xs, ys, lambda x, y: np.abs(y) < 0.075)
+    grid = fr.Grid(pts[:, :2])
+    intensity = grid.mean(pts[:, 3], sigma=fr.SPLAT_CELLS)
+    road = np.ones(intensity.shape, bool)
+    mask, weight = fr.paint_mask(intensity, road=road)
+    assert isinstance(mask, np.ndarray)
+    assert mask.dtype == bool
+    assert isinstance(weight, np.ndarray)
+    assert weight.dtype.kind == "f"
+
+
+def test_extract_count_keys_present_and_types():
+    xs, ys = _grid(0, 12, -2, 2)
+    pts = _ground(xs, ys, lambda x, y: np.abs(y) < 0.075)
+    _markings, _crosswalks, counts = fr.extract(pts)
+    expected_int = [
+        "n_road_cells", "n_paint_cells_raw", "n_paint_cells", "n_components_raw",
+        "n_components_dropped_small", "n_components", "n_lines", "n_bars", "n_combs",
+        "n_unclassified", "n_bar_groups", "n_crosswalks", "n_used_lines",
+        "n_used_bars", "n_singles", "n_chains", "n_chain_singletons",
+        "n_dropped_short_final", "n_markings_extracted", "n_markings", "n_bins_skipped",
+    ]
+    for k in expected_int:
+        assert k in counts, k
+        assert isinstance(counts[k], int), (k, type(counts[k]))
+    assert "paint_threshold" in counts
+    assert isinstance(counts["paint_threshold"], float)

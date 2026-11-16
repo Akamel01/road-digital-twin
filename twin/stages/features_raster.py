@@ -94,9 +94,8 @@ def raised(z: np.ndarray) -> np.ndarray:
     return np.nan_to_num(z - _nan_smooth(z, 1.5 / CELL_M), nan=-1) > CURB_RAISED_M
 
 
-def paint_mask(intensity: np.ndarray, road: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
-    """(paint mask, normalised intensity) from a mean-intensity raster with NaN gaps. road: cells where
-    paint may be (default all); the intensity range and threshold come from those cells only."""
+def _paint_intermediates(intensity: np.ndarray, road: np.ndarray | None = None):
+    """Shared paint-mask intermediates (road is normalised to a bool array)."""
     road = np.ones(intensity.shape, bool) if road is None else road
     ok = np.isfinite(intensity) & road
     lo, hi = np.percentile(intensity[ok], [2, 99.5]) if ok.any() else (0.0, 1.0)
@@ -109,6 +108,13 @@ def paint_mask(intensity: np.ndarray, road: np.ndarray | None = None) -> tuple[n
     near = ndimage.binary_dilation(ok, iterations=1) & road
     t = tophat[near]
     thr = max(PAINT_MIN_T, float(np.median(t) + 6 * np.median(np.abs(t - np.median(t))))) if t.size else 1.0
+    return road, ok, norm, filled, tophat, near, thr
+
+
+def paint_mask(intensity: np.ndarray, road: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
+    """(paint mask, normalised intensity) from a mean-intensity raster with NaN gaps. road: cells where
+    paint may be (default all); the intensity range and threshold come from those cells only."""
+    road, _ok, _norm, filled, tophat, near, thr = _paint_intermediates(intensity, road)
     mask = (tophat > thr) & near
     mask = ndimage.binary_opening(mask, iterations=1) | (mask & (tophat > 2 * thr))
     return mask, filled
@@ -130,9 +136,9 @@ def _shape(rc: np.ndarray) -> dict:
     return {"c": c, "u": u, "len": (np.ptp(t) + 1) * CELL_M, "wid": (np.ptp(s) + 1) * CELL_M, "rc": rc, "t": t}
 
 
-def centreline(comp: dict, weight: np.ndarray) -> np.ndarray:
+def centreline(comp: dict, weight: np.ndarray) -> tuple[np.ndarray, int]:
     """Sub-pixel centre line (row, col) of a stripe: per BIN_M cross-section, the intensity-weighted mean
-    offset across the axis, then the median of the rows that fall in the bin."""
+    offset across the axis, then the median of the rows that fall in the bin. Returns (line, n_bins_skipped)."""
     rc, c, u, t = comp["rc"], comp["c"], comp["u"], comp["t"]
     n = np.array([-u[1], u[0]])
     s = (rc - c) @ n
@@ -140,14 +146,16 @@ def centreline(comp: dict, weight: np.ndarray) -> np.ndarray:
     step = BIN_M / CELL_M
     edges = np.arange(t.min(), t.max() + step, step)
     pts = []
+    skipped = 0
     for a, b in itertools.pairwise(edges):
         k = (t >= a) & (t <= b)
         if k.sum() < 3:
+            skipped += 1
             continue
         pts.append(c + u * float(np.average(t[k], weights=w[k])) + n * float(np.average(s[k], weights=w[k])))
     ends = [c + u * t.min() + n * float(np.average(s, weights=w)), c + u * t.max() + n * float(np.average(s, weights=w))]
     line = np.array([ends[0], *pts, ends[1]]) if pts else np.array(ends)
-    return line[np.argsort((line - c) @ u)]
+    return line[np.argsort((line - c) @ u)], skipped
 
 
 def _merge_crosswalks(cws: list[dict]) -> list[dict]:
@@ -228,8 +236,15 @@ def extract(xyzi: np.ndarray) -> tuple[list[dict], list[dict], dict]:
     grid = Grid(xyzi[:, :2])
     intensity = grid.mean(xyzi[:, 3], sigma=SPLAT_CELLS)
     z = _nan_smooth(grid.mean(xyzi[:, 2]), 1.5)
-    mask, weight = paint_mask(intensity, road=~raised(z))
+    road = ~raised(z)
+    road_inter, ok, norm, filled, tophat, near, thr = _paint_intermediates(intensity, road=road)
+    mask, weight = paint_mask(intensity, road=road)
+    raw_mask = (tophat > thr) & near
+    lab, n_raw = ndimage.label(mask, structure=np.ones((3, 3)))
+    min_px = PAINT_MIN_AREA_M2 / CELL_M**2
     comps = [_shape(rc) for rc in _components(mask)]
+    n_components_raw = int(n_raw)
+    n_components_dropped_small = n_components_raw - len(comps)
     combs = [c for c in comps if c["wid"] > BAR_MAX_W_M and _bars_across(c) >= COMB_MIN_BARS]
     lines = [c for c in comps if c["wid"] <= LINE_MAX_W_M and c["len"] >= LINE_MIN_LEN_M]
     bars = [c for c in comps if LINE_MAX_W_M < c["wid"] <= BAR_MAX_W_M and c["len"] >= BAR_MIN_LEN_M]
@@ -278,8 +293,10 @@ def extract(xyzi: np.ndarray) -> tuple[list[dict], list[dict], dict]:
     singles = [lines[i] for i in range(len(lines)) if i not in used_lines]
     singles += [bars[i] for i in range(k) if i not in used_bars]
     segs = []
+    n_bins_skipped = 0
     for comp in singles:
-        rc_line = centreline(comp, weight)
+        rc_line, skipped = centreline(comp, weight)
+        n_bins_skipped += skipped
         xy = grid.xy(rc_line[:, 0], rc_line[:, 1])
         d = xy[-1] - xy[0]
         length = float(np.linalg.norm(d))
@@ -288,12 +305,16 @@ def extract(xyzi: np.ndarray) -> tuple[list[dict], list[dict], dict]:
         segs.append({"xy": xy, "rc": rc_line, "dir": d / length, "mid": xy.mean(axis=0), "len_m": length,
                      "wid": comp["wid"], "n": len(comp["rc"])})  # fmt: skip
     markings = []
-    for group in _chain_dashes(segs):
+    dropped_short_final = 0
+    chains = _chain_dashes(segs)
+    n_chain_singletons = sum(1 for g in chains if len(g) == 1)
+    for group in chains:
         parts = sorted((segs[i] for i in group), key=lambda s: float(s["mid"] @ segs[group[0]]["dir"]))
         xy = np.vstack([p["xy"] for p in parts])
         rc = np.vstack([p["rc"] for p in parts])
         line = shapely.LineString(xy).simplify(SIMPLIFY_M)
         if line.length < LINE_MIN_LEN_M:
+            dropped_short_final += 1
             continue
         coords = np.array(line.coords)
         zs = _sample(z, rc[np.argmin(np.linalg.norm(xy[:, None] - coords[None], axis=2), axis=0)])
@@ -304,11 +325,34 @@ def extract(xyzi: np.ndarray) -> tuple[list[dict], list[dict], dict]:
                      {"n_points": n, "length_m": round(line.length, 3), "points_per_m": round(n / line.length, 3),
                       "width_m": round(float(np.median([p["wid"] for p in parts])), 3), "dashes": len(parts)})
         )  # fmt: skip
+    n_lines = len(lines)
+    n_bars = len(bars)
+    n_combs = len(combs)
+    n_unclassified = len(comps) - n_lines - n_bars - n_combs
+    chains_list = chains
     counts = {
+        "n_road_cells": int(road_inter.sum()),
+        "paint_threshold": float(thr),
+        "n_paint_cells_raw": int(raw_mask.sum()),
         "n_paint_cells": int(mask.sum()),
+        "n_components_raw": n_components_raw,
+        "n_components_dropped_small": n_components_dropped_small,
         "n_components": len(comps),
-        "n_markings": len(markings),
+        "n_lines": n_lines,
+        "n_bars": n_bars,
+        "n_combs": n_combs,
+        "n_unclassified": n_unclassified,
+        "n_bar_groups": int(n_groups if "n_groups" in locals() else 0),
         "n_crosswalks": len(crosswalks),
+        "n_used_lines": len(used_lines),
+        "n_used_bars": len(used_bars),
+        "n_singles": len(singles),
+        "n_chains": len(chains_list),
+        "n_chain_singletons": n_chain_singletons,
+        "n_dropped_short_final": dropped_short_final,
+        "n_markings_extracted": len(markings),
+        "n_markings": len(markings),
+        "n_bins_skipped": n_bins_skipped,
         "raster_cell_m": CELL_M,
     }
     return markings, crosswalks, counts

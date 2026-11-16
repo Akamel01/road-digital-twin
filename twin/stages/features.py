@@ -419,7 +419,7 @@ def lidarseg_gate(
         )
         tree = o3d.geometry.KDTreeFlann(pcd)
     kept: list[dict] = []
-    counts = {"n_dropped_lidarseg": 0, "n_lidarseg_insufficient_labels": 0}
+    counts = {"n_dropped_lidarseg": 0, "n_gate_dropped_near_curb": 0, "n_lidarseg_insufficient_labels": 0}
     for m in markings:
         n = flat = 0
         if tree is not None:
@@ -442,6 +442,7 @@ def lidarseg_gate(
             counts["n_lidarseg_insufficient_labels"] += 1
         elif flat / n < params.lidarseg_flat_share:
             counts["n_dropped_lidarseg"] += 1
+            counts["n_gate_dropped_near_curb"] += 1
             continue
         else:
             props["lidarseg_flat_share"] = round(flat / n, 3)
@@ -570,6 +571,9 @@ def _run(ctx: Any, params: FeaturesParams, method: str) -> StageResult:
     markings, gate = lidarseg_gate(markings, load_dir, params)
     counts.update(gate)
     counts["n_markings"] = len(markings)
+    flats = [m["properties"].get("lidarseg_flat_share") for m in markings]
+    flats = [f for f in flats if isinstance(f, (int, float))]
+    counts["lidarseg_flat_share_median"] = float(np.median(flats)) if flats else None
     ref_path = load_dir / "reference.geojson" if load_dir else None
     reference = (
         json.loads(ref_path.read_text())["features"]
@@ -592,6 +596,13 @@ def _run(ctx: Any, params: FeaturesParams, method: str) -> StageResult:
         )
         files.append(CURB_FILE)
         counts["n_curbs"] = len(curbs)
+        if method == "raster":
+            for m in markings:
+                mg = shapely.force_2d(shape(m["geometry"]))
+                ds = [shapely.distance(mg, shapely.force_2d(shape(c["geometry"]))) for c in curbs]
+                d = float(min(ds)) if ds else 1e9
+                m["properties"]["curb_distance_m"] = d
+                m["properties"]["near_curb"] = bool(d <= 1.0)
     # Pose quality of the drive, copied onto every element so an auditor sees it per element.
     align_qa = json.loads((ctx.input_dir("align") / "qa.json").read_text())
     pose = {
