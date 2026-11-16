@@ -17,6 +17,8 @@ from scipy import interpolate, ndimage
 from shapely.geometry import MultiPoint, mapping
 
 CELL_M = 0.05
+SPLAT_CELLS = 1.0  # Gaussian splat of each point (cells); one drive is about one point per 4 cells
+CURB_MIN_RAISED_M2 = 4.0  # a curb borders a raised area at least this big (a sidewalk, not a bump)
 TOPHAT_M = 1.25  # wider than the widest paint (crosswalk bars, about 0.6 m), so paint survives the top-hat
 PAINT_MIN_T = 0.12  # top-hat floor on the 0-1 normalised intensity
 PAINT_MIN_AREA_M2 = 0.05
@@ -34,7 +36,7 @@ BAR_MAX_ANGLE_DEG = 15.0
 CROSS_MIN_BARS = 3
 CURB_STEP_MIN_M, CURB_STEP_MAX_M = 0.06, 0.30
 CURB_RAISED_M = 0.04  # a cell this far above the 1.5 m smoothed surface is on the raised side
-CURB_MIN_LEN_M = 2.0
+CURB_MIN_LEN_M = 3.0
 CURB_SAMPLE_M = 0.25
 
 
@@ -49,13 +51,18 @@ class Grid:
         self.col = ((xy[:, 0] - self.x0) / CELL_M).astype(np.int64)
         self.row = ((self.y1 - xy[:, 1]) / CELL_M).astype(np.int64)
 
-    def mean(self, values: np.ndarray) -> np.ndarray:
-        """Mean of values per cell, NaN where no point fell."""
+    def mean(self, values: np.ndarray, sigma: float = 0.0) -> np.ndarray:
+        """Mean of values per cell, NaN where no point fell. sigma > 0 (cells) splats each point with a
+        Gaussian first, so a sparse single drive still gives a continuous raster; cells with less than
+        a quarter of a point of support stay NaN."""
         flat = self.row * self.w + self.col
-        n = np.bincount(flat, minlength=self.w * self.h)
-        s = np.bincount(flat, weights=values, minlength=self.w * self.h)
+        n = np.bincount(flat, minlength=self.w * self.h).reshape(self.h, self.w).astype(float)
+        s = np.bincount(flat, weights=values, minlength=self.w * self.h).reshape(self.h, self.w)
+        if sigma > 0:
+            n, s = ndimage.gaussian_filter(n, sigma), ndimage.gaussian_filter(s, sigma)
+            n[n < 0.25 / (2 * np.pi * sigma**2)] = 0  # a quarter of one point's peak weight
         with np.errstate(invalid="ignore", divide="ignore"):
-            return (s / n).reshape(self.h, self.w)
+            return np.where(n > 0, s / n, np.nan)
 
     def xy(self, r: np.ndarray, c: np.ndarray) -> np.ndarray:
         """Cell centres (fractional rows and columns allowed) to run CRS x, y."""
@@ -76,9 +83,16 @@ def _sample(a: np.ndarray, rc: np.ndarray) -> np.ndarray:
     return a[r, c]
 
 
-def paint_mask(intensity: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """(paint mask, normalised intensity) from a mean-intensity raster with NaN gaps."""
-    ok = np.isfinite(intensity)
+def raised(z: np.ndarray) -> np.ndarray:
+    """Cells on the raised side of a step (sidewalks, islands): above the 1.5 m smoothed surface."""
+    return np.nan_to_num(z - _nan_smooth(z, 1.5 / CELL_M), nan=-1) > CURB_RAISED_M
+
+
+def paint_mask(intensity: np.ndarray, road: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
+    """(paint mask, normalised intensity) from a mean-intensity raster with NaN gaps. road: cells where
+    paint may be (default all); the intensity range and threshold come from those cells only."""
+    road = np.ones(intensity.shape, bool) if road is None else road
+    ok = np.isfinite(intensity) & road
     lo, hi = np.percentile(intensity[ok], [2, 99.5]) if ok.any() else (0.0, 1.0)
     norm = np.clip((intensity - lo) / max(hi - lo, 1e-9), 0, 1)
     # One-cell gaps between scan lines are filled from neighbours so stripes stay whole.
@@ -86,7 +100,7 @@ def paint_mask(intensity: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     filled = np.nan_to_num(filled, nan=0.0)
     k = int(round(TOPHAT_M / CELL_M)) | 1
     tophat = filled - ndimage.grey_opening(filled, size=(k, k))
-    near = ndimage.binary_dilation(ok, iterations=1)
+    near = ndimage.binary_dilation(ok, iterations=1) & road
     t = tophat[near]
     thr = max(PAINT_MIN_T, float(np.median(t) + 6 * np.median(np.abs(t - np.median(t))))) if t.size else 1.0
     mask = (tophat > thr) & near
@@ -171,9 +185,9 @@ def extract(xyzi: np.ndarray) -> tuple[list[dict], list[dict], dict]:
     """Markings (LineStrings) and crosswalks (Polygons) from ground points (N, 4: x, y, z, intensity) in
     run CRS. Same contract as features.extract."""
     grid = Grid(xyzi[:, :2])
-    intensity = grid.mean(xyzi[:, 3])
-    z = _nan_smooth(grid.mean(xyzi[:, 2]), 1.0)
-    mask, weight = paint_mask(intensity)
+    intensity = grid.mean(xyzi[:, 3], sigma=SPLAT_CELLS)
+    z = _nan_smooth(grid.mean(xyzi[:, 2]), 1.5)
+    mask, weight = paint_mask(intensity, road=~raised(z))
     comps = [_shape(rc) for rc in _components(mask)]
     lines = [c for c in comps if c["wid"] <= LINE_MAX_W_M and c["len"] >= LINE_MIN_LEN_M]
     bars = [c for c in comps if LINE_MAX_W_M < c["wid"] <= BAR_MAX_W_M and c["len"] >= BAR_MIN_LEN_M]
@@ -271,12 +285,14 @@ def extract_curbs(xyz: np.ndarray) -> list[dict]:
     height step across 35 cm is 6-30 cm, B-spline smoothed and sampled every CURB_SAMPLE_M."""
     grid = Grid(xyz[:, :2])
     z = _nan_smooth(grid.mean(xyz[:, 2]), 1.5)
-    rel = z - _nan_smooth(z, 1.5 / CELL_M)
-    raised = np.nan_to_num(rel, nan=-1) > CURB_RAISED_M
+    up = raised(z)
+    lab, n = ndimage.label(up)
+    big = np.flatnonzero(np.bincount(lab.ravel())[1:] * CELL_M**2 >= CURB_MIN_RAISED_M2) + 1
+    up = np.isin(lab, big)
     zf = np.nan_to_num(z, nan=np.nanmedian(z))
     step = ndimage.maximum_filter(zf, size=7) - ndimage.minimum_filter(zf, size=7)
     observed = ndimage.binary_erosion(np.isfinite(z), iterations=3)
-    edge = raised & ~ndimage.binary_erosion(raised) & observed
+    edge = up & ~ndimage.binary_erosion(up) & observed
     edge &= (step >= CURB_STEP_MIN_M) & (step <= CURB_STEP_MAX_M)
     curbs = []
     lab, n = ndimage.label(edge, structure=np.ones((3, 3)))
