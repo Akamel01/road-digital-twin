@@ -23,6 +23,7 @@ WINDOW_HALF_CELLS = 12
 WINDOW_SIZE = WINDOW_HALF_CELLS * 2 + 1  # 25
 WINDOW_CELLS = WINDOW_SIZE * WINDOW_SIZE
 N_ROAD = 25
+ROW_CHUNK_CELLS = 50_000  # cells per window chunk: 50k x 625 x 8 B = 250 MB
 
 _STOPS_X = np.array([0.0, 0.0625, 0.125, 0.1875, 0.25], dtype=np.float64)
 _STOPS_RGB = np.array(
@@ -162,15 +163,21 @@ def compute_height_above_road(
             pad_def = np.pad(defined, pad, mode="constant", constant_values=False)
             win_mean = sliding_window_view(pad_mean, (WINDOW_SIZE, WINDOW_SIZE))
             win_def = sliding_window_view(pad_def, (WINDOW_SIZE, WINDOW_SIZE))
-            wm = win_mean.reshape(ny, nx, WINDOW_CELLS)
-            wd = win_def.reshape(ny, nx, WINDOW_CELLS)
-            vals = np.where(wd, wm, np.nan)
-            road = _nan_percentile_linear_last(vals, 10.0)
+            road = np.full((ny, nx), np.nan, dtype=np.float64)
+            # rows in chunks: each cell's window is copied (625 values), so keep a chunk near 256 MB
+            step = max(1, ROW_CHUNK_CELLS // max(nx, 1))
+            for r0 in range(0, ny, step):
+                r1 = min(ny, r0 + step)
+                rows = road_ok[r0:r1].any(axis=1)
+                if not rows.any():
+                    continue
+                wm = win_mean[r0:r1].reshape(r1 - r0, nx, WINDOW_CELLS)
+                wd = win_def[r0:r1].reshape(r1 - r0, nx, WINDOW_CELLS)
+                road[r0:r1] = _nan_percentile_linear_last(np.where(wd, wm, np.nan), 10.0)
             delta[road_ok] = mean_grid[road_ok] - road[road_ok]
         deltas.append(delta)
 
     stack = np.stack(deltas, axis=0)
-    all_nan = np.all(~np.isfinite(stack), axis=0)
     all_nan = np.all(~np.isfinite(stack), axis=0)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
