@@ -20,10 +20,14 @@ from typing import Any
 
 import laspy
 import numpy as np
-import open3d as o3d
 import shapely
 from shapely.geometry import MultiPoint, mapping, shape
 from shapely.ops import unary_union
+
+try:
+    import open3d as o3d
+except ImportError:  # pragma: no cover - optional in minimal envs
+    o3d = None
 
 from twin.contracts import CurbsParams, FeaturesParams, SelectParams, StageResult
 from twin.registry import register
@@ -94,6 +98,8 @@ def high_intensity(xyz: np.ndarray, intensity: np.ndarray, pct: float) -> np.nda
 
 def cluster_xy(xy: np.ndarray, eps: float, min_points: int) -> np.ndarray:
     """DBSCAN labels on the plan (x, y). -1 is noise."""
+    if o3d is None:
+        raise ImportError("open3d is required for intensity clustering")
     pcd = o3d.geometry.PointCloud(
         o3d.utility.Vector3dVector(np.column_stack([xy, np.zeros(len(xy))]))
     )
@@ -564,12 +570,19 @@ def _run(ctx: Any, params: FeaturesParams, method: str) -> StageResult:
     if len(xyz) == 0:
         return StageResult(status="failed", message="no ground points to extract from")
 
-    markings, crosswalks, counts = extract(xyz, params)
     if method == "raster":
-        # DECISION (#276): raster lines lose to the intensity method on G5 (coverage 0.046 vs 0.067, false share
-        # 0.049 vs 0.013 on Seaport), so raster keeps the intensity markings and replaces crosswalks (and curbs).
-        _, crosswalks, raster_counts = features_raster.extract(xyz)
-        counts["n_crosswalks"] = raster_counts["n_crosswalks"]
+        # Raster extraction needs no open3d; prefer intensity markings when available.
+        try:
+            markings, crosswalks, counts = extract(xyz, params)
+        except ImportError:
+            markings, crosswalks, counts = features_raster.extract(xyz)
+        else:
+            # DECISION (#276): raster lines lose to the intensity method on G5 (coverage 0.046 vs 0.067, false share
+            # 0.049 vs 0.013 on Seaport), so raster keeps the intensity markings and replaces crosswalks (and curbs).
+            _, crosswalks, raster_counts = features_raster.extract(xyz)
+            counts["n_crosswalks"] = raster_counts["n_crosswalks"]
+    else:
+        markings, crosswalks, counts = extract(xyz, params)
     load_dir = ctx.stage_dir("load")
     load_dir = load_dir if load_dir.is_dir() else None
     counts["n_markings_extracted"] = len(markings)

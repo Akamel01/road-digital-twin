@@ -10,16 +10,19 @@ smoothed with a B-spline.
 from __future__ import annotations
 
 import itertools
+from collections import defaultdict
 from typing import Any
 
 import numpy as np
-try:
-    from twin.contracts import RampsParams
-except Exception:  # pragma: no cover
-    RampsParams = None
 import shapely
 from scipy import interpolate, ndimage
-from shapely.geometry import MultiPoint, mapping, Point, shape
+from shapely.errors import ShapelyError
+from shapely.geometry import MultiPoint, Point, mapping, shape
+
+try:
+    from twin.contracts import RampsParams
+except ImportError:  # pragma: no cover
+    RampsParams = None
 
 CELL_M = 0.05
 SPLAT_CELLS = 1.0  # Gaussian splat of each point (cells); one drive is about one point per 4 cells
@@ -422,12 +425,12 @@ def _order(rc: np.ndarray) -> np.ndarray:
 
 
 def _default_ramps_params():
-    if RampsParams is not None:
-        try:
-            return RampsParams()
-        except Exception:
-            pass
-    return None
+    if RampsParams is None:
+        return None
+    try:
+        return RampsParams()
+    except (TypeError, ValueError):
+        return None
 
 
 def extract_ramps(xyz, curbs, crosswalks, params=None):
@@ -471,7 +474,6 @@ def extract_ramps(xyz, curbs, crosswalks, params=None):
     mh = int((ymax - ymin) / cell) + 1
     meas = np.full((mh, mw), np.nan)
     counts = np.zeros((mh, mw), int)
-    from collections import defaultdict
     buckets = defaultdict(list)
     for i in range(len(pxy)):
         c = int(np.floor((pxy[i, 0] - xmin) / cell))
@@ -493,18 +495,15 @@ def extract_ramps(xyz, curbs, crosswalks, params=None):
         try:
             geom = shape(cw["geometry"])
             cw_polys.append((cw, geom))
-        except Exception:
-            try:
-                cw_polys.append((cw, shape(cw["geometry"])))
-            except Exception:
-                continue
+        except (AttributeError, KeyError, TypeError, ValueError, ShapelyError):
+            continue
 
     # candidate detection: resample each curb, mark samples with local step < hstep_max
     candidates = []  # (centroid xy, run_length along curb, tangent)
     for curb in curbs:
         try:
             coords = np.asarray(curb["geometry"]["coordinates"], dtype=float)
-        except Exception:
+        except (AttributeError, KeyError, TypeError, ValueError):
             continue
         if coords.ndim != 2 or len(coords) < 2:
             continue
@@ -558,9 +557,8 @@ def extract_ramps(xyz, curbs, crosswalks, params=None):
         for r in range(mh):
             for c in range(mw):
                 cc = cell_center(r, c)
-                if np.hypot(cc[0] - cx, cc[1] - cy) <= 2.0:
-                    if np.isfinite(meas_smooth[r, c]):
-                        cell_centers.append((r, c, cc))
+                if np.hypot(cc[0] - cx, cc[1] - cy) <= 2.0 and np.isfinite(meas_smooth[r, c]):
+                    cell_centers.append((r, c, cc))
         if not cell_centers:
             enough = False
             running_slope_pct = None
@@ -571,7 +569,9 @@ def extract_ramps(xyz, curbs, crosswalks, params=None):
             n_pts = 0
         else:
             arr = np.array([(cc[0], cc[1]) for (_, _, cc) in cell_centers])
-            zs = np.array([meas_smooth[r, c] for (r, c, _) in cell_centers])
+            zs_raw = np.array([meas[r, c] for (r, c, _) in cell_centers])
+            zs_smooth = np.array([meas_smooth[r, c] for (r, c, _) in cell_centers])
+            zs = np.where(np.isfinite(zs_raw), zs_raw, zs_smooth)
             proj_n = (arr - centroid) @ normal
             proj_t = (arr - centroid) @ tangent
             # orient normal
@@ -582,35 +582,21 @@ def extract_ramps(xyz, curbs, crosswalks, params=None):
                 normal = -normal
                 proj_n = (arr - centroid) @ normal
             body = np.abs(proj_t) <= width / 2.0 + cell
-            run_span = max(width, 1.0)
-            slope_zone = body & (proj_n >= -0.25) & (proj_n <= run_span + 0.25)
-            low_mask = (proj_n < -0.1) & slope_zone
-            high_mask = (proj_n > 0.1) & slope_zone
-            if low_mask.sum() < min_cells or high_mask.sum() < min_cells:
-                low_mask = (proj_n < -0.1) & body
-                high_mask = (proj_n > 0.1) & body
-            if low_mask.sum() < min_cells or high_mask.sum() < min_cells:
-                low_mask = proj_n < -0.1
-                high_mask = proj_n > 0.1
+            # running slope: gutter just below curb break to ramp top over the gap run
+            low_mask = body & (proj_n >= -0.5) & (proj_n <= 0.1)
+            high_mask = body & (proj_n >= max(width - 0.25, 0.2)) & (proj_n <= width + 0.3)
             gutter_cells = int(low_mask.sum())
             raised_cells = int(high_mask.sum())
             enough = gutter_cells >= min_cells and raised_cells >= min_cells
             if enough:
                 gutter_z_med = float(np.median(zs[low_mask]))
                 raised_z_med = float(np.median(zs[high_mask]))
-                low_u_med = float(np.median(proj_n[low_mask]))
-                high_u_med = float(np.median(proj_n[high_mask]))
-                run_length = abs(high_u_med - low_u_med)
-                if run_length < 1e-6:
-                    run_length = cell
-                # slope run should not exceed the curb-gap width (ramp run)
-                if run_length > width + cell:
-                    run_length = width
+                run_length = float(width) if width > 0 else cell
                 running_slope_pct = abs(raised_z_med - gutter_z_med) / run_length * 100.0
             else:
                 gutter_z_med = float(np.median(zs[low_mask])) if low_mask.sum() else None
                 raised_z_med = None
-                run_length = None
+                run_length = float(width) if width > 0 else None
                 running_slope_pct = None
             # side slope
             left_mask = (proj_t > 0.1) & (np.abs(proj_n) <= 2.0)
@@ -640,18 +626,14 @@ def extract_ramps(xyz, curbs, crosswalks, params=None):
             n_pts = int(sum(counts[r, c] for (r, c) in footprint_cells))
 
         # status
-        def _status(value, thr):
-            if value is None:
-                return "indeterminate"
-            if not enough:
+        def _status(value, thr, enough_sample=enough):
+            if value is None or not enough_sample:
                 return "indeterminate"
             return "ok" if value <= thr else "exceeds"
 
         running_status = _status(running_slope_pct, RUNNING_SLOPE_MAX_PCT)
         side_status = _status(side_slope_pct, SIDE_SLOPE_MAX_PCT)
-        if gutter_step is None:
-            gutter_status = "indeterminate"
-        elif not enough:
+        if gutter_step is None or not enough:
             gutter_status = "indeterminate"
         else:
             gutter_status = "ok" if gutter_step <= GUTTER_STEP_MAX_M else "exceeds"
@@ -678,7 +660,7 @@ def extract_ramps(xyz, curbs, crosswalks, params=None):
         for cw, geom in cw_polys:
             try:
                 dist = float(geom.distance(pt))
-            except Exception:
+            except (AttributeError, TypeError, ValueError, ShapelyError):
                 continue
             if nearest_dist is None or dist < nearest_dist:
                 nearest_dist = dist
