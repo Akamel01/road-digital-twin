@@ -47,12 +47,6 @@ CURB_STEP_MIN_M, CURB_STEP_MAX_M = 0.06, 0.30
 CURB_RAISED_M = 0.04  # a cell this far above the 1.5 m smoothed surface is on the raised side
 CURB_MIN_LEN_M = 3.0
 CURB_SAMPLE_M = 0.25
-RAMP_GAP_MIN_M = 1.0
-RAMP_GAP_MAX_M = 3.0
-RAMP_HEIGHT_STEP_MAX_M = 0.02
-RAMP_CROSSWALK_END_M = 3.0
-RAMP_MEASURE_CELL_M = 0.25
-RAMP_MIN_MEASURE_CELLS = 4
 
 
 class Grid:
@@ -457,10 +451,8 @@ def _grouped_medians(values: np.ndarray, order: np.ndarray, start: np.ndarray, c
 def _build_measurement_raster(xyz: np.ndarray, cell: float, centre: np.ndarray, radius: float, tangent: np.ndarray, normal: np.ndarray):
     xy = xyz[:, :2]
     rel = xy - centre
-    # axis-aligned window in tangent/normal frame projected conservatively to xy bbox
     half_t = radius
     half_n = radius
-    # cheap bbox prefilter
     d = np.abs(rel @ tangent) <= half_t
     d &= np.abs(rel @ normal) <= half_n
     if not np.any(d):
@@ -481,7 +473,7 @@ def _build_measurement_raster(xyz: np.ndarray, cell: float, centre: np.ndarray, 
     ys = origin[1] + (np.arange(ny) + 0.5) * cell
     gx, gy = np.meshgrid(xs, ys)
     centres = np.column_stack([gx.ravel(), gy.ravel()])
-    return {"smooth": smooth, "centres": centres, "origin": origin, "cell": cell, "shape": (ny, nx)}
+    return {"smooth": smooth, "meds": grid, "centres": centres, "origin": origin, "cell": cell, "shape": (ny, nx)}
 
 
 def _fit_plane(t: np.ndarray, n: np.ndarray, z: np.ndarray):
@@ -628,7 +620,9 @@ def extract_ramps(xyz, curbs, crosswalks, params: RampsParams):
             continue
         centres = meas["centres"]
         smooth = meas["smooth"].ravel()
-        valid = np.isfinite(smooth)
+        meds = meas["meds"].ravel()
+        valid = np.isfinite(meds)
+        values = np.where(valid, meds, smooth)
         if not np.any(valid):
             continue
         proj_n = (centres - centroid) @ normal
@@ -637,13 +631,13 @@ def extract_ramps(xyz, curbs, crosswalks, params: RampsParams):
         # orient normal to raised side: median of raised side 2-3m back
         back_hi = valid & (proj_n >= 2.0) & (proj_n <= 3.0)
         back_lo = valid & (proj_n <= -2.0) & (proj_n >= -3.0)
-        side_level_hi = float(np.median(smooth[back_hi])) if np.any(back_hi) else None
-        side_level_lo = float(np.median(smooth[back_lo])) if np.any(back_lo) else None
+        side_level_hi = float(np.median(values[back_hi])) if np.any(back_hi) else None
+        side_level_lo = float(np.median(values[back_lo])) if np.any(back_lo) else None
         if side_level_hi is None and side_level_lo is None:
             near_hi = valid & (proj_n > 0.5) & (proj_n < 2.0)
             near_lo = valid & (proj_n < -0.5) & (proj_n > -2.0)
-            side_level_hi = float(np.median(smooth[near_hi])) if np.any(near_hi) else None
-            side_level_lo = float(np.median(smooth[near_lo])) if np.any(near_lo) else None
+            side_level_hi = float(np.median(values[near_hi])) if np.any(near_hi) else None
+            side_level_lo = float(np.median(values[near_lo])) if np.any(near_lo) else None
         if side_level_hi is not None and side_level_lo is not None and side_level_lo > side_level_hi:
             normal = -normal
             tangent = np.array([-normal[1], normal[0]], dtype=float)
@@ -661,7 +655,7 @@ def extract_ramps(xyz, curbs, crosswalks, params: RampsParams):
         gutter_n = None
         if np.any(corr):
             pn = proj_n[corr]
-            zv = smooth[corr]
+            zv = values[corr]
             gmask = (pn >= -0.35) & (pn <= 0.35)
             if not np.any(gmask):
                 gmask = (pn >= -0.5) & (pn <= 0.5)
@@ -694,7 +688,7 @@ def extract_ramps(xyz, curbs, crosswalks, params: RampsParams):
             body = valid & (np.abs(proj_t) <= width / 2.0) & (proj_n > 0.0) & (proj_n < run_length_m)
         body_n = int(np.count_nonzero(body))
         if body_n >= min_cells:
-            coef = _fit_plane(proj_t[body], proj_n[body], smooth[body])
+            coef = _fit_plane(proj_t[body], proj_n[body], values[body])
             if coef is not None:
                 a, b, _c = coef
                 cross_slope_pct = abs(a) * 100.0
@@ -714,7 +708,7 @@ def extract_ramps(xyz, curbs, crosswalks, params: RampsParams):
         flare_vals = []
         for fm in (flare_mask_left, flare_mask_right):
             if int(np.count_nonzero(fm)) >= min_cells:
-                fcoef = _fit_plane(proj_t[fm], proj_n[fm], smooth[fm])
+                fcoef = _fit_plane(proj_t[fm], proj_n[fm], values[fm])
                 if fcoef is not None:
                     fa, fb, _ = fcoef
                     # slope magnitude along steepest in flare patch
@@ -766,16 +760,25 @@ def extract_ramps(xyz, curbs, crosswalks, params: RampsParams):
                         if int(np.count_nonzero(near_low)) == 0 or int(np.count_nonzero(near_high)) == 0:
                             gutter_sparse = True
                         else:
+                            # aggregate by normal distance to avoid intra-band variation/noise
                             ordern = np.argsort(n5)
-                            zord = meds5[ordern]
                             nord = n5[ordern]
-                            if len(zord) >= 2:
-                                diffs = np.abs(np.diff(zord))
-                                centerish = (nord[:-1] >= -0.12) & (nord[1:] <= 0.12)
+                            zord = meds5[ordern]
+                            bins = np.round(nord / CELL_M).astype(np.int64)
+                            change = np.concatenate([[0], np.flatnonzero(np.diff(bins)) + 1, [len(bins)]])
+                            n_lvl = np.empty(len(change) - 1, dtype=float)
+                            z_lvl = np.empty(len(change) - 1, dtype=float)
+                            for k in range(len(change) - 1):
+                                a, b = change[k], change[k + 1]
+                                n_lvl[k] = float(np.median(nord[a:b]))
+                                z_lvl[k] = float(np.median(zord[a:b]))
+                            if len(z_lvl) >= 2:
+                                diffs = np.abs(np.diff(z_lvl))
+                                centerish = (n_lvl[:-1] >= -0.12) & (n_lvl[1:] <= 0.12)
                                 if np.any(centerish):
                                     gutter_step_m = float(np.max(diffs[centerish]))
                                 else:
-                                    gutter_step_m = float(np.max(diffs))
+                                    gutter_sparse = True
                             else:
                                 gutter_sparse = True
                     else:
