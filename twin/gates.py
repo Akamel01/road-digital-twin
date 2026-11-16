@@ -2,6 +2,7 @@
 
 import json
 import math
+from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
@@ -81,26 +82,108 @@ def _combine(statuses: list[str]) -> str:
     return NOT_MEASURED if NOT_MEASURED in statuses else GO
 
 
-def margin_score(report: dict) -> float:
-    """Sweep score: the sum over measured checks of the normalised margin
-    (threshold - value) / threshold for "<=" and (value - threshold) / threshold for ">=",
-    each clipped to [-1, 1]. Positive is headroom, negative is a miss. A zero threshold
-    cannot be normalised, so that check scores 0 when it passes and -1 when it fails.
-    Not-measured checks add nothing. This is the only place the formula lives."""
-    total = 0.0
-    for gate in report["gates"].values():
-        for c in gate["checks"]:
-            if c["value"] is None:
-                continue
-            if c["status"] == GO and not c["threshold"]:
-                continue
-            if not c["threshold"]:
-                total -= 1
-                continue
-            sign = 1 if c["op"] == "<=" else -1
-            margin = sign * (c["threshold"] - c["value"]) / abs(c["threshold"])
-            total += max(-1.0, min(1.0, margin))
-    return round(total, 6)
+RANK = {GO: 0, NO_GO: 2}  # sweep/autopilot ordering; anything else (not measured) ranks 1
+G2_STEPS = {0.20: 0.10, 0.10: 0.05}  # the G2 ratchet: lower once G2_RUN area builds in a row pass
+G2_RUN = 3
+
+
+@dataclass(frozen=True)
+class Check:
+    """One gate check as written to gates.json."""
+
+    gate: str
+    metric: str
+    op: str
+    threshold: float
+    value: float | None
+    status: str
+
+    def room(self) -> float | None:
+        """Raw headroom: threshold - value for <=, value - threshold for >=. None when not measured."""
+        if self.value is None:
+            return None
+        return (1 if self.op == "<=" else -1) * (self.threshold - self.value)
+
+    def margin(self) -> float:
+        """Headroom normalised by |threshold| and clipped to [-1, 1]; 0 when not measured. A zero
+        threshold cannot be normalised: 0 when the check passes, -1 when it fails."""
+        if self.value is None:
+            return 0.0
+        if not self.threshold:
+            return 0.0 if self.status == GO else -1.0
+        return max(-1.0, min(1.0, self.room() / abs(self.threshold)))
+
+
+@dataclass(frozen=True)
+class GateReport:
+    """A gates.json report: the one place its layout is read (#234)."""
+
+    raw: dict
+
+    @classmethod
+    def load(cls, path: Path) -> "GateReport":
+        """path: a run or area build dir holding gates.json, or the gates.json file itself."""
+        path = Path(path)
+        return cls(json.loads((path / "gates.json" if path.is_dir() else path).read_text()))
+
+    @property
+    def run_id(self) -> str | None:
+        return self.raw.get("run_id")
+
+    @property
+    def verdict(self) -> str:
+        return self.raw["verdict"]
+
+    @property
+    def regressions(self) -> list[dict] | None:
+        """Regressions against the baseline, None when evaluated without one."""
+        return self.raw.get("regressions")
+
+    @property
+    def checks(self) -> list[Check]:
+        return [
+            Check(gid, c["metric"], c.get("op", "<="), c.get("threshold", 0), c.get("value"), c.get("status", NOT_MEASURED))
+            for gid, gate in (self.raw.get("gates") or {}).items()
+            for c in gate.get("checks", [])
+        ]
+
+    def check(self, metric: str) -> Check | None:
+        return next((c for c in self.checks if c.metric == metric), None)
+
+    @property
+    def passed(self) -> int:
+        return sum(c.status == GO for c in self.checks)
+
+    @property
+    def total(self) -> int:
+        return len(self.checks)
+
+    def score(self) -> float:
+        """Sum of the checks' normalised margins: the sweep rank and the publish tie-break (#222)."""
+        return round(sum(c.margin() for c in self.checks), 6)
+
+    def rooms(self) -> dict[str, float]:
+        """Raw headroom per measured metric."""
+        return {c.metric: c.room() for c in self.checks if c.value is not None}
+
+    def values(self) -> dict[str, float]:
+        """Measured value per metric."""
+        return {c.metric: c.value for c in self.checks if c.value is not None}
+
+
+def g2_ratchet(history: list[dict]) -> dict | None:
+    """The G2 ratchet from autopilot/g2_history.json rows (threshold, status): the current threshold,
+    how many builds in a row passed at it, and the next threshold once G2_RUN in a row passed."""
+    if not history:
+        return None
+    threshold = history[-1]["threshold"]
+    in_a_row = 0
+    for h in reversed(history):
+        if h["threshold"] != threshold or h["status"] != GO:
+            break
+        in_a_row += 1
+    due = G2_STEPS.get(threshold) if in_a_row >= G2_RUN else None
+    return {"threshold": threshold, "passing_in_a_row": in_a_row, "due": due}
 
 
 def _gated_metrics(gates: dict) -> set[str]:

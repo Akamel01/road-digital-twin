@@ -98,7 +98,7 @@ STAGES: dict[str, StageSpec] = {
     ),
     "features": StageSpec(
         number=5,
-        methods=("intensity",),
+        methods=("intensity", "raster"),
         requires=("ground",),
         outputs=("markings.geojson", "crosswalks.geojson", "curbs.geojson"),
         optional=False,

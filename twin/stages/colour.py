@@ -352,8 +352,8 @@ def _run(ctx: Any, params: ColourParams, refine: bool = False) -> StageResult:
         surf = surf_path if surf_path.exists() else None
         a = colour_pose.lidar_paint_edges(_train_markings, surf, nonground_xyz)
         if a.ndim == 2 and a.shape[1] >= 3:
-            a = a[:, :3]
-        _anchors_cache["v"] = np.asarray(a, float).reshape(-1, 3)
+            a = np.asarray(a, float)
+        _anchors_cache["v"] = a
         return _anchors_cache["v"]
 
     # Collected per-camera deltas for pose_corrections (refine mode only).

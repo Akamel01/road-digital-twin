@@ -118,6 +118,29 @@ def build_parser() -> argparse.ArgumentParser:
     define.add_argument(
         "--store", type=Path, help="run store (default: $TWIN_RUNS or /data/twin-runs)"
     )
+    suggest = area.add_parser(
+        "suggest-drives", help="rank candidate trainval drives to improve area coverage"
+    )
+    suggest.add_argument("area")
+    suggest.add_argument("--top", required=True, type=int, help="number of suggestions (>=1)")
+    suggest.add_argument(
+        "--density-threshold",
+        type=float,
+        default=50.0,
+        help="low-coverage density threshold in sampled pts/m^2 (>=0, default 50.0; sweep_step=4)",
+    )
+    suggest.add_argument(
+        "--apply", action="store_true", help="append ranked suggestions to resolved area file"
+    )
+    suggest.add_argument(
+        "--dataroot",
+        type=Path,
+        default=Path(DatasetConfig.from_env().root),
+    )
+    suggest.add_argument(
+        "--store", type=Path, help="run store (default: $TWIN_RUNS or /data/twin-runs)"
+    )
+    suggest.add_argument("--version", default="v1.0-trainval")
     merge = area.add_parser("merge", help="register the drives of an area into one cloud")
     merge.add_argument("name")
     merge.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
@@ -222,6 +245,28 @@ def main(argv: list[str] | None = None) -> int:
             args.version,
             args.store,
             args.include_rain,
+        )
+    if args.command == "area" and args.area_cmd == "suggest-drives":
+        from twin.area import suggest_drives_command
+
+        if args.top < 1:
+            import sys
+
+            print("--top must be an integer >= 1", file=sys.stderr)
+            return 2
+        if args.density_threshold < 0:
+            import sys
+
+            print("--density-threshold must be >= 0", file=sys.stderr)
+            return 2
+        return suggest_drives_command(
+            args.area,
+            args.top,
+            args.density_threshold,
+            args.apply,
+            args.dataroot,
+            args.store,
+            args.version,
         )
     if args.command == "area" and args.area_cmd == "merge":
         from twin.merge import area_merge_command

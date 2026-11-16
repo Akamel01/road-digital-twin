@@ -9,7 +9,7 @@ from PIL import Image
 from twin.cli import main
 from twin.contracts import AreaIndex
 from twin.fake_run import FACILITIES, write_fake_runs
-from twin.publish import _thin_laz, publish_runs
+from twin.publish import _rasters, _thin_laz, publish_runs
 from twin.tiles import TILE, TileMeta
 
 SCHEMAS = Path(__file__).resolve().parents[1] / "schemas"
@@ -142,3 +142,34 @@ def test_fake_showcase_writes_tile_meta(runs, tmp_path):
             ref_meta = (ref / "tiles" / rid / raster / "meta.json").read_text()
             assert (store / "showcase" / "tiles" / rid / raster / "meta.json").read_text() == ref_meta
             assert (store / "showcase" / "tiles" / rid / raster / "0" / "0" / "0.webp").is_file()
+
+
+def test_lidar_intensity_white_point(tmp_path):
+    store = tmp_path / "runs"
+    folders = write_fake_runs(store, drives=1)
+    run_dir = folders[0]
+
+    import laspy
+    import numpy as np
+
+    xs = np.array([0.0, 50.0, 0.0, 50.0])
+    ys = np.array([0.0, 0.0, 50.0, 50.0])
+    zs = np.zeros(4)
+    xyz = np.column_stack([xs, ys, zs])
+    header = laspy.LasHeader(point_format=6)
+    header.scales = np.array([0.001, 0.001, 0.001])
+    header.offsets = xyz.min(axis=0)
+    las = laspy.LasData(header)
+    las.x = xs
+    las.y = ys
+    las.z = zs
+    las.intensity = np.array([0, 30, 60, 110], dtype=np.uint16)
+    las.write(run_dir / "4_ground" / "ground.laz")
+
+    from twin.contracts import Manifest
+
+    manifest = Manifest.model_validate_json((run_dir / "manifest.json").read_text())
+    rasters, _zoom, _bbox = _rasters(run_dir, manifest)
+    lidar = rasters["lidar"]
+    filled = lidar[..., 3] == 255
+    assert sorted(lidar[filled, 0].tolist()) == [0, 127, 255, 255]

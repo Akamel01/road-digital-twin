@@ -179,7 +179,7 @@ def _tangents(anchors: Any, labels: Any = None) -> np.ndarray:
         seg = np.zeros(n, int)
         for i in range(1, n):
             seg[i] = seg[i - 1]
-            if np.linalg.norm(xyz[i] - xyz[i - 1]) > 0.6:
+            if np.linalg.norm(xyz[i] - xyz[i - 1]) > 1.0:
                 seg[i] += 1
         groups = []
         for s in np.unique(seg):
@@ -221,6 +221,16 @@ def _residuals_one_view(
     image = np.asarray(img)
     h, w = image.shape[:2]
     gray = _gray(image)
+    observed_mask = None
+    try:
+        observed_mask = view.get("observed", None)
+    except (RuntimeError, ValueError, OSError, KeyError, TypeError, AttributeError):
+        observed_mask = None
+    if observed_mask is None:
+        observed_mask = np.ones((h, w), bool)
+    observed_mask = np.asarray(observed_mask)
+    if observed_mask.shape != (h, w):
+        observed_mask = np.ones((h, w), bool)
     ng = view.get("nonground", None)
     if ng is None:
         ng = np.zeros((0, 3), float)
@@ -284,11 +294,17 @@ def _residuals_one_view(
         for off in offsets_px:
             px = u + off * ndir[0]
             py = v + off * ndir[1]
-            ix = round(px)
-            iy = round(py)
-            if 0 <= ix < w and 0 <= iy < h:
-                ok.append(True)
-                lum.append(float(gray[iy, ix]))
+            if 0 <= px < w - 1 and 0 <= py < h - 1:
+                x0 = int(np.floor(px)); y0 = int(np.floor(py))
+                afx = px - x0; afy = py - y0
+                v00 = float(gray[y0, x0]); v10 = float(gray[y0, x0+1])
+                v01 = float(gray[y0+1, x0]); v11 = float(gray[y0+1, x0+1])
+                val = (1-afx)*(1-afy)*v00 + afx*(1-afy)*v10 + (1-afx)*afy*v01 + afx*afy*v11
+                ixn = round(px); iyn = round(py)
+                observed_ok = bool(observed_mask[iyn, ixn]) if (0 <= ixn < w and 0 <= iyn < h) else False
+                # use observed mask array if available else True
+                ok.append(observed_ok if 'observed_mask' in locals() else True)
+                lum.append(val)
             else:
                 ok.append(False)
                 lum.append(0.0)
@@ -357,7 +373,7 @@ def refine_one(
         v = dict(view)
         v["anchors"] = a
         r = _residuals_one_view(base, delta, v, a, params)
-        r = np.where(np.isfinite(r), r, 0.0)
+        r = np.where(np.isfinite(r), r, 0.5)
         return np.asarray(r, float).ravel()
 
     # initial
@@ -487,7 +503,7 @@ def refine_channel_extrinsics(
             bc = np.asarray(vd["base_c2w"], float).reshape(4, 4)
             a = _anchors_for_view(vd, global_anchors)
             r = _residuals_one_view(bc, delta, vd, a, params)
-            r = np.where(np.isfinite(r), r, 0.0)
+            r = np.where(np.isfinite(r), r, 0.5)
             out.append(np.asarray(r, float).ravel())
         if not out:
             return np.zeros(0, float)
