@@ -6,7 +6,7 @@ import yaml
 from twin import jobqueue, registry
 from twin.cli import main
 from twin.contracts import STAGE_NAMES, STAGES, Params, StageResult
-from twin.gates import evaluate, load_gates, margin_score
+from twin.gates import GateReport, evaluate, load_gates
 from twin.sweep import build_variants, earliest_stage, leaderboard, queue_sweep
 
 BASE = Params().model_dump(mode="json")
@@ -87,8 +87,8 @@ def _gates_report(value):
 
 def test_margin_score_formula():
     # G3 threshold 0.10: value 0.05 -> +0.5; value 0.30 -> -2 clipped to -1; G6 runtime 0 min -> +1
-    assert margin_score(_gates_report(0.05)) == 1.5
-    assert margin_score(_gates_report(0.30)) == 0.0
+    assert GateReport(_gates_report(0.05)).score() == 1.5
+    assert GateReport(_gates_report(0.30)).score() == 0.0
 
 
 def test_sweep_end_to_end(tmp_path, stubs):

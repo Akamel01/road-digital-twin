@@ -253,7 +253,7 @@ def test_g2_history_and_ratchet(tmp_path, capsys):
 
     def build(run_id, value, threshold=0.20):
         status = "go" if value <= threshold else "no-go"
-        rep = {"run_id": run_id, "gates": {"G2": {"checks": [{"value": value, "threshold": threshold, "status": status}]}}}
+        rep = {"run_id": run_id, "gates": {"G2": {"checks": [{"metric": "align.cross_drive_ground_p95_m", "op": "<=", "value": value, "threshold": threshold, "status": status}]}}}
         (out / "gates.json").write_text(json.dumps(rep))
         autopilot.record_g2(tmp_path)
 

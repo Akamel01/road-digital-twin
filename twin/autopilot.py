@@ -47,8 +47,6 @@ NUSCENES = Path("/data/nuscenes/v1.0-trainval")
 PREFETCH_SCENES = 6  # load+mask only; the disk hold is the only limit on areas
 PREFETCH_STORE_MIN_GB = 100.0  # free on the store's own filesystem (/data, 2 TB)
 PREFETCH_ROOT_MIN_GB = 10.0  # root is shared with production (jobqueue.DISK_RULES)
-G2_STEPS = {0.20: 0.10, 0.10: 0.05}  # the G2 ratchet: lower once 3 area builds in a row pass
-G2_RUN = 3
 GROUPS = ("ground", "features", "align", "colour", "semantics")  # parameter groups a new line rotates
 LINE_PARAMS = 3  # swept parameters per new line
 FAIL_WINDOW = 10  # last jobs per source looked at by the fail-streak alarm
@@ -125,13 +123,12 @@ def gates_hash() -> str:
 
 def record_g2(store: Path) -> None:
     """Append the latest area build's G2 value and verdict to autopilot/g2_history.json, and say
-    when G2_RUN builds in a row passed at the current threshold. gates.yaml is never edited."""
+    when gates.G2_RUN builds in a row passed at the current threshold. gates.yaml is never edited."""
     try:
-        report = json.loads((store / "areas" / TWIN / "gates.json").read_text())
-        check = report["gates"]["G2"]["checks"][0]
-        entry = {"run_id": report["run_id"], "value": check["value"], "threshold": check["threshold"],
-                 "status": check["status"]}  # fmt: skip
-    except (OSError, ValueError, KeyError, IndexError):
+        report = gates.GateReport.load(store / "areas" / TWIN)
+        check = next(c for c in report.checks if c.gate == "G2")
+        entry = {"run_id": report.run_id, "value": check.value, "threshold": check.threshold, "status": check.status}
+    except (OSError, ValueError, KeyError, StopIteration):
         return
     path = store / "autopilot" / "g2_history.json"
     try:
@@ -143,10 +140,8 @@ def record_g2(store: Path) -> None:
     history.append({**entry, "ts": datetime.now(UTC).isoformat(timespec="seconds")})
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(history, indent=2) + "\n")
-    last = history[-G2_RUN:]
-    nxt = G2_STEPS.get(entry["threshold"])
-    if nxt and len(last) == G2_RUN and all(h["threshold"] == entry["threshold"] and h["status"] == "go" for h in last):
-        say(f"G2 ratchet due: lower to {nxt}")
+    if due := gates.g2_ratchet(history)["due"]:
+        say(f"G2 ratchet due: lower to {due}")
 
 
 def _detached(store: Path, name: str, cmd: str) -> tuple[int, str]:
