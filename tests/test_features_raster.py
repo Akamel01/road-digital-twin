@@ -222,14 +222,14 @@ def test_ramp_at_crosswalk_width_and_slope():
 
 
 def test_exact_1_12_ramp_1_48_cross_slope():
-    # exact 1:12 running (8.33%) over 1.5m run, 1:48 cross slope (~2.08%) across ramp body
-    pts, curbs, cw = _ramp_inputs(width=1.5, run_m=1.5, cross_slope=1.0 / 48.0)
+    # exact 1:12 ramp 1.2m run with 1:48 cross slope, running slope within 0.5pp, side/cross within 0.5pp
+    pts, curbs, cw = _ramp_inputs(width=1.5, run_m=1.2, cross_slope=1.0 / 48.0)
     ramps = fr.extract_ramps(pts, curbs, cw, fr.RampsParams())
     assert ramps
     p = next(r for r in ramps if r["properties"]["kind"] == "curb_ramp")["properties"]
     assert abs(p["width_m"] - 1.5) <= 0.1
     assert p["run_length_m"] is not None
-    assert abs(p["run_length_m"] - 1.5) <= 0.2
+    assert abs(p["run_length_m"] - 1.2) <= 0.2
     assert p["running_slope_pct"] is not None
     assert abs(p["running_slope_pct"] - 8.33) <= 0.5
     assert p["cross_slope_pct"] is not None
