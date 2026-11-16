@@ -175,7 +175,7 @@ T0 writes these as pydantic models in `twin/contracts.py` and exports JSON Schem
 | 2 | mask | `boxes` | load | `points.npz`, `parked.npz` |
 | 3 | align | `kiss-icp`, `dataset-poses` | mask | `poses.json` (refined 4×4 per sweep), `qa.json` (x/y drift vs dataset, fallback used) |
 | 4 | ground | `ransac-tiles`, `csf` | align | `ground.laz`, `nonground.laz`, `surface.npz` (0.5 m grid: z, count), `qa.json` (`rmse_m`, `z_disagreement_p95_m`, `height_valid`) |
-| 5 | features | `intensity` (+ curbs `height-step`) | ground | `markings.geojson`, `crosswalks.geojson`, `curbs.geojson` (3D; properties `id`, `kind`, `n_points`) |
+| 5 | features | `intensity` (+ curbs `height-step`); `raster`: 5 cm intensity and height rasters, top-hat paint, width classes, sub-pixel centre lines, dash chaining, ladder combs, curbs on the 6-30 cm height step (#266) | ground | `markings.geojson`, `crosswalks.geojson`, `curbs.geojson` (3D; properties `id`, `kind`, `n_points`) |
 | 6 | colour | `zbuffer-topk` | mask, align, ground, features | `ortho.png` + `ortho.pgw` (5 cm, RGBA; alpha 0 = unobserved), `rgb.npz` (per point RGB + `observed`), `qa.json` (`edge_offset_p95_m`, `views_median`, `height_valid` copied) |
 | 7 | profile | `centreline` | ground | `profile.csv` (`facility`, `line`, `s_m`, `z_m`, `n`), `centrelines.geojson` (one line per road direction; through an intersection the line continues across it) |
 | 8 | isd | `aashto-b` | ground, mask | `isd.json`: per facility and leg/exit `required_m`, `available_m`, `available_with_parked_m`, `status` (`ok`, `short` or `indeterminate`), `reason` |
