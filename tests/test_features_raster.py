@@ -109,3 +109,16 @@ def test_extract_count_keys_present_and_types():
         assert isinstance(counts[k], int), (k, type(counts[k]))
     assert "paint_threshold" in counts
     assert isinstance(counts["paint_threshold"], float)
+
+
+def test_markings_source_intensity(tmp_path):
+    xs, ys = _grid(0, 12, -2, 2)
+    ctx = _ctx(tmp_path, _ground(xs, ys, lambda x, y: np.abs(y) < 0.075))
+    from twin.contracts import FeaturesParams
+
+    result = __import__("twin", fromlist=["registry"]).registry.lookup("features", "raster")(ctx, FeaturesParams())
+    assert result.status == "ok"
+    qa = json.loads((ctx.stage_dir("features") / "qa.json").read_text())
+    assert qa["markings_source"] == "intensity"
+    assert "n_markings_intensity" in qa
+    assert isinstance(qa["n_markings_intensity"], int)

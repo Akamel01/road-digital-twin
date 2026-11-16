@@ -564,7 +564,14 @@ def _run(ctx: Any, params: FeaturesParams, method: str) -> StageResult:
     if len(xyz) == 0:
         return StageResult(status="failed", message="no ground points to extract from")
 
-    markings, crosswalks, counts = features_raster.extract(xyz) if method == "raster" else extract(xyz, params)
+    if method == "raster":
+        # Mixed path (#276): markings come from the intensity method, crosswalks and curbs from the raster method.
+        markings, _intensity_crosswalks, _ = extract(xyz, params)
+        _raster_markings, crosswalks, counts = features_raster.extract(xyz)
+        counts["markings_source"] = "intensity"
+        counts["n_markings_intensity"] = len(markings)
+    else:
+        markings, crosswalks, counts = extract(xyz, params)
     load_dir = ctx.stage_dir("load")
     load_dir = load_dir if load_dir.is_dir() else None
     counts["n_markings_extracted"] = len(markings)
