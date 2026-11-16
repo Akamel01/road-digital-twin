@@ -1,6 +1,6 @@
 # Auto-publish twin.papyrus-ai.net
 
-A run is published only when `twin eval` gives GO on every gate **and** it beats the published run: no check has less margin than before, and at least one has more (margin = room to the threshold in `twin/gates.yaml`). The first run only needs GO. Operator decision 2026-11-09, ADR 0005.
+The site publishes a run when it is not worse than the published one: no fewer gate checks pass, and its margin sum (room to the thresholds in `twin/gates.yaml`) is at least the published sum minus 0.01 (`TIE_MARGIN`, rebuild noise). Ties publish, so merged code reaches the site. Operator, 2026-11-16 (it was "strictly better", ADR 0005). The first run always publishes.
 
 ## Queue it
 
