@@ -11,6 +11,7 @@ from shapely.geometry import shape
 from twin import registry
 from twin.contracts import FeaturesParams, GroundParams
 from twin.runner import StageContext
+from twin.stages.features import rasterize
 from twin.stages.ground import ransac_ground, surface_grid
 
 STRIPE = 200.0
@@ -132,8 +133,12 @@ def _ctx(tmp_path, ground_xyzi, nonground_xyzi=None):
 
 
 def _run(tmp_path, ground):
+    return _run_method(tmp_path, ground, "intensity")
+
+
+def _run_method(tmp_path, ground, method):
     ctx = _ctx(tmp_path, ground)
-    result = registry.lookup("features", "intensity")(ctx, FeaturesParams())
+    result = registry.lookup("features", method)(ctx, FeaturesParams())
     assert result.status == "ok"
     out = ctx.stage_dir("features")
     markings = json.loads((out / "markings.geojson").read_text())["features"]
@@ -493,3 +498,80 @@ def test_short_fragment_off_angle_keeps_divider_type():
     # the same angle on a 5 m marking is still not a divider
     long = LineString([(5, 0.3), (5 + 5 * c, 0.3 + 5 * sn)])
     assert marking_type(long, REF) == "other_paint"
+
+
+def test_rasterize_cell_means_and_unobserved_mask():
+    pts = np.array(
+        [
+            [0.0, 0.0, 1.0, 10.0],
+            [0.01, 0.01, 2.0, 20.0],
+            [0.5, 0.5, 3.0, 30.0],
+        ]
+    )
+    ir, hr, mask, origin, cm = rasterize(pts, cell_m=0.5)
+    assert origin.shape == (2,)
+    assert cm == 0.5
+    assert ir.shape == mask.shape == hr.shape
+    # two points in cell (0,0): means
+    assert mask[0, 0] is True or mask[0, 0] == True
+    # at least one observed and one unobserved cell
+    assert mask.sum() >= 1
+    assert (~mask).any()
+    # observed cell mean intensity ~15
+    # find cell containing first two points
+    # cell (0,0) observed
+    assert np.isfinite(ir[0, 0])
+    assert abs(ir[0, 0] - 15.0) < 1e-9
+    assert abs(hr[0, 0] - 1.5) < 1e-9
+    # unobserved cells are nan
+    assert np.isnan(ir[~mask]).all()
+    assert np.isnan(hr[~mask]).all()
+
+
+def test_rasterize_empty_input():
+    ir, hr, mask, origin, _cm = rasterize(np.zeros((0, 4)), cell_m=0.05)
+    assert ir.shape == (0, 0)
+    assert hr.shape == (0, 0)
+    assert mask.shape == (0, 0)
+    assert origin.shape == (2,)
+    assert np.all(origin == 0)
+
+
+def test_raster_method_end_to_end(tmp_path):
+    markings, crosswalks, out = _run_method(
+        tmp_path, _lane_and_crosswalk(__import__("numpy").random.default_rng(0)), "raster"
+    )
+    assert len(markings) == 1
+    assert len(crosswalks) == 1
+    qa = json.loads((out / "qa.json").read_text())
+    assert qa["method"] == "raster"
+    assert "n_raster_cells" in qa
+    assert "n_observed_cells" in qa
+    assert "observed_share" in qa
+    # files present
+    assert (out / "markings.geojson").is_file()
+    assert (out / "crosswalks.geojson").is_file()
+    assert (out / "qa.json").is_file()
+
+
+def test_classical_method_end_to_end(tmp_path):
+    markings, crosswalks, out = _run_method(
+        tmp_path, _lane_and_crosswalk(__import__("numpy").random.default_rng(0)), "classical"
+    )
+    assert len(markings) == 1
+    assert len(crosswalks) == 1
+    qa = json.loads((out / "qa.json").read_text())
+    assert qa["method"] == "classical"
+    assert "n_raster_cells" in qa
+
+
+def test_raster_3cm_recovery(tmp_path):
+    markings, _, _ = _run_method(
+        tmp_path, _lane_and_crosswalk(__import__("numpy").random.default_rng(0)), "raster"
+    )
+    m = markings[0]
+    (_, y0, _), (_, y1, _) = (
+        m["geometry"]["coordinates"][0],
+        m["geometry"]["coordinates"][-1],
+    )
+    assert abs(y0 - 5.0) < 0.03 and abs(y1 - 5.0) < 0.03

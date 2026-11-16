@@ -305,13 +305,17 @@ def rasterize(points_xyz, cell_m: float = RASTER_CELL_M):
     height_raster = np.full((ny, nx), np.nan, dtype=np.float64)
     observed_mask = np.zeros((ny, nx), dtype=bool)
     keys = ij[:, 1] * nx + ij[:, 0]
-    for cell in np.unique(keys):
-        sel = keys == cell
-        iy = int(cell // nx)
-        ix = int(cell % nx)
-        observed_mask[iy, ix] = True
-        intensity_raster[iy, ix] = float(intensity[sel].mean())
-        height_raster[iy, ix] = float(xyz[sel, 2].mean())
+    # Vectorised binning: one pass over points, no per-cell Python loop.
+    uniq, inv = np.unique(keys, return_inverse=True)
+    counts = np.bincount(inv, minlength=uniq.size)
+    intensity_sums = np.bincount(inv, weights=intensity, minlength=uniq.size)
+    height_sums = np.bincount(inv, weights=xyz[:, 2], minlength=uniq.size)
+    iy = (uniq // nx).astype(np.int64)
+    ix = (uniq % nx).astype(np.int64)
+    observed_mask[iy, ix] = True
+    nz = counts > 0
+    intensity_raster[iy[nz], ix[nz]] = intensity_sums[nz] / counts[nz]
+    height_raster[iy[nz], ix[nz]] = height_sums[nz] / counts[nz]
     return intensity_raster, height_raster, observed_mask, origin, float(cell_m)
 
 
