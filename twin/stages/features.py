@@ -27,6 +27,7 @@ from shapely.ops import unary_union
 
 from twin.contracts import CurbsParams, FeaturesParams, SelectParams, StageResult
 from twin.registry import register
+from twin.stages import features_raster
 from twin.select import go, paint_contrast, road_density
 
 OUTPUT_FILES = ("markings.geojson", "crosswalks.geojson", "qa.json")
@@ -544,6 +545,16 @@ def _read_ground(path) -> np.ndarray:
 
 @register("features", "intensity")
 def run_intensity(ctx: Any, params: FeaturesParams) -> StageResult:
+    return _run(ctx, params, "intensity")
+
+
+@register("features", "raster")
+def run_raster(ctx: Any, params: FeaturesParams) -> StageResult:
+    """5 cm intensity and height rasters, classical extraction (#266, twin/stages/features_raster.py)."""
+    return _run(ctx, params, "raster")
+
+
+def _run(ctx: Any, params: FeaturesParams, method: str) -> StageResult:
     out = ctx.stage_dir("features")
     out.mkdir(exist_ok=True)
     ground_dir = ctx.input_dir("ground")
@@ -552,7 +563,7 @@ def run_intensity(ctx: Any, params: FeaturesParams) -> StageResult:
     if len(xyz) == 0:
         return StageResult(status="failed", message="no ground points to extract from")
 
-    markings, crosswalks, counts = extract(xyz, params)
+    markings, crosswalks, counts = features_raster.extract(xyz) if method == "raster" else extract(xyz, params)
     load_dir = ctx.stage_dir("load")
     load_dir = load_dir if load_dir.is_dir() else None
     counts["n_markings_extracted"] = len(markings)
@@ -573,8 +584,11 @@ def run_intensity(ctx: Any, params: FeaturesParams) -> StageResult:
         near = _near_ground_nonground(
             ground_dir, params.curbs.step_max_m + CURB_ABOVE_SLACK_M
         )
-        curbs = extract_curbs(
-            np.vstack([xyz[:, :3], near]), params.curbs, params.min_points
+        cloud = np.vstack([xyz[:, :3], near])
+        curbs = (
+            features_raster.extract_curbs(cloud)
+            if method == "raster"
+            else extract_curbs(cloud, params.curbs, params.min_points)
         )
         files.append(CURB_FILE)
         counts["n_curbs"] = len(curbs)
@@ -599,7 +613,7 @@ def run_intensity(ctx: Any, params: FeaturesParams) -> StageResult:
             missing_ok=True
         )  # off means no curb file, even from an earlier pass
     qa = {
-        "method": "intensity",
+        "method": method,
         "intensity_pct": params.intensity_pct,
         "cluster_eps_m": params.cluster_eps_m,
         "min_points": params.min_points,
