@@ -3,12 +3,12 @@ import type { LegMetric } from "@/lib/runmetrics";
 // Loads one drive's plan overlays, facility geometry, sight-line numbers and element accuracy from the
 // static bundle. Coordinates stay in EPSG:32619 metres until the map converts them to its frame.
 
-export type Raster = "lidar" | "ortho" | "coverage";
+export type Raster = "lidar" | "ortho" | "coverage" | "height";
 export type ElementKey = "markings" | "crosswalks" | "curbs";
 export type Point = [number, number];
 
 export const ELEMENTS: readonly ElementKey[] = ["markings", "crosswalks", "curbs"];
-export const RASTERS: readonly Raster[] = ["lidar", "ortho", "coverage"];
+export const RASTERS: readonly Raster[] = ["lidar", "ortho", "coverage", "height"];
 
 export function isElement(s: string | null): s is ElementKey {
   return s !== null && (ELEMENTS as readonly string[]).includes(s);

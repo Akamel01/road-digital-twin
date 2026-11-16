@@ -606,6 +606,59 @@ a:focus-visible {
   pointer-events: none;
 }
 
+/* Height legend: shown only when Height background is on */
+.heightlegend {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  width: min(280px, calc(100% - 32px));
+  padding: 10px 12px;
+  border-radius: 14px;
+  z-index: 1;
+  color: var(--on-glass-2);
+  pointer-events: none;
+}
+
+.heightlegend .hramp {
+  height: 12px;
+  margin-top: 8px;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    #0f1433 0%,
+    #1a59a6 25%,
+    #26b38c 50%,
+    #f2d933 75%,
+    #fff 100%
+  );
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.14);
+}
+
+.heightlegend .hticks {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  font: 600 10px/1.2 var(--text);
+  color: var(--on-glass-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.heightlegend .hnote {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--on-glass-2);
+}
+
+@media (max-width: 767px) {
+  .heightlegend {
+    right: 12px;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 88px);
+    width: min(240px, calc(100% - 24px));
+    padding: 8px 10px;
+  }
+}
+
 /* ---------- right rail ---------- */
 .rail {
   position: absolute;

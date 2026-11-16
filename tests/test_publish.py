@@ -35,7 +35,7 @@ def test_layout_and_area_validate(runs, tmp_path):
     for rid in run_ids:
         for name in ("twin.geojson", "manifest.json", "twin.laz", "plan.pdf", "profile.csv"):
             assert (site / rid / name).is_file(), name
-        for raster in ("lidar", "ortho", "coverage"):
+        for raster in ("lidar", "ortho", "coverage", "height"):
             assert (site / "tiles" / rid / raster / "0" / "0" / "0.webp").is_file()
         assert laspy.read(site / rid / "twin.laz").header.point_count > 0
     assert Image.open(site / "tiles" / run_ids[0] / "lidar" / "2" / "1" / "1.webp")
@@ -106,7 +106,7 @@ def test_tile_meta_places_tiles(runs, tmp_path):
         las = laspy.read(store / rid / "4_ground" / "ground.laz")
         minx, miny = float(las.x.min()), float(las.y.min())
         extent = max(float(las.x.max()) - minx, float(las.y.max()) - miny)
-        for raster in ("lidar", "ortho", "coverage"):
+        for raster in ("lidar", "ortho", "coverage", "height"):
             meta = TileMeta.model_validate_json(
                 (site / "tiles" / rid / raster / "meta.json").read_text()
             )
@@ -129,7 +129,7 @@ def test_fake_showcase_writes_tile_meta(runs, tmp_path):
     ref = tmp_path / "ref"
     publish_runs(run_ids, ref, store=store)
     for rid in run_ids:
-        for raster in ("lidar", "ortho", "coverage"):
+        for raster in ("lidar", "ortho", "coverage", "height"):
             meta = TileMeta.model_validate_json(
                 (store / "showcase" / "tiles" / rid / raster / "meta.json").read_text()
             )
@@ -169,7 +169,7 @@ def test_lidar_intensity_white_point(tmp_path):
     from twin.contracts import Manifest
 
     manifest = Manifest.model_validate_json((run_dir / "manifest.json").read_text())
-    rasters, _zoom, _bbox = _rasters(run_dir, manifest)
+    rasters, _zoom, _bbox, _grid = _rasters(run_dir, manifest)
     lidar = rasters["lidar"]
     filled = lidar[..., 3] == 255
     assert sorted(lidar[filled, 0].tolist()) == [0, 127, 255, 255]

@@ -36,7 +36,32 @@ import {
 const MAX_K = 40; // screen px per metre
 const LABEL_ZOOM_THRESHOLD = 4;
 const TYPE_RANK: Record<FacilityType, number> = { intersection: 0, segment: 1, access_point: 2 };
-const DEFAULT_LAYERS: Layers = { lidar: true, ortho: false, markings: true, crosswalks: true, curbs: true };
+// Trio {height, ortho, lidar}: at most one fully opaque background at a time.
+const DEFAULT_LAYERS: Layers = {
+  height: false,
+  lidar: true,
+  ortho: false,
+  markings: true,
+  crosswalks: true,
+  curbs: true,
+};
+const TRIO: Layer[] = ["height", "ortho", "lidar"];
+
+function applyTrioToggle(prev: Layers, k: Layer): Layers {
+  if (!TRIO.includes(k)) return { ...prev, [k]: !prev[k] };
+  const nextOn = !prev[k];
+  if (!nextOn) return { ...prev, [k]: false };
+  return {
+    ...prev,
+    height: k === "height",
+    ortho: k === "ortho",
+    lidar: k === "lidar",
+  };
+}
+
+function applySafetyLayers(prev: Layers): Layers {
+  return { ...prev, ortho: true, lidar: false, height: false };
+}
 
 interface LoadedDrive {
   run: string;
@@ -297,35 +322,50 @@ export default function MapView({ area, facility, element, line, onFacility, onE
     const el = hit.getAttribute("data-el");
     if (el && facility) {
       if (isElement(el)) setAnalysis("accuracy"); // the map shows the analysis behind the number
-      else if (el.startsWith("isd-")) setAnalysis("safety");
+      else if (el.startsWith("isd-")) enterSafetyAnalysis();
       onElement(el);
     }
   }
 
   function toggleLayer(k: Layer) {
-    setLayers((v) => ({ ...v, [k]: !v[k] }));
+    setLayers((v) => applyTrioToggle(v, k));
+  }
+
+  function enterSafetyAnalysis() {
+    setAnalysis("safety");
+    setLayers((v) => applySafetyLayers(v));
   }
 
   function pickAnalysis(a: Analysis) {
+    if (a === "safety") {
+      setAnalysis((prev) => {
+        if (prev === "safety") return null;
+        setLayers((v) => applySafetyLayers(v));
+        return "safety";
+      });
+      return;
+    }
     setAnalysis((prev) => (prev === a ? null : a));
-    if (a === "safety") setLayers((v) => ({ ...v, ortho: true, lidar: false }));
   }
 
   const dpr = typeof window === "undefined" ? 1 : window.devicePixelRatio;
 
   const tiles: { tile: Tile; opacity: number }[] = [];
   if (cur && frame && loaded) {
+    // Trio {height, ortho, lidar}: render only selected at opacity 1.0 (never unselected).
     const rasters: Raster[] = [];
-    if (layers.lidar) rasters.push("lidar");
+    if (layers.height) rasters.push("height");
     if (layers.ortho) rasters.push("ortho");
+    if (layers.lidar) rasters.push("lidar");
     if (analysis === "coverage") rasters.push("coverage");
     for (const r of rasters) {
       for (const d of loaded) {
         const meta = d.meta[r];
+        if (!meta) continue;
         const rect = localRect(meta.bbox, frame);
         const z = tileLevel(cur.k, dpr, rect.x1 - rect.x0, meta.zmax);
         for (const tile of visibleTiles(r, d.run, rect, z, cur, size)) {
-          tiles.push({ tile, opacity: r === "lidar" && layers.ortho ? 0.3 : 1 });
+          tiles.push({ tile, opacity: 1 });
         }
       }
     }
@@ -674,6 +714,21 @@ export default function MapView({ area, facility, element, line, onFacility, onE
       {cur && (
         <div className="scale">
           {scaleM} m<i style={{ width: scaleM * cur.k }} />
+        </div>
+      )}
+      {layers.height && (
+        <div className="heightlegend glass" aria-label="Height legend">
+          <div className="over">Height above road surface</div>
+          <div className="hramp" role="img" aria-label="0 to 25 plus centimeters ramp" />
+          <div className="hticks">
+            <span>0</span>
+            <span>5</span>
+            <span>10</span>
+            <span>15</span>
+            <span>20</span>
+            <span>25+ cm</span>
+          </div>
+          <p className="hnote">Curb = sharp step from blue/teal (road) to yellow/white (sidewalk, 10–15 cm)</p>
         </div>
       )}
       {error && <p className="msg" role="alert">{error}</p>}
