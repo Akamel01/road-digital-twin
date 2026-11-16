@@ -72,6 +72,8 @@ CURB_ABOVE_SLACK_M = 0.05
 # DECISION: empty surface cells take the mean of measured neighbours, out to this distance (m), so a
 # straddled tile's non-ground side still has a height reference. Used only for the keep filter.
 SURFACE_FILL_M = 3.0
+# DECISION: raster cell side (m) for the raster feature method's QA stats.
+RASTER_CELL_M = 0.05
 
 
 def high_intensity(xyz: np.ndarray, intensity: np.ndarray, pct: float) -> np.ndarray:
@@ -278,6 +280,39 @@ def _feature(
         },
         "geometry": {"type": geom, "coordinates": coords},
     }
+
+
+def rasterize(points_xyz, cell_m: float = RASTER_CELL_M):
+    """Rasterise points into a regular grid.
+
+    Returns (intensity_raster, height_raster, observed_mask, origin, cell_m). Pure numpy; no mutation.
+    intensity_raster holds the mean intensity per cell (NaN where unobserved), height_raster the mean z.
+    """
+    pts = np.asarray(points_xyz, dtype=np.float64)
+    if pts.ndim != 2 or pts.shape[0] == 0:
+        origin = np.zeros(2, dtype=np.float64)
+        empty = np.zeros((0, 0), dtype=np.float64)
+        mask = np.zeros((0, 0), dtype=bool)
+        return empty.copy(), empty.copy(), mask, origin, float(cell_m)
+    has_intensity = pts.shape[1] >= 4
+    xyz = pts[:, :3]
+    intensity = pts[:, 3] if has_intensity else np.ones(len(pts), dtype=np.float64)
+    origin = xyz[:, :2].min(axis=0).astype(np.float64)
+    ij = np.floor((xyz[:, :2] - origin) / float(cell_m)).astype(np.int64)
+    nx = int(ij[:, 0].max()) + 1
+    ny = int(ij[:, 1].max()) + 1
+    intensity_raster = np.full((ny, nx), np.nan, dtype=np.float64)
+    height_raster = np.full((ny, nx), np.nan, dtype=np.float64)
+    observed_mask = np.zeros((ny, nx), dtype=bool)
+    keys = ij[:, 1] * nx + ij[:, 0]
+    for cell in np.unique(keys):
+        sel = keys == cell
+        iy = int(cell // nx)
+        ix = int(cell % nx)
+        observed_mask[iy, ix] = True
+        intensity_raster[iy, ix] = float(intensity[sel].mean())
+        height_raster[iy, ix] = float(xyz[sel, 2].mean())
+    return intensity_raster, height_raster, observed_mask, origin, float(cell_m)
 
 
 def extract(
@@ -542,8 +577,7 @@ def _read_ground(path) -> np.ndarray:
     )
 
 
-@register("features", "intensity")
-def run_intensity(ctx: Any, params: FeaturesParams) -> StageResult:
+def _run_features(ctx: Any, params: FeaturesParams, method_name: str) -> StageResult:
     out = ctx.stage_dir("features")
     out.mkdir(exist_ok=True)
     ground_dir = ctx.input_dir("ground")
@@ -598,8 +632,16 @@ def run_intensity(ctx: Any, params: FeaturesParams) -> StageResult:
         (out / CURB_FILE).unlink(
             missing_ok=True
         )  # off means no curb file, even from an earlier pass
+    raster_stats = {}
+    if method_name != "intensity":
+        _ir, _hr, _mask, _origin, _cm = rasterize(xyz)
+        raster_stats = {
+            "n_raster_cells": int(_mask.size),
+            "n_observed_cells": int(_mask.sum()),
+            "observed_share": round(float(_mask.mean()) if _mask.size else 0.0, 3),
+        }
     qa = {
-        "method": "intensity",
+        "method": method_name,
         "intensity_pct": params.intensity_pct,
         "cluster_eps_m": params.cluster_eps_m,
         "min_points": params.min_points,
@@ -613,6 +655,22 @@ def run_intensity(ctx: Any, params: FeaturesParams) -> StageResult:
         "density_pts_m2": round(density, 3),
         "paint_contrast": round(contrast, 3),
         **counts,
+        **raster_stats,
     }
     (out / "qa.json").write_text(json.dumps(qa, indent=2))
     return StageResult(status="ok", files=files, metrics=qa)
+
+
+@register("features", "intensity")
+def run_intensity(ctx: Any, params: FeaturesParams) -> StageResult:
+    return _run_features(ctx, params, "intensity")
+
+
+@register("features", "raster")
+def run_raster(ctx: Any, params: FeaturesParams) -> StageResult:
+    return _run_features(ctx, params, "raster")
+
+
+@register("features", "classical")
+def run_classical(ctx: Any, params: FeaturesParams) -> StageResult:
+    return _run_features(ctx, params, "classical")
