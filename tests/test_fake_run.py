@@ -177,7 +177,7 @@ def test_area_index_has_variety(out):
 def test_tile_pyramids(out):
     area = AreaIndex.model_validate_json((out / "showcase" / "area.json").read_text())
     for drive in area.drives:
-        for raster in ("lidar", "ortho", "coverage"):
+        for raster in ("lidar", "ortho", "coverage", "height"):
             meta = TileMeta.model_validate_json(
                 (out / "showcase" / "tiles" / drive.run_id / raster / "meta.json").read_text()
             )
