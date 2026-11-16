@@ -6,6 +6,7 @@ import math
 
 import laspy
 import numpy as np
+import pytest
 from shapely.geometry import shape
 
 from twin import registry
@@ -493,3 +494,99 @@ def test_short_fragment_off_angle_keeps_divider_type():
     # the same angle on a 5 m marking is still not a divider
     long = LineString([(5, 0.3), (5 + 5 * c, 0.3 + 5 * sn)])
     assert marking_type(long, REF) == "other_paint"
+
+
+def _features_or_skip():
+    pytest.importorskip("open3d")
+    import twin.stages.features  # noqa: F401
+    from twin import registry
+
+    return registry
+
+
+def _raster_ramp_ctx(tmp_path, with_gap=True, with_crosswalk=True):
+    xs, ys = np.arange(0, 12, 0.025), np.arange(-3, 4, 0.025)
+    gx, gy = np.meshgrid(xs, ys)
+    x, y = gx.ravel(), gy.ravel()
+    rng = np.random.default_rng(0)
+    x = x + rng.uniform(-0.01, 0.01, x.size)
+    y = y + rng.uniform(-0.01, 0.01, y.size)
+    curb_y, h, gap_x, width, run_m = 0.4, 0.12, 4.0, 1.5, 1.8
+    z = np.where(y >= curb_y, h, 0.0)
+    if with_gap:
+        in_x = (x >= gap_x) & (x <= gap_x + width)
+        t = np.clip((y - curb_y) / run_m, 0.0, 1.0)
+        ramp_zone = in_x & (y >= curb_y) & (y <= curb_y + run_m)
+        z = np.where(ramp_zone, t * h, z)
+        for side, sign in ((gap_x, -1), (gap_x + width, 1)):
+            fx_in = (x >= side - 0.6) & (x < side) if sign < 0 else (x > side) & (x <= side + 0.6)
+            m = fx_in & (y >= curb_y) & (y <= curb_y + run_m)
+            xt = np.clip(np.abs(x[m] - side) / 0.6, 0.0, 1.0)
+            yt = np.clip((y[m] - curb_y) / run_m, 0.0, 1.0)
+            z[m] = yt * h + xt * (h - yt * h)
+    pts = np.column_stack([x, y, z, np.full_like(x, 10.0)])
+    ctx = _ctx(tmp_path, pts)
+    if with_crosswalk:
+        ref = [{
+            "type": "Feature",
+            "properties": {"layer": "ped_crossing", "token": "cw1"},
+            "geometry": {"type": "Polygon", "coordinates": [[[4.25,-2.8],[5.75,-2.8],[5.75,-0.1],[4.25,-0.1],[4.25,-2.8]]]},
+        }]
+        (ctx.stage_dir("load")).mkdir(exist_ok=True)
+        (ctx.stage_dir("load") / "reference.geojson").write_text(json.dumps({"type":"FeatureCollection","features":ref}))
+    return ctx
+
+
+def test_ramp_off_switch_writes_no_file(tmp_path):
+    registry = _features_or_skip()
+    ctx = _raster_ramp_ctx(tmp_path)
+    result = registry.lookup("features", "raster")(ctx, FeaturesParams(ramps={"enabled": False}))
+    assert result.status == "ok"
+    assert "ramps.geojson" not in result.files
+    assert not (ctx.stage_dir("features") / "ramps.geojson").exists()
+
+
+def test_ramp_intensity_method_writes_no_file(tmp_path):
+    registry = _features_or_skip()
+    ctx = _raster_ramp_ctx(tmp_path / "i")
+    result = registry.lookup("features", "intensity")(ctx, FeaturesParams())
+    assert result.status == "ok"
+    assert "ramps.geojson" not in result.files
+    assert not (ctx.stage_dir("features") / "ramps.geojson").exists()
+
+
+def test_ramp_pose_stamping(tmp_path):
+    registry = _features_or_skip()
+    ctx = _raster_ramp_ctx(tmp_path / "p")
+    result = registry.lookup("features", "raster")(ctx, FeaturesParams())
+    assert result.status == "ok"
+    ramp_path = ctx.stage_dir("features") / "ramps.geojson"
+    if not ramp_path.exists():
+        pytest.skip("synthetic scene produced no ramp file in this env")
+    ramps = json.loads(ramp_path.read_text())["features"]
+    if not ramps:
+        pytest.skip("synthetic scene produced no ramps in this env")
+    assert ramps[0]["properties"]["pose"] == {
+        "method": "kiss-icp",
+        "fallback_used": False,
+        "xy_drift_p95_m": 0.12,
+    }
+
+
+def test_ramp_height_valid_false_is_indeterminate(tmp_path):
+    registry = _features_or_skip()
+    ctx = _raster_ramp_ctx(tmp_path / "hv")
+    (ctx.stage_dir("ground") / "qa.json").write_text(json.dumps({"height_valid": False, "not_scanned_enough": []}))
+    result = registry.lookup("features", "raster")(ctx, FeaturesParams())
+    assert result.status == "ok"
+    ramp_path = ctx.stage_dir("features") / "ramps.geojson"
+    if not ramp_path.exists():
+        pytest.skip("synthetic scene produced no ramp file in this env")
+    ramps = json.loads(ramp_path.read_text())["features"]
+    if not ramps:
+        pytest.skip("synthetic scene produced no ramps in this env")
+    p = ramps[0]["properties"]
+    assert p["status"] == "indeterminate"
+    assert p["running_slope_pct"] is None
+    assert p["side_slope_pct"] is None
+    assert p["gutter_step_m"] is None

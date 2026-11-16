@@ -303,3 +303,15 @@ def test_fake_showcase_equals_publish_runs(tmp_path):
     ref = tmp_path / "ref"
     publish_runs(run_ids, ref, store=out)
     assert _showcase_snapshot(out / "showcase") == _showcase_snapshot(ref)
+
+
+def test_fake_run_has_ramps(out):
+    run = _runs(out)[0]
+    f = run / "5_features" / "ramps.geojson"
+    assert f.is_file()
+    doc = json.loads(f.read_text())
+    assert doc["type"] == "FeatureCollection"
+    assert doc["features"]
+    qa = json.loads((run / "5_features" / "qa.json").read_text())
+    for k in ("n_ramps", "n_curb_ramps", "n_driveway_or_ramp", "n_ramps_ok", "n_ramps_exceeds", "n_ramps_indeterminate"):
+        assert k in qa
