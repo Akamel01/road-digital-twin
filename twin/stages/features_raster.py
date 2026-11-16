@@ -354,7 +354,7 @@ def extract_curbs(xyz: np.ndarray) -> list[dict]:
         rc = np.argwhere(lab == i + 1).astype(float)
         if len(rc) * CELL_M < CURB_MIN_LEN_M:
             continue
-        rc = _order(_to_steepest(rc, grad))
+        rc = _to_steepest(_order(rc), grad)  # order the contiguous edge first; snapping scatters it
         xy = grid.xy(rc[:, 0], rc[:, 1])
         length = float(np.hypot(*np.diff(xy, axis=0).T).sum())
         if length < CURB_MIN_LEN_M:
@@ -376,14 +376,16 @@ def extract_curbs(xyz: np.ndarray) -> list[dict]:
 
 
 def _to_steepest(rc: np.ndarray, grad: np.ndarray, r: int = 4) -> np.ndarray:
-    """Move each edge cell to the steepest cell within r cells: the curb face, not the raised mask's edge."""
+    """Move each edge cell (in walking order) to the steepest cell within r cells: the curb face, not the raised
+    mask's edge. Order is kept; repeats are dropped."""
     out = rc.copy()
     for i, (y, x) in enumerate(rc.astype(int)):
         y0, x0 = max(y - r, 0), max(x - r, 0)
         win = grad[y0 : y + r + 1, x0 : x + r + 1]
         dy, dx = np.unravel_index(int(np.argmax(win)), win.shape)
         out[i] = (y0 + dy, x0 + dx)
-    return np.unique(out, axis=0)
+    keep = np.r_[True, np.any(np.diff(out, axis=0) != 0, axis=1)]
+    return out[keep]
 
 
 def _order(rc: np.ndarray) -> np.ndarray:
