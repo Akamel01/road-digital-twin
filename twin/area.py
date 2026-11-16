@@ -10,8 +10,11 @@ from pathlib import Path
 
 import numpy as np
 import shapely
+from pyquaternion import Quaternion
 from shapely.geometry import mapping
 
+import twin.area_coverage as ac
+from twin.devkit_compat import nuscenes_map_class
 from twin.stages.load import MAP_ORIGIN_LATLON, run_crs
 
 MIN_PREFIX = 8
@@ -23,8 +26,6 @@ def _table(root: Path, version: str, name: str) -> list[dict]:
 
 def load_intersections(dataroot, location: str) -> dict[str, shapely.Polygon]:
     """Intersection road segments of one HD map: full token -> polygon, map frame."""
-    from twin.devkit_compat import nuscenes_map_class
-
     nusc_map = nuscenes_map_class()(dataroot=str(dataroot), map_name=location)
     return {
         r["token"]: nusc_map.extract_polygon(r["polygon_token"])
@@ -164,12 +165,10 @@ def drive_tokens(build: Path) -> list[str]:
     return [token[d["scene"]] for d in used if d.get("scene") in token]
 
 
-from pyquaternion import Quaternion
-
-import twin.area_coverage as ac
-from twin.devkit_compat import nuscenes_map_class
-
 VERSION = "v1.0-trainval"
+# DECISION: a candidate scene counts when its ego path passes within this distance (m) of the area: LIDAR_TOP
+# scans the area from neighbouring streets. Every scene that drives through Seaport's area is already in it.
+LIDAR_REACH_M = 30.0
 
 
 def _jt(root, version, name):
@@ -201,7 +200,8 @@ def _build_indices(root, version, location):
     sample_data_table = _jt(root, version, "sample_data")
     sd_by_sample = {}
     for sd in sample_data_table:
-        if sd.get("channel") == "LIDAR_TOP":
+        # nuScenes sample_data has no channel field; the sensor is in the path (samples/LIDAR_TOP/...).
+        if "/LIDAR_TOP/" in sd.get("filename", ""):
             sd_by_sample.setdefault(sd["sample_token"], []).append(sd)
     del sample_data_table
     referenced = {sd["ego_pose_token"] for recs in sd_by_sample.values() for sd in recs}
@@ -352,7 +352,7 @@ def suggest_drives_command(area, top, density_threshold=50.0, apply=False, datar
         return 2
 
     lseg_idx, didx = _lidarseg_table(root, version)
-    overlap = _overlapping_scene_tokens(scenes, samples, sd_by_sample, ego, rebuilt)
+    overlap = _overlapping_scene_tokens(scenes, samples, sd_by_sample, ego, rebuilt.buffer(LIDAR_REACH_M))
     existing = list(area_def.get("drives") or [])
     existing_tokens = {d.get("scene_token") for d in existing}
     masks = ac.build_masks(rebuilt, drivable)

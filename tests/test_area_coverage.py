@@ -17,6 +17,9 @@ def _tables(root, ver, **tables):
 
 
 def _pcd(path, xyz, n=5):
+    """Write a point file where nuScenes keeps LIDAR_TOP keyframes (samples/LIDAR_TOP/<name>)."""
+    path = path.parent / "samples" / "LIDAR_TOP" / path.name
+    path.parent.mkdir(parents=True, exist_ok=True)
     arr = np.zeros((len(xyz), n), dtype=np.float32)
     if len(xyz):
         arr[:, :3] = np.asarray(xyz, dtype=np.float32)
@@ -34,7 +37,7 @@ def _scene_env(tmp_path, monkeypatch):
     ]
     samples = [{"token": "b1", "scene_token": "base", "next": ""}, {"token": "a1", "scene_token": "a", "next": ""}, {"token": "c1", "scene_token": "b", "next": ""}]
     def sd(tok, st, ep, fn):
-        return {"token": tok, "sample_token": st, "ego_pose_token": ep, "calibrated_sensor_token": "cs", "sensor_modality": "lidar", "channel": "LIDAR_TOP", "is_key_frame": True, "filename": fn}
+        return {"token": tok, "sample_token": st, "ego_pose_token": ep, "calibrated_sensor_token": "cs", "is_key_frame": True, "filename": f"samples/LIDAR_TOP/{fn}"}
     sdata = [sd("sd_b", "b1", "ep_b", "b.bin"), sd("sd_a", "a1", "ep_a", "a.bin"), sd("sd_c", "c1", "ep_c", "c.bin")]
     ego = [
         {"token": "ep_b", "translation": [2.5, 2.5, 0], "rotation": [1, 0, 0, 0]},
@@ -153,7 +156,7 @@ def test_first_keyframe_outside_later_inside_included(tmp_path, monkeypatch, cap
         {"token": "c2", "scene_token": "c", "next": ""},
     ]
     def sd(tok, st, ep, fn):
-        return {"token": tok, "sample_token": st, "ego_pose_token": ep, "calibrated_sensor_token": "cs", "sensor_modality": "lidar", "channel": "LIDAR_TOP", "is_key_frame": True, "filename": fn}
+        return {"token": tok, "sample_token": st, "ego_pose_token": ep, "calibrated_sensor_token": "cs", "is_key_frame": True, "filename": f"samples/LIDAR_TOP/{fn}"}
     sdata = [sd("sd_b", "b1", "ep_b", "b.bin"), sd("sd_c1", "c1", "ep_c1", "c1.bin"), sd("sd_c2", "c2", "ep_c2", "c2.bin")]
     ego = [
         {"token": "ep_b", "translation": [2.5, 2.5, 0], "rotation": [1, 0, 0, 0]},
