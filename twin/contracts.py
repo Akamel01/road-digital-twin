@@ -94,7 +94,7 @@ STAGES: dict[str, StageSpec] = {
     ),
     "features": StageSpec(
         number=5,
-        methods=("intensity", "raster"),
+        methods=("raster", "intensity"),
         requires=("ground",),
         outputs=("markings.geojson", "crosswalks.geojson", "curbs.geojson"),
         optional=False,
@@ -409,7 +409,7 @@ class Pipeline(_Strict):
         default_factory=lambda: PipelineStage(method="ransac-tiles")
     )
     features: PipelineStage = Field(
-        default_factory=lambda: PipelineStage(method="intensity")
+        default_factory=lambda: PipelineStage(method="raster")
     )
     colour: PipelineStage = Field(
         default_factory=lambda: PipelineStage(method="zbuffer-topk")
