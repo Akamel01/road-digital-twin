@@ -3,6 +3,7 @@
 `pose_report` is shared by splats and (later) the colour stage. Keep it free of torch/cupy.
 """
 
+from collections import Counter
 from typing import Any, Protocol
 
 import numpy as np
@@ -22,7 +23,8 @@ def pose_report(deltas: np.ndarray, names: list[str], p: Any, info: Any = None) 
 
     Frozen key set: n_cameras, rotation_deg_p50, rotation_deg_p95, rotation_deg_max,
     translation_m_p50, translation_m_p95, translation_m_max, n_flagged, drive_flagged,
-    by_channel, applied, reason, hit_bound.
+    by_channel; with info (one dict per camera) also applied, reason, hit_bound, reasons (count per reason) and
+    n_applied.
     """
     deltas = np.asarray(deltas)
     if deltas.size == 0 or len(deltas) == 0:
@@ -38,8 +40,10 @@ def pose_report(deltas: np.ndarray, names: list[str], p: Any, info: Any = None) 
             "drive_flagged": False,
             "by_channel": {},
             "applied": False,
-            "reason": "no_anchors",
+            "reason": "no_cameras",
             "hit_bound": False,
+            "reasons": {},
+            "n_applied": 0,
         }
     deg = np.degrees(np.linalg.norm(deltas[:, :3], axis=1))
     m = np.linalg.norm(deltas[:, 3:], axis=1)
@@ -55,12 +59,6 @@ def pose_report(deltas: np.ndarray, names: list[str], p: Any, info: Any = None) 
             "median_deg": round(float(np.median(deg[s])), 4),
             "median_m": round(float(np.median(m[s])), 4),
         }
-    max_deg = getattr(p, "pose_max_deg", 1.0)
-    max_m = getattr(p, "pose_max_m", 0.1)
-    hit_bound = bool(
-        np.any(np.abs(deltas[:, :3]) >= np.radians(max_deg) - 1e-6)
-        or np.any(np.abs(deltas[:, 3:]) >= max_m - 1e-6)
-    )
     result = {
         "n_cameras": len(deg),
         "rotation_deg_p50": round(float(np.percentile(deg, 50)), 4),
@@ -72,19 +70,17 @@ def pose_report(deltas: np.ndarray, names: list[str], p: Any, info: Any = None) 
         "n_flagged": int(flag.sum()),
         "drive_flagged": bool(flag.mean() >= 0.25),
         "by_channel": by_ch,
-        "applied": True,
-        "reason": "converged",
-        "hit_bound": hit_bound,
     }
     if info is not None:
-        infos = info if isinstance(info, (list, tuple)) else [info]
-        if infos:
-            result["applied"] = bool(all(i.get("applied", True) for i in infos))
-            result["hit_bound"] = bool(any(i.get("hit_bound", False) for i in infos))
-            if result["applied"]:
-                result["reason"] = "converged"
-            elif result["hit_bound"]:
-                result["reason"] = "hit_bound"
-            else:
-                result["reason"] = infos[0].get("reason", "no_improvement")
+        # One info per camera frame (colour_pose.refine_one). applied / hit_bound: any frame; reason: "converged"
+        # when every frame applied its correction, otherwise the commonest reason a frame kept its calibrated pose.
+        reasons = Counter(i["reason"] for i in info)
+        failed = Counter({k: v for k, v in reasons.items() if k != "converged"})
+        result.update(
+            applied=any(i["applied"] for i in info),
+            hit_bound=any(i["hit_bound"] for i in info),
+            reason=failed.most_common(1)[0][0] if failed else "converged",
+            reasons=dict(sorted(reasons.items())),
+            n_applied=sum(i["applied"] for i in info),
+        )
     return result

@@ -218,12 +218,10 @@ Notes:
 | `colour.min_depth_m` | 1.0 | 0.5–5 |
 | `colour.top_k` | 5 | 1–12 |
 | `colour.max_range_m` | 12 | 3–50 |
-| `colour.pose_refine` | true | bool |
 | `colour.pose_max_deg` | 0.5 | 0.01–5 |
 | `colour.pose_max_m` | 0.05 | 0.001–1 |
 | `colour.pose_flag_deg` | 0.25 | 0.01–5 |
 | `colour.pose_flag_m` | 0.025 | 0.001–1 |
-| `colour.pose_iterations` | 20 | 1–100 |
 | `colour.pose_min_anchors` | 20 | 1–10000 |
 | `colour.pose_max_anchors` | 200 | 1–100000 |
 | `colour.pose_max_nfev` | 200 | 1–100000 |
@@ -253,7 +251,7 @@ Notes:
 - `crs`: `epsg` (32619), `units` (`m`), `licence`
 - `pipeline` and `params`, copied in full
 - `stages[]`: `name`, `method`, `status`, `started`, `seconds`, `files[]`
-- `metrics`: accuracy P50/P95/coverage per element and facility; ISD available and required per leg; ground `rmse_m` and `z_disagreement_p95_m`; `height_valid`; colour `edge_offset_p50_m`, `edge_offset_p95_m`, `pose_corrections` (`n_cameras`, `rotation_deg_p50`, `rotation_deg_p95`, `rotation_deg_max`, `translation_m_p50`, `translation_m_p95`, `translation_m_max`, `n_flagged`, `drive_flagged`, `by_channel`, `applied`, `reason`, `hit_bound`, plus `n_skipped` and `n_reverted`); `observed_core` per facility
+- `metrics`: accuracy P50/P95/coverage per element and facility; ISD available and required per leg; ground `rmse_m` and `z_disagreement_p95_m`; `height_valid`; colour `edge_offset_p50_m`, `edge_offset_p95_m`, `pose_corrections` (`n_cameras`, `rotation_deg_p50`, `rotation_deg_p95`, `rotation_deg_max`, `translation_m_p50`, `translation_m_p95`, `translation_m_max`, `n_flagged`, `drive_flagged`, `by_channel`, `applied`, `reason`, `hit_bound`, `reasons`, `n_applied`, plus `n_refined`, `n_skipped` and `n_reverted`); `observed_core` per facility
 
 **Compare** shows the differences in `pipeline`, `params` and `metrics` between two manifests.
 
@@ -328,13 +326,13 @@ If a scene fails the markings threshold, its runs report markings as "not extrac
 - QA computes the P95 of ground-z disagreement between points from different sweeps in the same `ground.qa_cell_m` cell. If it exceeds `ground.qa_max_p95_m`, the stage sets `height_valid=false`.
 
 **Colour** (decisions 36 and 38; research: [camera-ground-projection](../research/camera-ground-projection.md)).
-- Methods (stage 6, optional): `zbuffer-topk` (default) and `zbuffer-pose-refine`. Both share the same inputs, outputs and `colour_points` colouring; only the per-camera `cam_to_world` differs. `zbuffer-pose-refine` refines each camera's 6-DOF extrinsic against lidar paint edges before colouring.
+- Methods (stage 6, optional): `zbuffer-topk` (default) and `zbuffer-pose-refine`. Both share the same inputs, outputs and `colour_points` colouring; only the per-camera `cam_to_world` differs. `zbuffer-pose-refine` refines each camera frame's 6-DOF pose against lidar paint edges before colouring.
 - One pose per keyframe image: the refined sweep poses interpolated to the image time, times the camera extrinsic.
 - Occlusion: a depth buffer per image at `zbuf_scale` resolution from the non-ground points plus the boxes at the image time (ground never occludes ground: on a near-flat street it only causes false self-occlusion at shallow angles; decision 2026-11-08); a point is visible within `zbuf_tol_m`. Points nearer than `min_depth_m` are ignored.
 - Each ground cell and point takes the per-channel median of its `top_k` views with the smallest footprint within `max_range_m`.
-- `zbuffer-pose-refine` only: per-channel extrinsic refinement over up to 6 cameras (36 parameters), right-multiplied as `c2w' = base_c2w @ T_delta`, bounded by `pose_max_deg`/`pose_max_m`, solved with `scipy.optimize.least_squares` (TRF) on anchors taken from observed lidar markings. Anchors are image stripe centres; ground z comes from `surface.npz` with a `points_3d` fallback. An inlier gate (3 sigma, MAD-based) re-solves once; corrections that do not reduce cost or fall below `pose_min_anchors` projected anchors are reverted. `pose_max_nfev` caps the solve independently of iterations and anchors. Refinement runs on the CPU.
-- QA: `edge_offset_p50_m` and `edge_offset_p95_m`, the offset in metres between painted edges in the orthoimage and the lidar markings, pooled over cells at the ortho cell size (`gsd_m`). `pose_corrections` (null for `zbuffer-topk`) reports `n_cameras`, `rotation_deg_p50`, `rotation_deg_p95`, `rotation_deg_max`, `translation_m_p50`, `translation_m_p95`, `translation_m_max`, `n_flagged`, `drive_flagged`, `by_channel`, `applied`, `reason`, `hit_bound`, `n_skipped`, `n_reverted`. A camera is flagged when its correction exceeds `pose_flag_deg`/`pose_flag_m`; a drive is flagged when at least a quarter of its cameras are flagged. With `height_valid=false` the orthoimage is still made, labelled "indeterminate (height)".
-- Hold-out metric: refinement trains on the complementary subset of observed markings; the acceptance metric (`edge_offset_p95_m`) is computed on a held-out subset defined as every 4th observed marking id in sorted order (indices 3, 7, 11, …, 0-based), with `HOLDOUT_EVERY = 4` and `HOLDOUT_SEED = 0`. `camera_confirmed` is reported on all markings.
+- `zbuffer-pose-refine` only: each camera frame gets its own 6-DOF correction, right-multiplied as `c2w' = base_c2w @ T_delta` and bounded per component by `pose_max_deg`/`pose_max_m`. Anchors are points every 0.25 m along the observed lidar markings (z from the marking, else `surface.npz`). For each visible anchor the painted stripe centre is measured in the image along the projected line's normal; `scipy.optimize.least_squares` (TRF, soft_l1) minimises that point-to-line offset in pixels, with a weak prior towards the calibrated pose, over four measure-then-solve rounds. A frame keeps its calibrated pose when fewer than `pose_min_anchors` inliers remain, the solution reaches the bound, or the re-measured median offset does not drop (ADR 0007). Refinement runs on the CPU.
+- QA: `edge_offset_p50_m` and `edge_offset_p95_m`, the offset in metres between painted edges in the orthoimage and the lidar markings, pooled over every observed marking for both methods, and `edge_offset_holdout_p95_m` over the held-out markings only. `pose_corrections` (null for `zbuffer-topk`) reports `n_cameras`, `rotation_deg_p50`, `rotation_deg_p95`, `rotation_deg_max`, `translation_m_p50`, `translation_m_p95`, `translation_m_max`, `n_flagged`, `drive_flagged`, `by_channel`, `applied`, `reason`, `hit_bound`, `reasons`, `n_applied`; plus `n_refined`, `n_reverted`, `n_skipped`. A camera is flagged when its correction exceeds `pose_flag_deg`/`pose_flag_m`; a drive is flagged when at least a quarter of its cameras are flagged. With `height_valid=false` the orthoimage is still made, labelled "indeterminate (height)".
+- Hold-out: refinement trains on the observed markings except every 4th id in sorted order (`HOLDOUT_EVERY = 4`); `edge_offset_holdout_p95_m` and `edge_offset_holdout_samples` measure those held-out markings. `camera_confirmed` is reported on all markings.
 - GPU lease: colour stays in `GPU_STAGES`, so the lease unloads ollama models while colour runs; pose refinement is CPU-only and acquires no GPU lease. Refinement must not use the GPU.
 
 **Markings and crosswalks.**

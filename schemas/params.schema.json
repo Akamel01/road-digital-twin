@@ -94,13 +94,6 @@
           "title": "Pose Flag M",
           "type": "number"
         },
-        "pose_iterations": {
-          "default": 20,
-          "maximum": 100,
-          "minimum": 1,
-          "title": "Pose Iterations",
-          "type": "integer"
-        },
         "pose_max_anchors": {
           "default": 200,
           "maximum": 100000,
@@ -135,11 +128,6 @@
           "minimum": 1,
           "title": "Pose Min Anchors",
           "type": "integer"
-        },
-        "pose_refine": {
-          "default": true,
-          "title": "Pose Refine",
-          "type": "boolean"
         },
         "top_k": {
           "default": 5,
