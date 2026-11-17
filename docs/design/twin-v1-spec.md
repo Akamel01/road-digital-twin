@@ -20,7 +20,7 @@ Citation keys such as `[kilani-2021-urban-isd]` are entries in [sources.yaml](..
   - 35 GB free disk on 2026-11-07, with an SSD to be added.
 - **Mission Control:** the operator's drone-survey product (`Akamel01/drone-survey`). Its `web/` app sets the visual style.
 - **Keyframe:** a nuScenes sample at 2 Hz, with annotated boxes. **Sweep:** a lidar scan at about 20 Hz. Only keyframes have boxes.
-- **Drive:** one nuScenes scene, about 20 s of driving. **Area:** all the Boston drives in nuScenes mini, shown together. **Facility:** an intersection, segment or access point, defined from the HD map (decision 40). Full glossary: [CONTEXT.md](../../CONTEXT.md).
+- **Drive:** one nuScenes scene, about 20 s of driving. **Area:** all the Boston drives in nuScenes mini, shown together. **Facility:** an intersection, segment or access point, defined from the HD map (decision 40). Full glossary: [CONTEXT.md](../../CONTEXT.md). Label schema for audit-set sites: [label-schema.md](label-schema.md).
 
 ## 1. Problem
 
