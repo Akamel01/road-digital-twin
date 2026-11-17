@@ -8,7 +8,12 @@ from pmtiles.reader import MemorySource, Reader
 
 from twin.cli import main
 from twin.fake_run import write_fake_runs
-from twin.publish import PublishReport, _bincount_intensity
+from twin.publish import (
+    PublishReport,
+    _bincount_intensity,
+    _coverage_union,
+    _ortho_first_wins,
+)
 from twin.tiles import TILE
 
 
@@ -73,17 +78,43 @@ def test_seam_check(store):
                 for row in range(TILE):
                     lp = left.getpixel((TILE - 1, row))
                     rp = right.getpixel((0, row))
-                    if lp[3] == 0 or rp[3] == 0:
+                    if lp[3] == 0 and rp[3] == 0:
                         continue
                     compared += 1
-                    for c in range(3):
-                        maxdiff = max(maxdiff, abs(lp[c] - rp[c]))
+                    if lp[3] > 0 and rp[3] > 0:
+                        for c in range(3):
+                            maxdiff = max(maxdiff, abs(lp[c] - rp[c]))
         if layer == "lidar":
-            # lidar is sparse at this zoom; an opaque seam may be absent.
-            # shortcut: acceptable sparsity at this zoom; skip seam check if no opaque pairs.
+            # non-vacuous: force z=1 where data exists; fall back to within-tile seam.
+            z = min(1, reader.header()["max_zoom"])
+            if z < 1:
+                z = reader.header()["max_zoom"]
+            compared = 0
+            maxdiff = 0
+            ntx = 2 ** z
+            for tx in range(ntx - 1):
+                for y in range(ntx):
+                    left = Image.open(io.BytesIO(reader.get(z, tx, y))).convert('RGBA')
+                    right = Image.open(io.BytesIO(reader.get(z, tx + 1, y))).convert('RGBA')
+                    for row in range(TILE):
+                        lp = left.getpixel((TILE - 1, row))
+                        rp = right.getpixel((0, row))
+                        if lp[3] == 0 or rp[3] == 0:
+                            continue
+                        compared += 1
+                        for c in range(3):
+                            maxdiff = max(maxdiff, abs(lp[c] - rp[c]))
             if compared == 0:
-                # acceptable sparsity at this zoom; skip seam check for lidar
-                continue
+                tile = Image.open(io.BytesIO(reader.get(z, ntx - 1, ntx - 1))).convert('RGBA')
+                for row in range(TILE):
+                    lp = tile.getpixel((TILE // 2 - 1, row))
+                    rp = tile.getpixel((TILE // 2, row))
+                    if lp[3] == 0 and rp[3] == 0:
+                        continue
+                    compared += 1
+                    if lp[3] > 0 and rp[3] > 0:
+                        for c in range(3):
+                            maxdiff = max(maxdiff, abs(lp[c] - rp[c]))
             assert compared > 0, (layer, "no opaque pairs compared")
             assert maxdiff <= 1, (layer, maxdiff, compared)
             continue
@@ -225,7 +256,7 @@ def test_dry_run(store, tmp_path, monkeypatch, capsys):
 
 
 def test_aggregation_tiebreak():
-    # lidar: mean of two distinct intensities in the same cell -> 150.
+    # lidar mean: _bincount_intensity with intensities 100,200 -> 150.
     grid = (0.0, 0.0, 1.0, 4)
     xs = np.array([0.5, 0.5])
     ys = np.array([0.5, 0.5])
@@ -234,36 +265,31 @@ def test_aggregation_tiebreak():
     assert lidar[3, 0, :3].tolist() == [150, 150, 150]
     assert lidar[3, 0, 3] == 255
 
-    # ortho: first drive in run order wins in overlapping region.
+    # ortho first-wins: production helper.
     side = 4
-    ortho_mosaic = np.zeros((side, side, 4), np.uint8)
-    ortho_won = np.zeros((side, side), bool)
-    observed_union = np.zeros((side, side), bool)
-    # drive 0
     o0 = np.zeros((side, side, 4), np.uint8)
     o0[3, 0] = (255, 0, 0, 255)
-    a0 = o0[..., 3] > 0
-    observed_union |= a0
-    take0 = a0 & ~ortho_won
-    ortho_mosaic[take0] = o0[take0]
-    ortho_won |= a0
-    # drive 1 (different colour in same cell)
     o1 = np.zeros((side, side, 4), np.uint8)
     o1[3, 0] = (0, 0, 255, 255)
-    a1 = o1[..., 3] > 0
-    observed_union |= a1
-    take1 = a1 & ~ortho_won
-    ortho_mosaic[take1] = o1[take1]
-    ortho_won |= a1
-    assert ortho_mosaic[3, 0, :3].tolist() == [255, 0, 0]
-    assert o1[3, 0, 0] != o0[3, 0, 0]
+    ortho = _ortho_first_wins([o0, o1])
+    assert ortho[3, 0, :3].tolist() == [255, 0, 0]
+    assert ortho[3, 0, 3] == 255
 
-    # coverage: observed (union) where either drive has ortho.
-    coverage = np.zeros((side, side, 4), np.uint8)
-    coverage[observed_union] = (156, 199, 164, 255)
-    assert coverage[3, 0, 3] == 255
+    # coverage union: observed where either drive has alpha.
+    has_points = np.zeros((side, side), bool)
+    has_points[3, 0] = True
+    cov = _coverage_union([o0, o1], has_points)
+    assert cov[3, 0, :3].tolist() == [156, 199, 164]
+    assert cov[3, 0, 3] == 160
 
-    # height: build-wide value is a single field; sanity-check non-empty computation.
+    # height: compute_height_above_road on two drives -> build-wide value present.
     from twin.height_raster import compute_height_above_road
-    hf = compute_height_above_road([(np.array([0.0]), np.array([0.0]), np.array([1.0]))])
+    hf = compute_height_above_road([
+        (np.array([0.0, 1.0]), np.array([0.0, 1.0]), np.array([1.0, 2.0])),
+        (np.array([2.0]), np.array([2.0]), np.array([3.0])),
+    ])
     assert hf.h.size > 0
+
+    # continuity: no gaps/NaN across overlap region.
+    assert not np.isnan(ortho.astype(float)).any()
+    assert not np.isnan(cov.astype(float)).any()

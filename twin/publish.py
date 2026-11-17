@@ -270,6 +270,37 @@ def _tiles_by_zoom(base: np.ndarray, zmax: int) -> dict[int, dict[tuple[int, int
     return out
 
 
+def _ortho_first_wins(drive_orthos: list[np.ndarray]) -> np.ndarray:
+    """Mosaic ortho rasters: first drive (in run order) with alpha>0 wins per cell."""
+    if not drive_orthos:
+        return np.zeros((0, 0, 4), np.uint8)
+    side = drive_orthos[0].shape[0]
+    mosaic = np.zeros((side, side, 4), np.uint8)
+    won = np.zeros((side, side), bool)
+    for o in drive_orthos:
+        o = np.asarray(o)
+        a = o[..., 3] > 0
+        take = a & ~won
+        mosaic[take] = o[take]
+        won |= a
+    return mosaic
+
+
+def _coverage_union(drive_orthos: list[np.ndarray], has_points: np.ndarray) -> np.ndarray:
+    """Coverage layer: unobserved where lidar has points, observed where any drive has alpha."""
+    has_points = np.asarray(has_points)
+    side = has_points.shape[0] if has_points.ndim >= 1 else 0
+    if drive_orthos:
+        side = drive_orthos[0].shape[0]
+    coverage = np.zeros((side, side, 4), np.uint8)
+    coverage[has_points] = UNOBSERVED
+    observed = np.zeros((side, side), bool)
+    for o in drive_orthos:
+        observed |= np.asarray(o)[..., 3] > 0
+    coverage[observed] = OBSERVED
+    return coverage
+
+
 def publish_runs(
     run_ids: list[str],
     out: Path,
@@ -310,26 +341,18 @@ def publish_runs(
     lidar_mosaic = _bincount_intensity(all_xs, all_ys, all_int, grid)
 
     # ortho mosaic: first drive in run order whose resampled ortho has alpha>0 wins
-    ortho_mosaic = np.zeros((side, side, 4), np.uint8)
-    ortho_won = np.zeros((side, side), bool)
-    observed_union = np.zeros((side, side), bool)
+    drive_orthos = []
     for rd in run_dirs:
         o = _resample_ortho(rd, grid)
-        if o is None:
-            continue
-        a = o[..., 3] > 0
-        observed_union |= a
-        take = a & ~ortho_won
-        ortho_mosaic[take] = o[take]
-        ortho_won |= a
+        if o is not None:
+            drive_orthos.append(o)
+    ortho_mosaic = _ortho_first_wins(drive_orthos)
 
     # height mosaic
     height_mosaic = render_height_rgba(h_map_all, x0=x0, y0=y0, cell=cell, side=side)
 
     # coverage mosaic
-    coverage_mosaic = np.zeros((side, side, 4), np.uint8)
-    coverage_mosaic[lidar_mosaic[..., 3] > 0] = UNOBSERVED
-    coverage_mosaic[observed_union] = OBSERVED
+    coverage_mosaic = _coverage_union(drive_orthos, lidar_mosaic[..., 3] > 0)
 
     bbox = (x0, y0, x0 + side * cell, y0 + side * cell)
 
