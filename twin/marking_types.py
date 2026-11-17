@@ -304,6 +304,142 @@ assert _feature_values <= set(MARKING_TYPES), (
     f"kind_to_feature_type values {_feature_values} not subset of MARKING_TYPES {set(MARKING_TYPES)}"
 )
 
+def _vistas_config_labels(config: Any) -> list[dict[str, Any]]:
+    if isinstance(config, list):
+        items = config
+    elif isinstance(config, Mapping):
+        for key in ("labels", "classes", "class_names", "categories"):
+            if key in config and isinstance(config[key], list):
+                items = config[key]
+                break
+        else:
+            # Some configs map id -> name directly.
+            items = [{"id": k, "name": v} for k, v in config.items()
+                     if not isinstance(v, (list, dict))]
+    else:
+        items = []
+    out: list[dict[str, Any]] = []
+    for item in items:
+        if isinstance(item, Mapping):
+            out.append(dict(item))
+        elif isinstance(item, str):
+            out.append({"id": None, "name": item})
+    return out
+
+
+def _label_name(item: Mapping[str, Any]) -> str:
+    for key in ("name", "label", "class_name", "title"):
+        if key in item and item[key] is not None:
+            return str(item[key])
+    return ""
+
+
+def _label_id(item: Mapping[str, Any]) -> Any:
+    for key in ("id", "label_id", "class_id", "index"):
+        if key in item and item[key] is not None:
+            return item[key]
+    return None
+
+
+def _is_bbox_holdout(holdout: Any) -> bool:
+    if holdout is None:
+        return False
+    if isinstance(holdout, Mapping):
+        return ("x_min" in holdout and "x_max" in holdout
+                and "y_min" in holdout and "y_max" in holdout)
+    if isinstance(holdout, (tuple, list)) and len(holdout) == 4:
+        return all(isinstance(v, (int, float)) and not isinstance(v, bool)
+                   for v in holdout)
+    return False
+
+
+def load_vistas_v2_samples(
+    split: str = "training",
+    root: Any = "/data/vistas",
+    holdout: Any = None,
+) -> Iterator[Sample]:
+    """Yield :class:`Sample` objects for a Mapillary Vistas v2.0 split.
+
+    Layout::
+
+        {root}/{training,validation}/images/*.jpg
+        {root}/{training,validation}/v2.0/labels/*.png
+        {root}/config_v2.0.json
+
+    Class names/ids come from ``config_v2.0.json``; canonical kinds are
+    derived from those names via :data:`VISTAS_V2_LABEL_TO_KIND` (not from
+    hard-coded ids). ``holdout`` may be a bbox (applied only to samples that
+    carry a bbox) or a collection of held-out image filenames/stems.
+    """
+    from pathlib import Path
+
+    root_path = Path(root if root is not None else "/data/vistas")
+    split = str(split)
+    split_dir = root_path / split
+    img_dir = split_dir / "images"
+    label_dir = split_dir / "v2.0" / "labels"
+
+    config_path = root_path / "config_v2.0.json"
+    config: Any = {}
+    if config_path.exists():
+        import json
+        config = json.loads(config_path.read_text())
+    id_to_kind: dict[Any, str] = {}
+    for item in _vistas_config_labels(config):
+        name = _label_name(item)
+        kind = VISTAS_V2_LABEL_TO_KIND.get(name, KINDS.UNKNOWN.value)
+        lid = _label_id(item)
+        if lid is not None:
+            id_to_kind[lid] = kind
+        # Also allow name-based lookup for configs without ids.
+        id_to_kind[name] = kind
+
+    # Normalise holdout filename collection.
+    holdout_files: set[str] = set()
+    if holdout is not None and not _is_bbox_holdout(holdout):
+        if isinstance(holdout, (str, Path)):
+            holdout_files.add(str(holdout))
+        else:
+            try:
+                for h in holdout:
+                    holdout_files.add(str(h))
+            except TypeError:
+                holdout_files.add(str(holdout))
+
+    bbox_holdout = holdout if _is_bbox_holdout(holdout) else None
+
+    if not img_dir.exists():
+        return
+    for img_path in sorted(img_dir.glob("*.jpg")):
+        stem = img_path.stem
+        if stem in holdout_files or img_path.name in holdout_files:
+            continue
+        label_path = label_dir / f"{stem}.png"
+        sample = Sample(
+            image=str(img_path),
+            mask=str(label_path),
+            source="vistas_v2",
+            scene_id=stem,
+            bbox=None,
+            meta={
+                "split": split,
+                "image_path": str(img_path),
+                "label_path": str(label_path),
+                "class_id_to_kind": dict(id_to_kind),
+                "id_to_kind": dict(id_to_kind),
+                "canonical_kind_map": dict(id_to_kind),
+                "canonical_kind_mask": id_to_kind,
+            },
+        )
+        if sample.bbox is not None and bbox_holdout is not None:
+            try:
+                enforce_holdout(sample, bbox_holdout)
+            except HoldoutViolation:
+                continue
+        # Also support holdout default? Only if bbox present; none here.
+        yield sample
+
+
 
 def load_samples(
     route: str,

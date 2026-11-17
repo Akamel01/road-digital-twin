@@ -30,13 +30,15 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def _run_camera(args: argparse.Namespace, record: dict[str, Any]) -> int:
     from twin.marking_types import HOLDOUT_BBOX_DEFAULT as HB
-    from twin.marking_types import load_samples
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
 
+    from twin.marking_types import load_vistas_v2_samples
+
+    root = args.root if args.root is not None else "/data/vistas"
     samples = list(
-        load_samples("camera", args.root, holdout_bbox=HB, buffer=args.holdout_buffer)
+        load_vistas_v2_samples("training", root, holdout=HB)
     )
 
     manifest = {
