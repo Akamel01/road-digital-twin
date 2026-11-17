@@ -80,6 +80,55 @@
           "title": "Min Depth M",
           "type": "number"
         },
+        "pose_flag_deg": {
+          "default": 0.25,
+          "maximum": 5,
+          "minimum": 0.01,
+          "title": "Pose Flag Deg",
+          "type": "number"
+        },
+        "pose_flag_m": {
+          "default": 0.025,
+          "maximum": 1,
+          "minimum": 0.001,
+          "title": "Pose Flag M",
+          "type": "number"
+        },
+        "pose_max_anchors": {
+          "default": 200,
+          "maximum": 100000,
+          "minimum": 1,
+          "title": "Pose Max Anchors",
+          "type": "integer"
+        },
+        "pose_max_deg": {
+          "default": 0.5,
+          "maximum": 5,
+          "minimum": 0.01,
+          "title": "Pose Max Deg",
+          "type": "number"
+        },
+        "pose_max_m": {
+          "default": 0.05,
+          "maximum": 1,
+          "minimum": 0.001,
+          "title": "Pose Max M",
+          "type": "number"
+        },
+        "pose_max_nfev": {
+          "default": 200,
+          "maximum": 100000,
+          "minimum": 1,
+          "title": "Pose Max Nfev",
+          "type": "integer"
+        },
+        "pose_min_anchors": {
+          "default": 20,
+          "maximum": 10000,
+          "minimum": 1,
+          "title": "Pose Min Anchors",
+          "type": "integer"
+        },
         "top_k": {
           "default": 5,
           "maximum": 12,

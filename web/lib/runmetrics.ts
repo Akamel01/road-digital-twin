@@ -78,7 +78,7 @@ export interface RunMetrics {
     not_scanned_enough: string[];
   };
   features?: { n_markings?: number; n_crosswalks?: number; n_curbs?: number };
-  colour?: { edge_offset_p95_m: number | null; height_valid: boolean };
+  colour?: { edge_offset_p50_m: number | null; height_valid: boolean };
   accuracy?: { method?: string; buffer_m?: number; elements?: Partial<Record<ElementName, EntryMetric>>; facilities?: Record<string, EntryMetric> };
   isd?: { case: string; facilities: { facility: string; legs: LegMetric[] }[] };
 }

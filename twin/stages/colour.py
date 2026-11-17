@@ -25,10 +25,11 @@ import laspy
 import numpy as np
 from PIL import Image
 
-from twin.contracts import ColourParams, StageResult
+from twin import pose as pose_mod
+from twin.contracts import HOLDOUT_EVERY, ColourParams, StageResult
 from twin.dataset import DatasetConfig
 from twin.registry import register
-from twin.stages import zbuffer
+from twin.stages import colour_pose, zbuffer
 
 log = logging.getLogger(__name__)
 OUTPUT_FILES = ("ortho.png", "ortho.pgw", "rgb.npz", "qa.json")
@@ -304,8 +305,7 @@ def camera_confirmed(offsets: dict[str, np.ndarray]) -> list[str]:
     )
 
 
-@register("colour", "zbuffer-topk")
-def run(ctx: Any, params: ColourParams) -> StageResult:
+def _run(ctx: Any, params: ColourParams, refine: bool = False) -> StageResult:
     out: Path = ctx.stage_dir("colour")
     out.mkdir(exist_ok=True)
     gdir = ctx.input_dir("ground")
@@ -327,13 +327,31 @@ def run(ctx: Any, params: ColourParams) -> StageResult:
     usable = [c for c in cams if times[0] <= c["timestamp_us"] <= times[-1]]
     root = Path(DatasetConfig.from_env().root)
 
+    markings = json.loads((ctx.input_dir("features") / "markings.geojson").read_text())["features"]
+    # Hold-out (ADR 0007 D11): every HOLDOUT_EVERY-th observed marking id in sorted order is kept out of refinement.
+    observed_ids = sorted(m["properties"]["id"] for m in markings if m["properties"].get("reliability") == "observed")
+    holdout_ids = set(observed_ids[HOLDOUT_EVERY - 1 :: HOLDOUT_EVERY])
+    anchors = None
+    if refine:
+        train = [m for m in markings if m["properties"]["id"] not in holdout_ids]
+        anchors = colour_pose.lidar_paint_edges(train, gdir / "surface.npz", nonground_xyz)
+    pose_deltas: list[list[float]] = []
+    pose_channels: list[str] = []
+    pose_infos: list[dict] = []
+
     def views():
         for cam in usable:
             t = int(cam["timestamp_us"])
             c2w = zbuffer.camera_to_world(ego, times, t, cam["extrinsics"])
             K = np.asarray(cam["intrinsics"], float)
             img = np.asarray(Image.open(root / cam["image"]).convert("RGB"))
-            yield c2w, K, img, boxes_at(sweep_boxes, t)
+            boxes = boxes_at(sweep_boxes, t)
+            if refine:
+                c2w, _, info = colour_pose.refine_one(c2w, K, img, anchors, params, nonground_xyz, boxes)
+                pose_deltas.append(info["delta"])
+                pose_channels.append(str(cam.get("channel", "")))
+                pose_infos.append(info)
+            yield c2w, K, img, boxes
 
     stats: dict = {}
     rgb, observed, n_views = colour_points(points, nonground_xyz, views(), params, stats)
@@ -354,13 +372,12 @@ def run(ctx: Any, params: ColourParams) -> StageResult:
     np.savez_compressed(out / "rgb.npz", rgb=rgb, observed=observed)
 
     label = ORTHO_LABEL if height_valid else INDETERMINATE_LABEL
-    markings = json.loads((ctx.input_dir("features") / "markings.geojson").read_text())[
-        "features"
-    ]
     offsets = marking_offsets(ortho, origin, cell, markings)
     pooled = np.abs(np.concatenate([np.empty(0), *offsets.values()]))
+    held = np.abs(np.concatenate([np.empty(0), *(v for k, v in offsets.items() if k in holdout_ids)]))
+    applied = [i["applied"] for i in pose_infos]
     qa = {
-        "method": "zbuffer-topk",
+        "method": "zbuffer-pose-refine" if refine else "zbuffer-topk",
         "ortho_label": label,
         "height_valid": height_valid,
         "views_median": float(np.median(n_views[observed])) if observed.any() else None,
@@ -372,9 +389,20 @@ def run(ctx: Any, params: ColourParams) -> StageResult:
         "gsd_m": cell,
         "device": stats["device"],
         # P95 of |offset| over every measured cross-section of every observed marking (spec section 6, QA).
+        # Same samples for both methods, so zbuffer-topk and zbuffer-pose-refine compare directly.
+        "edge_offset_p50_m": float(np.percentile(pooled, 50)) if pooled.size else None,
         "edge_offset_p95_m": float(np.percentile(pooled, 95)) if pooled.size else None,
         "edge_offset_samples": int(pooled.size),
         "edge_offset_tol_m": EDGE_TOL_M,
+        # Hold-out markings only (ADR 0007 D11): stripes the pose refinement never saw.
+        "edge_offset_holdout_p95_m": float(np.percentile(held, 95)) if held.size else None,
+        "edge_offset_holdout_samples": int(held.size),
+        "pose_corrections": pose_mod.pose_report(np.asarray(pose_deltas).reshape(-1, 6), pose_channels, params, info=pose_infos)
+        if refine
+        else None,
+        "n_skipped": sum(i["reason"] == "no_anchors" for i in pose_infos),
+        "n_reverted": len(applied) - sum(applied),
+        "n_refined": sum(applied),
         "camera_confirmed": camera_confirmed(offsets),
     }
     (out / "qa.json").write_text(json.dumps(qa, indent=2))
@@ -384,3 +412,17 @@ def run(ctx: Any, params: ColourParams) -> StageResult:
         metrics=qa,
         message=label,
     )
+
+
+@register("colour", "zbuffer-topk")
+def run_zbuffer_topk(ctx: Any, params: ColourParams) -> StageResult:
+    return _run(ctx, params, False)
+
+
+@register("colour", "zbuffer-pose-refine")
+def run_zbuffer_pose_refine(ctx: Any, params: ColourParams) -> StageResult:
+    return _run(ctx, params, True)
+
+
+# Backward-compatible alias (colour.run symbol decision).
+run = run_zbuffer_topk

@@ -1,5 +1,7 @@
 """Colour stage on synthetic data: stripes, a box occluder, transparent unseen cells, and the stage wiring."""
 
+# Channel fixture: tests/fixtures/ (or tests/conftest.py) for per-camera channel data; parametrize by camera channel where relevant.
+
 import json
 from types import SimpleNamespace
 
@@ -275,9 +277,103 @@ def test_stripe_absent_from_image_is_not_confirmed():
     assert colour.camera_confirmed(offs) == []
 
 
+def test_run_zbuffer_pose_refine_wiring(tmp_path, monkeypatch):
+    root = tmp_path / "nuscenes"
+    cam_dir = root / "samples" / "CAM_FRONT"
+    cam_dir.mkdir(parents=True)
+    cam_file = "samples/CAM_FRONT/f.png"
+    cam_to_world = CAM16
+    Image.fromarray(_stripe_image(cam_to_world)).save(root / cam_file)
+    monkeypatch.setenv("NUSCENES_ROOT", str(root))
+
+    run = tmp_path / "run"
+    stage_dirs = {name: run / f"{s.number}_{name}" for name, s in STAGES.items()}
+    for d in stage_dirs.values():
+        d.mkdir(parents=True)
+    ctx = SimpleNamespace(
+        stage_dir=lambda name: stage_dirs[name],
+        input_dir=lambda name: stage_dirs[name],
+    )
+
+    ground_xyz = _ground(4.0, 9.0)
+    _write_laz(
+        stage_dirs["ground"] / "ground.laz", ground_xyz, np.zeros(len(ground_xyz)), 2
+    )
+    _write_laz(
+        stage_dirs["ground"] / "nonground.laz",
+        np.array([[-20.0, 0.0, 1.0]]),
+        np.zeros(1),
+        1,
+    )
+    (stage_dirs["ground"] / "qa.json").write_text(json.dumps({"height_valid": False}))
+    (stage_dirs["features"] / "markings.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": []})
+    )
+    (stage_dirs["align"] / "poses.json").write_text(
+        json.dumps(
+            {
+                "poses": [
+                    {"timestamp_us": t, "matrix": np.eye(4).tolist()}
+                    for t in (0, 1_000_000)
+                ]
+            }
+        )
+    )
+    cam = {
+        "timestamp_us": 500_000,
+        "image": cam_file,
+        "intrinsics": K.tolist(),
+        "extrinsics": {
+            "translation": [0.0, 0.0, 1.6],
+            "rotation_wxyz": zbuffer.matrix_to_quat(R).tolist(),
+        },
+    }
+    (stage_dirs["load"] / "cameras.json").write_text(json.dumps({"cameras": [cam]}))
+    (stage_dirs["load"] / "boxes.json").write_text(
+        json.dumps(
+            {"sweeps": [{"timestamp_us": t, "boxes": []} for t in (0, 1_000_000)]}
+        )
+    )
+
+    result = colour.run_zbuffer_pose_refine(ctx, ColourParams())
+    assert result.status == "ok"
+    qa = json.loads((stage_dirs["colour"] / "qa.json").read_text())
+    assert qa["method"] == "zbuffer-pose-refine"
+    assert qa["pose_corrections"] is not None
+    assert "applied" in qa["pose_corrections"]
+    assert "reason" in qa["pose_corrections"]
+    assert "hit_bound" in qa["pose_corrections"]
+    assert qa["edge_offset_p50_m"] is None
+    assert qa["edge_offset_p95_m"] is None
+    assert qa["edge_offset_samples"] == 0
+    assert isinstance(qa["n_reverted"], int)
+    assert isinstance(qa["n_skipped"], int)
+    assert isinstance(qa["n_refined"], int)
+
+    # topk path emits pose_corrections None
+    colour.run(ctx, ColourParams())
+    qa2 = json.loads((stage_dirs["colour"] / "qa.json").read_text())
+    assert qa2["pose_corrections"] is None
+
+
 def test_modelled_markings_are_not_measured():
     rgba, origin = _ortho_with_stripe(0.05, 0.15)
     offs = colour.marking_offsets(
         rgba, origin, 0.05, [_marking("inferred", LIDAR_LINE, reliability="modelled")]
     )
     assert offs == {}
+
+
+def test_colour_methods_registered_exactly_once():
+    from twin import registry
+    from twin.contracts import STAGES
+
+    methods = STAGES["colour"].methods
+    colour_entries = [k for k in registry._REGISTRY if k[0] == "colour"]
+    assert len(colour_entries) == len(methods), (
+        f"expected one registration per colour method, got {colour_entries}"
+    )
+    assert sorted(k[1] for k in colour_entries) == sorted(methods)
+    assert len({k[1] for k in colour_entries}) == len(colour_entries), (
+        "duplicate colour method registration"
+    )

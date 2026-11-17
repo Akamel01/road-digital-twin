@@ -31,6 +31,7 @@ from PIL import Image
 
 from twin.contracts import SplatsParams, StageResult
 from twin.dataset import DatasetConfig
+from twin.pose import pose_report
 from twin.registry import register
 from twin.stages import colour, zbuffer
 
@@ -169,29 +170,6 @@ def ortho_tiles(lo: np.ndarray, hi: np.ndarray, pixel_m: float, tile_px: int = O
         for c in range(0, width, tile_px)
     ]
     return tiles, (width, height)
-
-
-def pose_report(deltas: np.ndarray, names: list[str], p: SplatsParams) -> dict:
-    """The per-camera corrections (deltas rows: rotation vector rad, translation m), summarised and flagged."""
-    deg = np.degrees(np.linalg.norm(deltas[:, :3], axis=1))
-    m = np.linalg.norm(deltas[:, 3:], axis=1)
-    flag = (deg > p.pose_flag_deg) | (m > p.pose_flag_m)
-    by_ch: dict[str, dict] = {}
-    for ch in sorted(set(names)):
-        s = np.array([n == ch for n in names])
-        by_ch[ch] = {"median_deg": round(float(np.median(deg[s])), 4), "median_m": round(float(np.median(m[s])), 4)}
-    return {
-        "n_cameras": len(deg),
-        "rotation_deg_p50": round(float(np.percentile(deg, 50)), 4),
-        "rotation_deg_p95": round(float(np.percentile(deg, 95)), 4),
-        "rotation_deg_max": round(float(deg.max()), 4),
-        "translation_m_p50": round(float(np.percentile(m, 50)), 4),
-        "translation_m_p95": round(float(np.percentile(m, 95)), 4),
-        "translation_m_max": round(float(m.max()), 4),
-        "n_flagged": int(flag.sum()),
-        "drive_flagged": bool(flag.mean() >= 0.25),
-        "by_channel": by_ch,
-    }
 
 
 # ------------------------------------------------------------------ torch parts
