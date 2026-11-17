@@ -19,6 +19,7 @@ from twin.tiles import TILE, write_tiles
 MAX_FILE_BYTES = 25 * 1024 * 1024  # Pages limit per file
 INTENSITY_WHITE = 60  # nuScenes ground LAZ intensity white point (P99.5 ~59, max 110, run 20261115-183951-13e4b7)
 MAX_FILES = 20_000  # Pages limit per build, exclusive
+HEIGHT_MIN_CELL_M = 0.12  # finest height tile pixel; the height raster is 25 cm
 FALLBACK_GSD_M = 0.1  # raster cell when the colour stage did not run
 MAX_ZOOM = (
     4  # ponytail: pyramid capped at 4096 px per raster, bigger drives get coarser cells
@@ -207,9 +208,13 @@ def publish_runs(
         _thin_laz(outputs / "twin.laz", dest / "twin.laz", max_file_bytes)
         rasters, zoom, bbox, grid = _rasters(run_dir, manifest)
         x0, y0, cell, side = grid
-        height_rgba = render_height_rgba(h_map_all, x0=x0, y0=y0, cell=cell, side=side)
-        rasters["height"] = height_rgba
         write_tiles(out, manifest.run_id, rasters, bbox, max_zoom=zoom)
+        # height is 25 cm data: stop its pyramid at about half that per pixel, which keeps the
+        # build under the hosting file limit (all 15 Seaport drives at full zoom: 20656 files)
+        width_m = bbox[2] - bbox[0]
+        hzoom = next(z for z in range(zoom, -1, -1) if z == 0 or width_m / (TILE * 2**z) >= HEIGHT_MIN_CELL_M)
+        height_rgba = render_height_rgba(h_map_all, x0=x0, y0=y0, cell=cell, side=side)
+        write_tiles(out, manifest.run_id, {"height": height_rgba}, bbox, max_zoom=hzoom)
         runs.append((manifest, run_dir, bbox))
     area = _area(runs)
     (out / "area.json").write_text(area.model_dump_json(indent=2))
