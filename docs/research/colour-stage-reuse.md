@@ -63,7 +63,7 @@ Read from `/data/twin-dev/<run>/manifest.json` stage seconds and `6_colour/qa.js
 
 - Plain `zbuffer-topk` colouring is about 1 to 3 minutes per drive on the GPU and 3 minutes on the CPU. P95 stripe offset in those runs was 0.19 to 0.20 m; the pose-refine run reached 0.145 m P95, 0.096 m P50 (qa.json).
 - `zbuffer-pose-refine` costs about 8400 s on CPU for one drive, the number that triggered the #270 solver rewrite (the commit message e5e88de records the same figure). The rewrite's own timing is not in the manifests I could find.
-- Semantics: **no run exists on the box** (`/data/twin-dev` has no `11_semantics` folder or `prob.npz`; every manifest lists semantics at 0 s). Its time per drive is therefore unknown here. It splits into `seconds_segment` and `seconds_project` in its `qa.json` (`semantics.py:171-173, 568-570`), so the first real run reads both directly. The projection part reuses the same visibility call as colour, so the 65 to 178 s figure is a floor for it; the segmenter adds a Swin-L forward pass per image (about 240 images).
+- Semantics: **no run exists on the box** (`/data/twin-dev` has no `11_semantics` folder or `prob.npz`; the three manifests checked list semantics at 0 s). Its time per drive is therefore unknown here. It splits into `seconds_segment` and `seconds_project` in its `qa.json` (`semantics.py:171-173, 568-570`), so the first real run reads both directly. The projection part reuses the same visibility call as colour, so the 65 to 178 s figure is a floor for it; the segmenter adds a Swin-L forward pass per image (about 240 images).
 - Free disk on the box at read time: 22 GB on `/` (97% used); no heavy jobs were run.
 
 ## Sources
