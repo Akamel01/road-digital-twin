@@ -15,7 +15,6 @@ from pathlib import Path
 from typing import Any
 
 from twin.contracts import LabelFeature, SiteMeta
-from twin.site import resolve_area
 
 FEATURE_FILES = ("markings.geojson", "crosswalks.geojson", "curbs.geojson", "ramps.geojson")
 
@@ -92,17 +91,28 @@ def write_site(store: Path | str, site: str, meta: SiteMeta) -> None:
 
 
 def _area_build_dir(store: Path, area: str) -> Path:
-    # area may be a name or a path; reuse resolve_area when possible.
-    try:
-        return resolve_area(Path(store), area)
-    except Exception:
-        p = Path(area)
-        if p.is_dir():
-            return p
-        cand = Path(store) / "areas" / area
-        if cand.is_dir():
+    # area may be a name or a path; try area, area-twin, area-merged.
+    store = Path(store)
+    p = Path(area)
+    names = [area]
+    for suf in ("-twin", "-merged"):
+        if not area.endswith(suf):
+            names.append(area + suf)
+    dirs = []
+    if p.is_dir():
+        dirs.append(p)
+    for name in names:
+        dirs.append(store / name)
+        dirs.append(store / "areas" / name)
+    for cand in dirs:
+        if (cand / "merged.npz").is_file():
             return cand
-        raise
+    if p.is_dir():
+        return p
+    cand = store / "areas" / area
+    if cand.is_dir():
+        return cand
+    raise FileNotFoundError(f"no area build for {area!r}")
 
 
 def _area_def(store: Path, area: str, build_dir: Path) -> dict:

@@ -63,12 +63,18 @@ export default function DevLabelsPage() {
   }, [site]);
 
   useEffect(() => {
-    loadSites().then(setSites).catch((e) => setError(errorText(e)));
+    let cancelled = false;
+    loadSites()
+      .then((list) => {
+        if (!cancelled) setSites(list);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(errorText(e));
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
-
-  useEffect(() => {
-    if (site) loadOne(site);
-  }, [site, loadOne]);
 
   async function handleSave() {
     if (!site || !meta) return;
