@@ -17,8 +17,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-HOLDOUT_BBOX_DEFAULT = (332112, 332668, 4689895, 4690292)
-
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)

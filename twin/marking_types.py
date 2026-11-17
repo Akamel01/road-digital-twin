@@ -11,6 +11,8 @@ from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from twin.stages.features import MARKING_TYPES
+
 # Held-out showcase bbox in EPSG:32619 (x_min, x_max, y_min, y_max).
 HOLDOUT_BBOX_DEFAULT: tuple[int, int, int, int] = (332112, 332668, 4689895, 4690292)
 
@@ -125,7 +127,7 @@ def in_holdout(
     x: float,
     y: float,
     holdout_bbox: Any = None,
-    buffer: float = 0.0,
+    buffer: float = 50.0,
 ) -> bool:
     return intersects_holdout((x, y), holdout_bbox, buffer)
 
@@ -288,10 +290,19 @@ def kind_to_feature_type(kind: Any) -> str | None:
         k = kind
     else:
         k = KINDS(str(kind))
-    return _FEATURE_TYPES[k]
+    result = _FEATURE_TYPES[k]
+    if result is not None and result not in MARKING_TYPES:
+        raise ValueError(f"feature type {result!r} not in MARKING_TYPES")
+    return result
 
 
 KIND_TO_FEATURE_TYPE: dict[KINDS, str | None] = dict(_FEATURE_TYPES)
+
+# Validate feature-type values against the canonical MARKING_TYPES.
+_feature_values = {v for v in _FEATURE_TYPES.values() if v is not None}
+assert _feature_values <= set(MARKING_TYPES), (
+    f"kind_to_feature_type values {_feature_values} not subset of MARKING_TYPES {set(MARKING_TYPES)}"
+)
 
 
 def load_samples(

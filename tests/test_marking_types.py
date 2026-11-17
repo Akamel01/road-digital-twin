@@ -51,7 +51,7 @@ def test_all_mapped_kinds_are_canonical():
 
 
 def test_kind_to_feature_type_coverage():
-    expected_features = {"divider", "stop_line", "crosswalk_stripe", "other_paint"}
+    expected_features = set(mt.MARKING_TYPES)
     for kind in mt.KINDS:
         ft = mt.kind_to_feature_type(kind)
         assert ft is None or ft in expected_features
@@ -227,7 +227,7 @@ def test_eval_output_schema():
         "route": "camera",
         "eval_index": 0,
         "dataset": "vistas_v2",
-        "heldout_bbox_epsg32619": [332112, 332668, 4689895, 4690292],
+        "heldout_bbox_epsg32619": list(mt.HOLDOUT_BBOX_DEFAULT),
         "class": "solid_white",
         "support_pixels": 100,
         "iou": 0.5,
