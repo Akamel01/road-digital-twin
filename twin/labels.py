@@ -139,10 +139,17 @@ def _map_feature(element: str, feat: dict, source_file: str, idx: int) -> dict:
     fid = props.get("id")
     if fid is None:
         fid = f"{source_file}:{idx}"
+    if element == "marking":
+        mt = props.get("marking_type")
+        if mt is None and isinstance(props.get("type"), str):
+            mt = props.get("type")
+        typ = "stop_line" if mt == "stop_line" else "solid_line"
+    else:
+        typ = _TYPE_DEFAULT[element]
     label = LabelFeature(
         id=str(fid),
         element=element,  # type: ignore[arg-type]
-        type=_TYPE_DEFAULT[element],  # type: ignore[arg-type]
+        type=typ,  # type: ignore[arg-type]
         origin="drafted",
         source_feature_id=str(props.get("id")) if props.get("id") is not None else None,
         source_file=source_file,

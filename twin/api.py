@@ -41,7 +41,13 @@ from twin.runstore import RunStore
 
 ALLOWED_ORIGIN = "https://twin.papyrus-ai.net"
 RUN_ID = re.compile(r"\d{8}-\d{6}-[0-9a-f]{6}")
+SITE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 COMPARE_SECTIONS = ("pipeline", "params", "metrics")
+
+
+def _check_site(site: str) -> None:
+    if not SITE_ID.fullmatch(site) or ".." in site or "\\" in site:
+        raise HTTPException(422, "bad site")
 
 
 def _check_id(run_id: str) -> None:
@@ -189,6 +195,7 @@ def create_app(store: Path, verifier: Verifier | None = None) -> FastAPI:
 
     @app.get("/api/r/labels/{site}")
     def get_label_site(site: str) -> dict[str, Any]:
+        _check_site(site)
         try:
             meta = labels_store.read_site(store, site)
         except FileNotFoundError as exc:
@@ -197,6 +204,7 @@ def create_app(store: Path, verifier: Verifier | None = None) -> FastAPI:
 
     @app.get("/api/r/labels/{site}/labels")
     def get_site_labels(site: str) -> dict[str, Any]:
+        _check_site(site)
         try:
             labels_store.read_site(store, site)  # existence check
         except FileNotFoundError as exc:
@@ -242,6 +250,9 @@ def create_app(store: Path, verifier: Verifier | None = None) -> FastAPI:
 
     @write.put("/labels/{site}/labels")
     def put_site_labels(site: str, body: LabelsUpdate) -> dict[str, Any]:
+        _check_site(site)
+        if not isinstance(body.feature_collection, dict):
+            raise HTTPException(422, "feature_collection must be an object")
         try:
             meta = labels_store.write_labels(
                 store, site, body.feature_collection, expected_version=body.version
@@ -259,6 +270,7 @@ def create_app(store: Path, verifier: Verifier | None = None) -> FastAPI:
 
     @write.post("/labels/{site}/approve")
     def approve_site(site: str, body: ApproveBody) -> dict[str, Any]:
+        _check_site(site)
         try:
             meta = labels_store.approve(store, site, body.approved_by)
         except FileNotFoundError as exc:
@@ -267,6 +279,7 @@ def create_app(store: Path, verifier: Verifier | None = None) -> FastAPI:
 
     @write.post("/labels/{site}/new-version")
     def new_site_version(site: str) -> dict[str, Any]:
+        _check_site(site)
         try:
             meta = labels_store.new_version(store, site)
         except FileNotFoundError as exc:
