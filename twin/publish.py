@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from twin.contracts import AreaFacility, AreaIndex, Drive, Manifest, stage_dir
 from twin.height_raster import compute_height_above_road, render_height_rgba
 from twin.runner import default_store
-from twin.tiles import TILE, PMTilesMeta, write_pmtiles
+from twin.tiles import TILE, PMTilesMeta, write_pmtiles, write_tiles
 
 MAX_FILE_BYTES = 25 * 1024 * 1024  # Pages limit per file
 INTENSITY_WHITE = 60  # nuScenes ground LAZ intensity white point (P99.5 ~59, max 110, run 20261115-183951-13e4b7)
@@ -25,7 +25,9 @@ MAX_FILES = 20_000  # Pages limit per build, exclusive
 HEIGHT_MIN_CELL_M = 0.12  # finest height tile pixel; the height raster is 25 cm
 HEIGHT_MOSAIC_TARGET_M = 0.125  # height mosaic target cell (half of 25 cm raster)
 FALLBACK_GSD_M = 0.1  # raster cell when the colour stage did not run
-MAX_ZOOM = 8  # mosaic pyramid cap
+MAX_ZOOM = 8  # mosaic pyramid upper cap
+MOSAIC_MAX_SIDE = 4096  # 64MB/layer bound on mosaic side in pixels
+RASTER_MAX_ZOOM = 4  # per-drive pyramid cap
 THIN_ROUNDS = 6  # ponytail: LAZ thinning doubles the voxel up to this many times
 PUBLIC_FILES = ("twin.geojson", "plan.pdf", "plan.dxf", "profile.pdf", "profile.dxf")
 # Coverage colours match the web legend: observed green, unobserved red (web/components/MapPanel.tsx).
@@ -39,6 +41,7 @@ class LayerReport(BaseModel):
     max_zoom: int
     bytes: int
     tile_count: int
+    cell_m_at_zmax: float = 0.0
 
 
 class PublishReport(BaseModel):
@@ -135,6 +138,9 @@ def _grid_from_points(xs: np.ndarray, ys: np.ndarray, target: float) -> tuple[fl
     else:
         z = math.floor(math.log2(ratio))
     z = max(0, min(MAX_ZOOM, z))
+    # bound mosaic side by memory
+    while z > 0 and TILE * 2 ** z > MOSAIC_MAX_SIDE:
+        z -= 1
     side = TILE * 2 ** z
     cell = extent / side
     # ensure cell >= target
@@ -175,7 +181,7 @@ def _rasters(
     gsd = _gsd(manifest)
     grid = _grid_from_points(x, y, max(gsd, 0.05))
     x0, y0, cell, side = grid
-    zoom = _z_for(side * cell, max(gsd, 0.05))
+    zoom = min(RASTER_MAX_ZOOM, _z_for(side * cell, max(gsd, 0.05)))
     lidar = _bincount_intensity(x, y, intensity, grid)
     rasters = {"lidar": lidar}
     ortho = _resample_ortho(run_dir, grid)
@@ -235,6 +241,8 @@ def _z_for(extent: float, target: float) -> int:
     else:
         z = math.floor(math.log2(ratio))
     z = max(0, min(MAX_ZOOM, z))
+    while z > 0 and TILE * 2 ** z > MOSAIC_MAX_SIDE:
+        z -= 1
     # ensure cell >= target
     side = TILE * 2 ** z
     cell = extent / side
@@ -346,6 +354,16 @@ def publish_runs(
             if (_stage(run_dir, "profile") / name).exists():
                 shutil.copy(_stage(run_dir, "profile") / name, dest / name)
         _thin_laz(outputs / "twin.laz", dest / "twin.laz", max_file_bytes)
+        rasters, zoom, bbox_drive, grid = _rasters(run_dir, manifest)
+        x0d, y0d, celld, sided = grid
+        write_tiles(out, manifest.run_id, rasters, bbox_drive, max_zoom=zoom)
+        width_m = bbox_drive[2] - bbox_drive[0]
+        hzoom = next(
+            z for z in range(zoom, -1, -1)
+            if z == 0 or width_m / (TILE * 2 ** z) >= HEIGHT_MIN_CELL_M
+        )
+        height_rgba = render_height_rgba(h_map_all, x0=x0d, y0=y0d, cell=celld, side=sided)
+        write_tiles(out, manifest.run_id, {"height": height_rgba}, bbox_drive, max_zoom=hzoom)
         runs.append((manifest, run_dir, bbox))
 
     area = _area(runs)
@@ -381,6 +399,7 @@ def publish_runs(
             max_zoom=zmax,
             bytes=size,
             tile_count=tile_count,
+            cell_m_at_zmax=extent / (TILE * 2 ** zmax),
         )
 
     files = [p for p in out.rglob("*") if p.is_file()]
