@@ -3,7 +3,15 @@ import json
 import pytest
 
 from twin.contracts import LabelFeature, SiteMeta
-from twin.labels import FrozenSiteError, approve, draft, new_version, read_labels, read_site, write_labels
+from twin.labels import (
+    FrozenSiteError,
+    approve,
+    draft,
+    new_version,
+    read_labels,
+    read_site,
+    write_labels,
+)
 
 
 def _write_fc(path, features):
