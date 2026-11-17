@@ -275,3 +275,59 @@ def test_enforce_holdout_missing_bbox_raises():
     sample = mt.Sample(scene_id="nobbox", bbox=None)
     with pytest.raises(ValueError):
         mt.enforce_holdout(sample, bbox, buffer=0.0)
+
+
+# Synthetic CPU training smoke: 4-image Vistas layout, two steps, tiny config.
+
+def test_synthetic_vistas_cpu_two_steps(tmp_path):
+    pytest.importorskip("torch")
+    pytest.importorskip("transformers")
+    import json
+
+    import numpy as np
+    from PIL import Image
+
+    root = tmp_path / "vistas"
+    for split, n in (("training", 4), ("validation", 1)):
+        (root / split / "images").mkdir(parents=True, exist_ok=True)
+        (root / split / "v2.0" / "labels").mkdir(parents=True, exist_ok=True)
+        for i in range(n):
+            Image.new("RGB", (64, 64), (10, 20, 30)).save(root / split / "images" / f"{i}.jpg")
+            arr = np.zeros((64, 64), dtype=np.uint8)
+            arr[10:30, 10:30] = 1
+            Image.fromarray(arr).save(root / split / "v2.0" / "labels" / f"{i}.png")
+    (root / "config_v2.0.json").write_text(
+        json.dumps({"labels": [{"id": 1, "name": "Lane Marking - Stop Line"}]})
+    )
+
+    out = tmp_path / "out"
+    import argparse
+
+    args = argparse.Namespace(
+        route="camera",
+        root=root,
+        out=out,
+        max_epochs=1,
+        holdout_buffer=50.0,
+        model="facebook/mask2former-swin-tiny-ade-semantic",
+        crop_size=1024,
+        batch_size=1,
+        eval_every=100,
+        max_steps=2,
+        resume=None,
+        tiny=True,
+        device="cpu",
+        lr=1e-5,
+        plateau_patience=3,
+        plateau_min_delta_points=0.5,
+        seed=0,
+    )
+    import scripts.train_marking_type as train_mod
+
+    rc = train_mod._run_camera(args, {})
+    assert rc == 0
+    assert (out / "run_summary.json").exists()
+    import json as _json
+
+    summary = _json.loads((out / "run_summary.json").read_text())
+    assert summary["steps"] == 2
