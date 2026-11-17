@@ -9,6 +9,7 @@ from twin.cli import main
 from twin.contracts import AreaIndex
 from twin.fake_run import FACILITIES, write_fake_runs
 from twin.publish import _rasters, _thin_laz, publish_runs
+from twin.tiles import TileMeta
 
 SCHEMAS = Path(__file__).resolve().parents[1] / "schemas"
 
@@ -126,3 +127,18 @@ def test_lidar_intensity_white_point(tmp_path):
     lidar = rasters["lidar"]
     filled = lidar[..., 3] == 255
     assert sorted(lidar[filled, 0].tolist()) == [0, 127, 255, 255]
+
+
+def test_per_drive_tiles_present(tmp_path):
+    store = tmp_path / "runs"
+    folders = write_fake_runs(store, drives=2)
+    showcase = store / "showcase"
+    rasters = {"lidar", "ortho", "height", "coverage"}
+    for folder in folders:
+        run = folder.name
+        for raster in rasters:
+            meta_path = showcase / "tiles" / run / raster / "meta.json"
+            assert meta_path.is_file(), meta_path
+            TileMeta.model_validate_json(meta_path.read_text())
+            tile_dir = showcase / "tiles" / run / raster
+            assert any(p.suffix == ".webp" for p in tile_dir.rglob("*")), tile_dir
