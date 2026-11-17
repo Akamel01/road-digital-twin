@@ -152,7 +152,15 @@ export default function DevLabelsPage() {
         </div>
         <label className={styles.field}>
           <span>Site</span>
-          <select value={site} onChange={(e) => setSite(e.target.value)} disabled={busy}>
+          <select
+            value={site}
+            onChange={(e) => {
+              const v = e.target.value;
+              setSite(v);
+              void loadOne(v);
+            }}
+            disabled={busy}
+          >
             <option value="">Select…</option>
             {sites.map((s) => (
               <option key={s} value={s}>
