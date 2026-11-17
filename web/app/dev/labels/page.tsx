@@ -6,37 +6,28 @@ import styles from "@/components/dev/dev.module.css";
 import {
   loadSites,
   loadSite,
-  loadLabels,
-  saveLabels,
-  approve,
-  newVersion,
   type SiteMeta,
-  type GeoJsonFeatureCollection,
 } from "@/lib/labels";
-import { actionText, errorText } from "@/lib/devapi";
+import LabelsMapEditor from "@/components/dev/LabelsMapEditor";
+import { errorText } from "@/lib/devapi";
 
 export default function DevLabelsPage() {
   const [sites, setSites] = useState<string[]>([]);
   const [site, setSite] = useState("");
   const [meta, setMeta] = useState<SiteMeta | null>(null);
-  const [labelsText, setLabelsText] = useState("");
-  const [approvedBy, setApprovedBy] = useState("operator");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [info, setInfo] = useState<string | null>(null);
 
   const loadOne = useCallback(async (s: string) => {
     if (!s) {
       setMeta(null);
-      setLabelsText("");
       return;
     }
     setBusy(true);
     setError(null);
     try {
-      const [m, labels] = await Promise.all([loadSite(s), loadLabels(s)]);
+      const m = await loadSite(s);
       setMeta(m);
-      setLabelsText(JSON.stringify(labels, null, 2));
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -53,7 +44,6 @@ export default function DevLabelsPage() {
       if (site && !list.includes(site)) {
         setSite("");
         setMeta(null);
-        setLabelsText("");
       }
     } catch (e) {
       setError(errorText(e));
@@ -75,62 +65,6 @@ export default function DevLabelsPage() {
       cancelled = true;
     };
   }, []);
-
-  async function handleSave() {
-    if (!site || !meta) return;
-    let parsed: GeoJsonFeatureCollection;
-    try {
-      parsed = JSON.parse(labelsText) as GeoJsonFeatureCollection;
-    } catch {
-      setError("Invalid JSON in labels.");
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    setInfo(null);
-    try {
-      const m = await saveLabels(site, meta.version, parsed);
-      setMeta(m);
-      setInfo("Saved.");
-    } catch (e) {
-      setError(actionText(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleApprove() {
-    if (!site) return;
-    setBusy(true);
-    setError(null);
-    setInfo(null);
-    try {
-      const m = await approve(site, approvedBy || "operator");
-      setMeta(m);
-      setInfo("Approved.");
-    } catch (e) {
-      setError(actionText(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleNewVersion() {
-    if (!site) return;
-    setBusy(true);
-    setError(null);
-    setInfo(null);
-    try {
-      const m = await newVersion(site);
-      setMeta(m);
-      await loadOne(site);
-      setInfo("New version created.");
-    } catch (e) {
-      setError(actionText(e));
-    } finally {
-      setBusy(false);
-    }
-  }
 
   return (
     <div className={styles.root}>
@@ -180,35 +114,17 @@ export default function DevLabelsPage() {
         ) : (
           <p className={styles.muted} style={{ marginTop: 8 }}>No site loaded.</p>
         )}
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
-          <button type="button" className={styles.button} onClick={handleSave} disabled={busy || !meta || meta.frozen}>
-            Save
-          </button>
-          <button type="button" className={styles.button} onClick={handleApprove} disabled={busy || !meta || meta.frozen}>
-            Approve
-          </button>
-          <button type="button" className={styles.button} onClick={handleNewVersion} disabled={busy || !meta}>
-            New version
-          </button>
-        </div>
-        <label className={styles.field} style={{ marginTop: 12 }}>
-          <span>Approved by</span>
-          <input value={approvedBy} onChange={(e) => setApprovedBy(e.target.value)} disabled={busy} />
-        </label>
         {error ? <p className={styles.notice} role="alert" style={{ marginTop: 8 }}>{error}</p> : null}
-        {info ? <p className={styles.notice} role="status" style={{ marginTop: 8 }}>{info}</p> : null}
       </section>
       <section className={styles.panel} style={{ marginTop: 12 }}>
         <div className={styles.panelHead}>
-          <h2 className={styles.h2}>Labels JSON</h2>
+          <h2 className={styles.h2}>Labels map</h2>
         </div>
-        <textarea
-          value={labelsText}
-          onChange={(e) => setLabelsText(e.target.value)}
-          disabled={busy}
-          spellCheck={false}
-          style={{ width: "100%", minHeight: 320, fontFamily: "ui-monospace, monospace", fontSize: 12 }}
-        />
+        {site && meta ? (
+          <LabelsMapEditor site={site} meta={meta} onMeta={setMeta} />
+        ) : (
+          <p className={styles.muted}>Select a site to edit labels.</p>
+        )}
       </section>
     </div>
   );
