@@ -261,3 +261,17 @@ def test_gpu_smoke():
         pytest.skip("no GPU available")
     x = torch.rand(2, 3, 4, 4, device="cuda")
     assert x.device.type == "cuda"
+
+
+def test_intersects_holdout_unsupported_bbox_raises():
+    bbox = mt.HOLDOUT_BBOX_DEFAULT
+    for bad in (None, "nope", (1, 2, 3), mt.Sample(scene_id="s", bbox=None)):
+        with pytest.raises(ValueError):
+            mt.intersects_holdout(bad, bbox)
+
+
+def test_enforce_holdout_missing_bbox_raises():
+    bbox = mt.HOLDOUT_BBOX_DEFAULT
+    sample = mt.Sample(scene_id="nobbox", bbox=None)
+    with pytest.raises(ValueError):
+        mt.enforce_holdout(sample, bbox, buffer=0.0)

@@ -46,7 +46,7 @@ class Sample:
     mask: Any = None
     source: str = ""
     scene_id: str = ""
-    bbox: tuple[float, float, float, float] | None = None  # x_min, x_max, y_min, y_max
+    bbox: tuple[float, float, float, float] | None = None  # (x_min, x_max, y_min, y_max)
     meta: dict = field(default_factory=dict)
 
 
@@ -69,15 +69,30 @@ def _bbox_from_holdout(holdout_bbox: Any) -> tuple[float, float, float, float]:
 def intersects_holdout(
     bbox: Any,
     holdout_bbox: Any = None,
-    buffer: float = 0.0,
+    buffer: float = 50.0,
 ) -> bool:
-    """Return True if ``bbox`` intersects ``holdout_bbox`` (+buffer)."""
+    """Return True if ``bbox`` intersects ``holdout_bbox`` (+buffer).
+
+    Bounding boxes use the ``(x_min, x_max, y_min, y_max)`` convention.
+    Unsupported bbox types, missing bboxes, and ``None`` raise
+    :class:`HoldoutViolation` instead of being silently treated as
+    non-intersecting (fail-closed).
+    """
     if holdout_bbox is None:
         holdout_bbox = HOLDOUT_BBOX_DEFAULT
     hx0, hx1, hy0, hy1 = _bbox_from_holdout(holdout_bbox)
     hx0 -= buffer; hx1 += buffer; hy0 -= buffer; hy1 += buffer
 
-    # point form
+    if bbox is None:
+        raise HoldoutViolation("bbox is None; cannot verify holdout exclusion")
+    if isinstance(bbox, Sample):
+        if bbox.bbox is None:
+            raise HoldoutViolation(
+                f"sample {bbox.scene_id!r} has no bbox; cannot verify holdout exclusion"
+            )
+        return intersects_holdout(bbox.bbox, holdout_bbox, buffer)
+
+    # point form / bbox form: tuple or list of numbers
     if isinstance(bbox, (tuple, list)):
         if len(bbox) == 2:
             x, y = float(bbox[0]), float(bbox[1])
@@ -85,25 +100,25 @@ def intersects_holdout(
         if len(bbox) == 4:
             x0, x1, y0, y1 = (float(bbox[0]), float(bbox[1]),
                                float(bbox[2]), float(bbox[3]))
-            # Heuristic: if second < first? assume x_min,x_max,y_min,y_max
+            # Convention: (x_min, x_max, y_min, y_max). Swap only if reversed.
             if x1 < x0:
                 x0, x1 = x1, x0
             if y1 < y0:
                 y0, y1 = y1, y0
             return not (x1 < hx0 or x0 > hx1 or y1 < hy0 or y0 > hy1)
+        raise HoldoutViolation(f"unsupported bbox length {len(bbox)}: {bbox!r}")
+
     if isinstance(bbox, Mapping):
         if "x" in bbox and "y" in bbox and "x_min" not in bbox:
             return intersects_holdout((bbox["x"], bbox["y"]), holdout_bbox, buffer)
-        if "x_min" in bbox:
+        if "x_min" in bbox and "x_max" in bbox and "y_min" in bbox and "y_max" in bbox:
             return intersects_holdout(
                 (bbox["x_min"], bbox["x_max"], bbox["y_min"], bbox["y_max"]),
                 holdout_bbox, buffer,
             )
-    if isinstance(bbox, Sample):
-        if bbox.bbox is None:
-            return False
-        return intersects_holdout(bbox.bbox, holdout_bbox, buffer)
-    return False
+        raise HoldoutViolation(f"unsupported bbox mapping keys: {bbox!r}")
+
+    raise HoldoutViolation(f"unsupported bbox type {type(bbox).__name__}: {bbox!r}")
 
 
 def in_holdout(
@@ -115,7 +130,7 @@ def in_holdout(
     return intersects_holdout((x, y), holdout_bbox, buffer)
 
 
-def enforce_holdout(sample: Sample, holdout_bbox: Any, buffer: float = 0.0) -> None:
+def enforce_holdout(sample: Sample, holdout_bbox: Any, buffer: float = 50.0) -> None:
     if intersects_holdout(sample, holdout_bbox, buffer):
         raise HoldoutViolation(
             f"sample {sample.scene_id!r} intersects held-out bbox"
@@ -157,7 +172,7 @@ _vistas_map = {
     "Lane Marking - Symbol (Bicycle)": KINDS.ARROW_OTHER,
     "Lane Marking - Symbol (Other)": KINDS.UNKNOWN,
     "Lane Marking - Symbol (Ambiguous)": KINDS.UNKNOWN,
-    "Lane Marking - Give Way (Row)": KINDS.OTHER if False else KINDS.UNKNOWN,
+    "Lane Marking - Give Way (Row)": KINDS.UNKNOWN,
     "Lane Marking - Give Way (Single)": KINDS.UNKNOWN,
     "Lane Marking - Ambiguous": KINDS.UNKNOWN,
     "Lane Marking - Other": KINDS.UNKNOWN,
@@ -165,8 +180,6 @@ _vistas_map = {
     "Lane Marking (only) - Crosswalk": KINDS.CROSSWALK_STRIPES,
     "Lane Marking (only) - Other": KINDS.UNKNOWN,
 }
-# fix the bogus conditional above
-_vistas_map["Lane Marking - Give Way (Row)"] = KINDS.UNKNOWN
 for k, v in _vistas_map.items():
     VISTAS_V2_LABEL_TO_KIND[k] = v.value
 
@@ -285,7 +298,7 @@ def load_samples(
     route: str,
     root: Any,
     holdout_bbox: Any = None,
-    buffer: float = 0.0,
+    buffer: float = 50.0,
 ) -> Iterator[Sample]:
     """Iterator over ``Sample`` for a dataset route.
 

@@ -55,7 +55,7 @@ Rationale for keeping as fallback: AV2 map/sensor accessible without AWS account
 ## 4. Held-out showcase area (excluded from training)
 
 **Showcase bbox (EPSG:32619):** `x 332112–332668`, `y 4689895–4690292`.  
-This area **must be excluded from every training patch by construction** (enforced in the data loader; loader must raise/error on intersection). A buffer around this box must be applied (buffer size to be finalized in implementation/loader config, default non-zero) so no training sample touches showcase vicinity. nuScenes map coordinates are local metres per map — the bbox must be transformed to nuScenes local coordinates via map origin in the loader (never hardcoded), with a test that no training patch intersects the buffered showcase box. Prefer Boston patches outside the box over Singapore (domain gap: left-hand traffic).
+This area **must be excluded from every training patch by construction** (enforced in the data loader; loader must raise/error on intersection). A buffer around this box must be applied (buffer size to be finalized in implementation/loader config, default non-zero) so no training sample touches showcase vicinity. nuScenes map coordinates are local metres per map — transforming the showcase bbox into nuScenes local coordinates via map origin is a **requirement for the real adapter** (not implemented in #306); the loader must raise on intersection. Prefer Boston patches outside the box over Singapore (domain gap: left-hand traffic).
 
 ## 5. Operator-gated box training (HITL)
 

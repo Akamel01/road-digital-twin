@@ -14,7 +14,6 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-import time
 from pathlib import Path
 from typing import Any
 
@@ -32,17 +31,6 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def _run_camera(args: argparse.Namespace, record: dict[str, Any]) -> int:
-    try:
-        import torch  # noqa: F401
-    except ImportError as exc:
-        print(f"torch not available: {exc}", file=sys.stderr)
-        return 1
-    try:
-        import transformers  # noqa: F401
-    except ImportError as exc:
-        print(f"transformers not available: {exc}", file=sys.stderr)
-        return 1
-
     from twin.marking_types import HOLDOUT_BBOX_DEFAULT as HB
     from twin.marking_types import load_samples
 
@@ -70,42 +58,19 @@ def _run_camera(args: argparse.Namespace, record: dict[str, Any]) -> int:
         "v1.2 pretrained backbone weights: see Hugging Face license tags.\n"
     )
 
-    if not samples:
-        print("no training samples found under --root; manifest written", file=sys.stderr)
-        return 1
-
-    # Full Mask2Former R50/1024-crop training is operator-gated (dataset + GPU).
-    # Plateau tracking skeleton: 3 consecutive evals with <0.5 mIoU gain -> plateau.json.
-    eval_history: list[dict[str, Any]] = []
-    low_gain_streak = 0
-    started = time.perf_counter()
-    peak_vram_mib = None
-    try:
-        import torch as _torch
-
-        if _torch.cuda.is_available():
-            peak_vram_mib = int(_torch.cuda.max_memory_allocated() // (1024 * 1024))
-    except Exception:  # noqa: BLE001
-        peak_vram_mib = None
-
-    # No model weights are produced here until the operator-gated dataset is present.
-    (out / "per_class_validation.json").write_text(json.dumps(eval_history, indent=2))
-
-    plateau_triggered = low_gain_streak >= 3
-    if plateau_triggered:
-        (out / "plateau.json").write_text(
-            json.dumps({"evals": eval_history, "reason": "3 evals <0.5 mIoU gain"}, indent=2)
-        )
-
-    wall_time_s = time.perf_counter() - started
+    print(
+        "Scaffold only: no training run performed. Operator must accept Vistas v2.0 "
+        "terms, download under --root, then run training with torch/transformers "
+        "installed (--extra marking). Training loop, per-class validation, plateau "
+        "detection and checkpoint writing are operator-gated follow-ups.",
+        file=sys.stderr,
+    )
     summary = {
         "route": "camera",
-        "peak_vram_mib": peak_vram_mib,
-        "wall_time_s": wall_time_s,
-        "evals": len(eval_history),
-        "plateau": plateau_triggered,
+        "samples": len(samples),
+        "manifest_path": str(out / "data_manifest.json"),
+        "licence_path": str(out / "LICENCES"),
     }
-    (out / "run_summary.json").write_text(json.dumps(summary, indent=2))
     print(json.dumps(summary))
     return 0
 
