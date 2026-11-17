@@ -527,6 +527,27 @@ def _features(d: Path, c: _Ctx) -> dict:
         n_points=curb_pts,
     )
     _dump(d / "curbs.geojson", _fc([curb]))
+    ramps = [
+        _feat(
+            "Point",
+            [_p3(5.0, fx.CURB_Y, fx.ground_z(5.0, fx.CURB_Y))],
+            id="R-1",
+            kind="curb_ramp",
+            width_m=1.5,
+            run_length_m=1.5,
+            running_slope_pct=5.0,
+            cross_slope_pct=1.0,
+            gutter_step_m=0.001,
+            running_slope_status="ok",
+            side_slope_status="ok",
+            gutter_step_status="ok",
+            status="ok",
+            nearest_crosswalk_m=1.0,
+            crosswalk_id="X-1",
+            n_points=10,
+        )
+    ]
+    _dump(d / "ramps.geojson", _fc(ramps))
     # Same keys as twin/stages/features.py (qa.json and the manifest metrics).
     qa = {
         "method": "intensity",
@@ -538,6 +559,12 @@ def _features(d: Path, c: _Ctx) -> dict:
         "n_markings": len(markings),
         "n_crosswalks": len(crosswalks),
         "n_curbs": 1,
+        "n_ramps": len(ramps),
+        "n_curb_ramps": 1,
+        "n_driveway_or_ramp": 0,
+        "n_ramps_ok": 1,
+        "n_ramps_exceeds": 0,
+        "n_ramps_indeterminate": 0,
     }
     _dump(d / "qa.json", qa)
     return qa

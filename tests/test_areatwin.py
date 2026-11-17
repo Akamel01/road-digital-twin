@@ -66,3 +66,7 @@ def test_support_counts_drives():
     f = [{"geometry": mapping(LineString([(5, 5), (6, 5)])), "properties": {}}]
     at.support(f, np.column_stack([x, y, z]), d, np.zeros(len(x)), np.zeros(2), (22, 22), ["a", "b"])
     assert f[0]["properties"]["support"]["n_drives"] == 2
+
+
+def test_feature_files_include_ramps():
+    assert "ramps.geojson" in at.FEATURE_FILES

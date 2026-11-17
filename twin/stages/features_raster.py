@@ -15,7 +15,10 @@ from typing import Any
 import numpy as np
 import shapely
 from scipy import interpolate, ndimage
-from shapely.geometry import MultiPoint, mapping
+from shapely.errors import ShapelyError
+from shapely.geometry import MultiPoint, Point, mapping, shape
+
+from twin.contracts import RampsParams
 
 CELL_M = 0.05
 SPLAT_CELLS = 1.0  # Gaussian splat of each point (cells); one drive is about one point per 4 cells
@@ -406,3 +409,467 @@ def _order(rc: np.ndarray) -> np.ndarray:
         out.append(nxt)
         left[nxt] = False
     return rc[out]
+
+
+
+
+def _axis_dir(u: np.ndarray) -> np.ndarray:
+    n = float(np.hypot(u[0], u[1]))
+    if n <= 0:
+        return np.array([1.0, 0.0])
+    v = np.array([u[0] / n, u[1] / n], dtype=float)
+    if v[0] < 0 or (v[0] == 0 and v[1] < 0):
+        v = -v
+    return v
+
+
+def _grouped_median_indices(xy: np.ndarray, origin: np.ndarray, cell: float):
+    """Return unique (ix,iy), medians placeholder indices and grouped order for values externally."""
+    ij = np.floor((xy - origin) / cell).astype(np.int64)
+    key = ij[:, 1].astype(np.int64) * 10_000_000 + ij[:, 0].astype(np.int64)
+    order = np.argsort(key, kind="quicksort")
+    key_s = key[order]
+    ij_s = ij[order]
+    _uniq, start, count = np.unique(key_s, return_index=True, return_counts=True)
+    return ij_s, order, start, count
+
+
+def _grouped_medians(values: np.ndarray, order: np.ndarray, start: np.ndarray, count: np.ndarray):
+    vs = values[order]
+    meds = np.empty(len(start), dtype=float)
+    for i, (s, c) in enumerate(zip(start, count)):
+        seg = vs[s:s + c]
+        m = len(seg) // 2
+        part = np.partition(seg, m)
+        if len(seg) % 2:
+            meds[i] = float(part[m])
+        else:
+            meds[i] = 0.5 * (float(np.partition(seg, m - 1)[m - 1]) + float(part[m]))
+    return meds
+
+
+def _build_measurement_raster(xyz: np.ndarray, cell: float, centre: np.ndarray, radius: float, tangent: np.ndarray, normal: np.ndarray):
+    xy = xyz[:, :2]
+    rel = xy - centre
+    half_t = radius
+    half_n = radius
+    d = np.abs(rel @ tangent) <= half_t
+    d &= np.abs(rel @ normal) <= half_n
+    if not np.any(d):
+        return None
+    sub = xyz[d]
+    origin = np.floor(sub[:, :2].min(axis=0) / cell) * cell
+    ij_s, order, start, count = _grouped_median_indices(sub[:, :2], origin, cell)
+    meds = _grouped_medians(sub[:, 2], order, start, count)
+    ij_u = ij_s[start]
+    nx = int(ij_u[:, 0].max()) + 1
+    ny = int(ij_u[:, 1].max()) + 1
+    grid = np.full((ny, nx), np.nan, dtype=float)
+    grid[ij_u[:, 1], ij_u[:, 0]] = meds
+    smooth = _nan_smooth(grid, 1.0)
+    valid = ndimage.maximum_filter(np.isfinite(grid).astype(float), size=3) > 0
+    smooth = np.where(valid, smooth, np.nan)
+    xs = origin[0] + (np.arange(nx) + 0.5) * cell
+    ys = origin[1] + (np.arange(ny) + 0.5) * cell
+    gx, gy = np.meshgrid(xs, ys)
+    centres = np.column_stack([gx.ravel(), gy.ravel()])
+    return {"smooth": smooth, "meds": grid, "centres": centres, "origin": origin, "cell": cell, "shape": (ny, nx)}
+
+
+def _fit_plane(t: np.ndarray, n: np.ndarray, z: np.ndarray):
+    if len(z) < 3:
+        return None
+    A = np.column_stack([t, n, np.ones_like(t)])
+    try:
+        coef, *_ = np.linalg.lstsq(A, z, rcond=None)
+    except (np.linalg.LinAlgError, ValueError):
+        return None
+    return float(coef[0]), float(coef[1]), float(coef[2])
+
+
+def extract_ramps(xyz, curbs, crosswalks, params: RampsParams):
+    """Curb ramps (Point) from ground (plus near-ground) points and raster curb LineStrings."""
+    gap_min = params.gap_min_m
+    gap_max = params.gap_max_m
+    crosswalk_end = params.crosswalk_end_m
+    cell = params.measure_cell_m
+    min_cells = params.min_measure_cells
+    hstep_max = params.height_step_max_m
+    run_thr = params.running_slope_max_pct
+    cross_thr = params.cross_slope_max_pct
+    flare_thr = params.flare_slope_max_pct
+    gutter_thr = params.gutter_step_max_m
+
+    pts = np.asarray(xyz, dtype=float)
+    if pts.size == 0:
+        return []
+    if pts.ndim == 1:
+        pts = pts.reshape(-1, 3)
+    if pts.shape[1] < 3:
+        return []
+    pxy = pts[:, :2]
+    pz = pts[:, 2]
+
+    curbs = curbs or []
+    crosswalks = crosswalks or []
+
+    grid5 = Grid(pxy)
+    z5 = grid5.mean(pz, sigma=SPLAT_CELLS)
+    z5s = _nan_smooth(z5, 1.0)
+    med5 = float(np.nanmedian(z5s)) if np.isfinite(z5s).any() else 0.0
+    zf5 = np.nan_to_num(z5s, nan=med5)
+    step5 = ndimage.maximum_filter(zf5, size=7) - ndimage.minimum_filter(zf5, size=7)
+
+    cw_polys = []
+    for cw in crosswalks:
+        try:
+            cw_polys.append((cw, shape(cw["geometry"])))
+        except (AttributeError, KeyError, TypeError, ValueError, ShapelyError):
+            continue
+
+    candidates = []
+    curb_endpoints = []
+
+    def add_candidate(rx, ry, ss, i, j):
+        # width_m: along-curb extent of low-step ramp/gap run
+        width_along = float(ss[j] - ss[i])
+        if width_along <= 1e-9:
+            dx = float(rx[j] - rx[i]); dy = float(ry[j] - ry[i])
+            width_along = float(np.hypot(dx, dy))
+        if not (gap_min <= width_along <= gap_max):
+            return
+        dx = float(rx[j] - rx[i]); dy = float(ry[j] - ry[i])
+        nn = float(np.hypot(dx, dy))
+        cx = float(np.mean(rx[i:j + 1]))
+        cy = float(np.mean(ry[i:j + 1]))
+        tangent = np.array([dx / nn, dy / nn]) if nn > 1e-9 else np.array([1.0, 0.0])
+        candidates.append((np.array([cx, cy]), width_along, tangent, (float(rx[i]), float(ry[i])), (float(rx[j]), float(ry[j]))))
+
+    for pi, curb in enumerate(curbs):
+        try:
+            coords = np.asarray(curb["geometry"]["coordinates"], dtype=float)
+        except (AttributeError, KeyError, TypeError, ValueError):
+            continue
+        if coords.ndim != 2 or len(coords) < 2:
+            continue
+        xy = coords[:, :2]
+        seglen = np.hypot(np.diff(xy[:, 0]), np.diff(xy[:, 1]))
+        cum = np.concatenate([[0.0], np.cumsum(seglen)])
+        total = float(cum[-1])
+        if total <= 0:
+            continue
+        t0 = xy[1] - xy[0]
+        t1 = xy[-1] - xy[-2]
+        curb_endpoints.append((xy[0].copy(), -_axis_dir(t0), pi))
+        curb_endpoints.append((xy[-1].copy(), _axis_dir(t1), pi))
+        if total < gap_min:
+            continue
+        n_samp = max(int(total / CURB_SAMPLE_M) + 1, 2)
+        ss = np.linspace(0.0, total, n_samp)
+        rx = np.interp(ss, cum, xy[:, 0])
+        ry = np.interp(ss, cum, xy[:, 1])
+        rc5 = np.column_stack([(grid5.y1 - ry) / CELL_M - 0.5, (rx - grid5.x0) / CELL_M - 0.5])
+        steps = _sample(step5, rc5)
+        rz = np.interp(ss, cum, coords[:, 2]) if coords.shape[1] >= 3 else None
+        low_step = steps < hstep_max
+        if rz is not None and np.isfinite(rz).any():
+            rz_ref = float(np.nanpercentile(rz, 90))
+            if rz_ref >= 0.06:
+                low_step = low_step | (rz <= 0.03)
+        i = 0
+        while i < len(ss):
+            if not low_step[i]:
+                i += 1
+                continue
+            j = i
+            while j + 1 < len(ss) and low_step[j + 1]:
+                j += 1
+            add_candidate(rx, ry, ss, i, j)
+            i = j + 1
+
+    # R5: curb end pairs 1-3m apart that roughly face each other
+    used_pairs = set()
+    for a in range(len(curb_endpoints)):
+        pa, ta, ia = curb_endpoints[a]
+        for b in range(a + 1, len(curb_endpoints)):
+            pb, tb, ib = curb_endpoints[b]
+            if ia == ib:
+                continue
+            d = pb - pa
+            dist = float(np.hypot(d[0], d[1]))
+            if not (gap_min <= dist <= gap_max):
+                continue
+            u = d / max(dist, 1e-9)
+            if float(ta @ u) < 0.4 or float(tb @ (-u)) < 0.4:
+                continue
+            key = tuple(sorted((a, b)))
+            if key in used_pairs:
+                continue
+            used_pairs.add(key)
+            centroid = 0.5 * (pa + pb)
+            tangent = _axis_dir(u)
+            candidates.append((centroid, dist, tangent, (float(pa[0]), float(pa[1])), (float(pb[0]), float(pb[1]))))
+
+    out = []
+    for idx, (centroid, width, tangent, p0, p1) in enumerate(candidates, start=1):
+        cx, cy = float(centroid[0]), float(centroid[1])
+        normal = np.array([-tangent[1], tangent[0]], dtype=float)
+
+        meas = _build_measurement_raster(pts, cell, centroid, max(5.0, width + 4.0), tangent, normal)
+        if meas is None:
+            continue
+        centres = meas["centres"]
+        smooth = meas["smooth"].ravel()
+        meds = meas["meds"].ravel()
+        valid = np.isfinite(meds)
+        values = np.where(valid, meds, smooth)
+        if not np.any(valid):
+            continue
+        proj_n = (centres - centroid) @ normal
+        proj_t = (centres - centroid) @ tangent
+
+        # orient normal to raised side: median of raised side 2-3m back
+        back_hi = valid & (proj_n >= 2.0) & (proj_n <= 3.0)
+        back_lo = valid & (proj_n <= -2.0) & (proj_n >= -3.0)
+        side_level_hi = float(np.median(values[back_hi])) if np.any(back_hi) else None
+        side_level_lo = float(np.median(values[back_lo])) if np.any(back_lo) else None
+        if side_level_hi is None and side_level_lo is None:
+            near_hi = valid & (proj_n > 0.5) & (proj_n < 2.0)
+            near_lo = valid & (proj_n < -0.5) & (proj_n > -2.0)
+            side_level_hi = float(np.median(values[near_hi])) if np.any(near_hi) else None
+            side_level_lo = float(np.median(values[near_lo])) if np.any(near_lo) else None
+        if side_level_hi is not None and side_level_lo is not None and side_level_lo > side_level_hi:
+            normal = -normal
+            tangent = np.array([-normal[1], normal[0]], dtype=float)
+            proj_n = -proj_n
+            proj_t = (centres - centroid) @ tangent
+            side_level = side_level_lo
+        else:
+            side_level = side_level_hi if side_level_hi is not None else side_level_lo
+
+        # R1: gutter = z minimum near curb line along normal in ramp corridor
+        corr = valid & (np.abs(proj_t) <= width / 2.0) & (proj_n >= -0.6) & (proj_n <= 3.5)
+        run_length_m = None
+        running_slope_pct = None
+        gutter_z = None
+        gutter_n = None
+        if np.any(corr):
+            pn = proj_n[corr]
+            zv = values[corr]
+            gmask = (pn >= -0.35) & (pn <= 0.35)
+            if not np.any(gmask):
+                gmask = (pn >= -0.5) & (pn <= 0.5)
+            if np.any(gmask):
+                gi = int(np.argmin(zv[gmask]))
+                gutter_n = float(pn[gmask][gi])
+                gutter_z = float(zv[gmask][gi])
+                if side_level is not None:
+                    tol = 0.01
+                    reach = (pn > gutter_n + 0.1) & (zv >= side_level - tol)
+                    if np.any(reach):
+                        top_n = float(np.min(pn[reach]))
+                        run_length_m = max(top_n - gutter_n, 0.1)
+                    else:
+                        far = pn > gutter_n + 0.1
+                        if np.any(far):
+                            run_length_m = max(float(np.max(pn[far])) - gutter_n, 0.1)
+                    if run_length_m is not None and gutter_z is not None:
+                        running_slope_pct = abs(side_level - gutter_z) / run_length_m * 100.0
+        if run_length_m is None:
+            run_length_m = width
+        rep_run = run_length_m
+
+        # R2: plane fit inside ramp body only, |proj_t|<=width/2 and 0<proj_n<run
+        cross_slope_pct = None
+        plane_running_slope_pct = None
+        if gutter_n is not None:
+            body = valid & (np.abs(proj_t) <= width / 2.0) & (proj_n > gutter_n) & (proj_n < gutter_n + run_length_m)
+        else:
+            body = valid & (np.abs(proj_t) <= width / 2.0) & (proj_n > 0.0) & (proj_n < run_length_m)
+        body_n = int(np.count_nonzero(body))
+        if body_n >= min_cells:
+            coef = _fit_plane(proj_t[body], proj_n[body], values[body])
+            if coef is not None:
+                a, b, _c = coef
+                cross_slope_pct = abs(a) * 100.0
+                plane_running_slope_pct = abs(b) * 100.0
+        # R2: running slope from plane fit replaces profile estimate; require enough cells
+        if body_n < min_cells or plane_running_slope_pct is None:
+            running_slope_pct = None
+            plane_running_slope_pct = None
+            cross_slope_pct = None
+        else:
+            running_slope_pct = plane_running_slope_pct
+
+        # flare slope: side areas outside ramp body (optional separate)
+        flare_slope_pct = None
+        flare_mask_left = valid & (proj_t > width / 2.0) & (proj_t <= width / 2.0 + 1.0) & (proj_n > (gutter_n or 0.0)) & (proj_n < (gutter_n or 0.0) + run_length_m)
+        flare_mask_right = valid & (proj_t < -width / 2.0) & (proj_t >= -width / 2.0 - 1.0) & (proj_n > (gutter_n or 0.0)) & (proj_n < (gutter_n or 0.0) + run_length_m)
+        flare_vals = []
+        for fm in (flare_mask_left, flare_mask_right):
+            if int(np.count_nonzero(fm)) >= min_cells:
+                fcoef = _fit_plane(proj_t[fm], proj_n[fm], values[fm])
+                if fcoef is not None:
+                    fa, fb, _ = fcoef
+                    # slope magnitude along steepest in flare patch
+                    flare_vals.append(float(np.hypot(fa, fb) * 100.0))
+        if flare_vals:
+            flare_slope_pct = max(flare_vals)
+
+        # R3: gutter step lip from 5cm raster, narrow band ±0.15m along normal, inside ramp width
+        gutter_step_m = None
+        gutter_sparse = False
+        try:
+            p0a = np.array(p0, dtype=float)
+            p1a = np.array(p1, dtype=float)
+            seg = p1a - p0a
+            seg_len = float(np.hypot(seg[0], seg[1]))
+            if seg_len > 1e-6:
+                u_seg = _axis_dir(seg)
+                n_seg = np.array([-u_seg[1], u_seg[0]])
+                if float(n_seg @ normal) < 0:
+                    n_seg = -n_seg
+                # restrict to local window around candidate to stay cheap
+                margin = width / 2.0 + 0.3
+                minx = min(p0a[0], p1a[0]) - margin - 0.2
+                maxx = max(p0a[0], p1a[0]) + margin + 0.2
+                miny = min(p0a[1], p1a[1]) - margin - 0.2
+                maxy = max(p0a[1], p1a[1]) + margin + 0.2
+                mask = (pxy[:, 0] >= minx) & (pxy[:, 0] <= maxx) & (pxy[:, 1] >= miny) & (pxy[:, 1] <= maxy)
+                bxy = pxy[mask]
+                bz = pz[mask]
+                if len(bxy):
+                    rel = bxy - 0.5 * (p0a + p1a)
+                    tproj = rel @ u_seg
+                    nproj = rel @ n_seg
+                    in_band = (np.abs(tproj) <= width / 2.0) & (np.abs(nproj) <= 0.15)
+                    if int(np.count_nonzero(in_band)) >= 4:
+                        bbxy = bxy[in_band]
+                        bbz = bz[in_band]
+                        origin5 = np.floor(bbxy.min(axis=0) / CELL_M) * CELL_M
+                        ij_s, order, start, count = _grouped_median_indices(bbxy, origin5, CELL_M)
+                        meds5 = _grouped_medians(bbz, order, start, count)
+                        ij_u = ij_s[start]
+                        centres5 = origin5 + (ij_u + 0.5) * CELL_M
+                        n5 = (centres5 - 0.5 * (p0a + p1a)) @ n_seg
+                        low_side = n5 < 0
+                        high_side = n5 >= 0
+                        # need coverage on both sides close to lip to resolve 6mm
+                        near_low = low_side & (n5 >= -0.15)
+                        near_high = high_side & (n5 <= 0.15)
+                        if int(np.count_nonzero(near_low)) == 0 or int(np.count_nonzero(near_high)) == 0:
+                            gutter_sparse = True
+                        else:
+                            # aggregate by normal distance to avoid intra-band variation/noise
+                            ordern = np.argsort(n5)
+                            nord = n5[ordern]
+                            zord = meds5[ordern]
+                            bins = np.round(nord / CELL_M).astype(np.int64)
+                            change = np.concatenate([[0], np.flatnonzero(np.diff(bins)) + 1, [len(bins)]])
+                            n_lvl = np.empty(len(change) - 1, dtype=float)
+                            z_lvl = np.empty(len(change) - 1, dtype=float)
+                            for k in range(len(change) - 1):
+                                a, b = change[k], change[k + 1]
+                                n_lvl[k] = float(np.median(nord[a:b]))
+                                z_lvl[k] = float(np.median(zord[a:b]))
+                            if len(z_lvl) >= 2:
+                                diffs = np.abs(np.diff(z_lvl))
+                                centerish = (n_lvl[:-1] >= -0.12) & (n_lvl[1:] <= 0.12)
+                                if np.any(centerish):
+                                    gutter_step_m = float(np.max(diffs[centerish]))
+                                else:
+                                    gutter_sparse = True
+                            else:
+                                gutter_sparse = True
+                    else:
+                        gutter_sparse = True
+                else:
+                    gutter_sparse = True
+            else:
+                gutter_sparse = True
+        except (ValueError, np.linalg.LinAlgError):
+            gutter_sparse = True
+
+        # statuses / R3 indeterminate when too sparse to resolve
+        insufficient = body_n < min_cells
+        if insufficient:
+            running_slope_pct = None
+            cross_slope_pct = None
+            flare_slope_pct = None
+            gutter_step_m = None
+            running_slope_status = "indeterminate"
+            cross_slope_status = "indeterminate"
+            flare_slope_status = "indeterminate"
+            gutter_step_status = "indeterminate"
+        else:
+            if running_slope_pct is None or plane_running_slope_pct is None:
+                running_slope_status = "indeterminate"
+            else:
+                running_slope_status = "ok" if plane_running_slope_pct <= run_thr else "exceeds"
+            if cross_slope_pct is None:
+                cross_slope_status = "indeterminate"
+            else:
+                cross_slope_status = "ok" if cross_slope_pct <= cross_thr else "exceeds"
+            if flare_slope_pct is None:
+                flare_slope_status = "indeterminate"
+            else:
+                flare_slope_status = "ok" if flare_slope_pct <= flare_thr else "exceeds"
+            if gutter_step_m is None or gutter_sparse:
+                gutter_step_status = "indeterminate"
+                gutter_step_m = None if gutter_sparse else gutter_step_m
+            else:
+                gutter_step_status = "ok" if gutter_step_m <= gutter_thr else "exceeds"
+
+        statuses = [running_slope_status, cross_slope_status, gutter_step_status]
+        if "exceeds" in statuses:
+            rollup = "exceeds"
+        elif "indeterminate" in statuses:
+            rollup = "indeterminate"
+        else:
+            rollup = "ok"
+
+        if gutter_z is not None:
+            cz = float(gutter_z)
+        else:
+            near_mask = np.hypot(pxy[:, 0] - cx, pxy[:, 1] - cy) <= 1.0
+            cz = float(np.median(pz[near_mask])) if np.any(near_mask) else 0.0
+
+        nearest_dist = None
+        nearest_id = None
+        pt = Point(cx, cy)
+        for cw, geom in cw_polys:
+            try:
+                dist = float(geom.distance(pt))
+            except (AttributeError, TypeError, ValueError, ShapelyError):
+                continue
+            if nearest_dist is None or dist < nearest_dist:
+                nearest_dist = dist
+                nearest_id = cw.get("properties", {}).get("id")
+        nearest_crosswalk_m = None if nearest_dist is None else nearest_dist
+        kind = "curb_ramp" if (nearest_dist is not None and nearest_dist <= crosswalk_end) else "driveway_or_ramp"
+
+        footprint = np.hypot(pxy[:, 0] - cx, pxy[:, 1] - cy) <= (width / 2.0 + rep_run + 0.5)
+        n_pts = int(np.count_nonzero(footprint))
+
+        rep_running = plane_running_slope_pct if plane_running_slope_pct is not None else running_slope_pct
+        prop = {
+            "id": f"ramp-{idx:04d}",
+            "kind": kind,
+            "width_m": round(float(width), 2),
+            "run_length_m": round(float(rep_run), 2),
+            "running_slope_pct": (None if rep_running is None else round(float(rep_running), 1)),
+            "cross_slope_pct": (None if cross_slope_pct is None else round(float(cross_slope_pct), 1)),
+            "flare_slope_pct": (None if flare_slope_pct is None else round(float(flare_slope_pct), 1)),
+            "gutter_step_m": (None if gutter_step_m is None else round(float(gutter_step_m), 3)),
+            "running_slope_status": running_slope_status,
+            "cross_slope_status": cross_slope_status,
+            "flare_slope_status": flare_slope_status,
+            "gutter_step_status": gutter_step_status,
+            "status": rollup,
+            "nearest_crosswalk_m": (None if nearest_crosswalk_m is None else round(float(nearest_crosswalk_m), 3)),
+            "crosswalk_id": nearest_id,
+            "n_points": n_pts,
+        }
+        out.append(_feature("ramp", f"ramp-{idx:04d}", "Point", [[cx, cy, cz]], prop))
+
+    return out

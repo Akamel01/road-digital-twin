@@ -61,7 +61,7 @@ SUPPORT_BAND_M = 0.3
 SUPPORT_MIN_POINTS = 5
 SUPPORT_TILE_M = 10.0
 
-FEATURE_FILES = ("markings.geojson", "crosswalks.geojson", "curbs.geojson")
+FEATURE_FILES = ("markings.geojson", "crosswalks.geojson", "curbs.geojson", "ramps.geojson")
 STAGE_ORDER = ("ground", "features", "profile", "isd", "accuracy")
 
 
@@ -416,6 +416,7 @@ def twin_area(base: Path, name: str, log: logging.Logger, check_date: str | None
     scenes = [d["scene"] for d in drives]
     dates = [d["date"] for d in drives]
     params, pipeline = Params(), Pipeline()
+    pipeline.features.method = "raster"
     with np.load(work / "merged.npz") as f:
         x, y, z = f["x"], f["y"], f["z"]
         intensity, drive = f["intensity"].astype(np.float32), f["drive"].astype(np.int64)
