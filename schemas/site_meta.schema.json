@@ -1,0 +1,80 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "approved_at": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Approved At"
+    },
+    "approved_by": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Approved By"
+    },
+    "created_at": {
+      "title": "Created At",
+      "type": "string"
+    },
+    "crs": {
+      "const": "EPSG:32619",
+      "default": "EPSG:32619",
+      "title": "Crs",
+      "type": "string"
+    },
+    "frozen": {
+      "default": false,
+      "title": "Frozen",
+      "type": "boolean"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "polygon": {
+      "additionalProperties": true,
+      "title": "Polygon",
+      "type": "object"
+    },
+    "role": {
+      "enum": [
+        "dev",
+        "audit"
+      ],
+      "title": "Role",
+      "type": "string"
+    },
+    "source_area": {
+      "title": "Source Area",
+      "type": "string"
+    },
+    "version": {
+      "default": 1,
+      "minimum": 1,
+      "title": "Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "id",
+    "role",
+    "polygon",
+    "created_at",
+    "source_area"
+  ],
+  "title": "SiteMeta",
+  "type": "object"
+}

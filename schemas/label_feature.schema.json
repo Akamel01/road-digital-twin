@@ -1,0 +1,279 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "cross_slope_pct": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cross Slope Pct"
+    },
+    "cross_slope_status": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cross Slope Status"
+    },
+    "crosswalk_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Crosswalk Id"
+    },
+    "element": {
+      "enum": [
+        "marking",
+        "crosswalk",
+        "curb",
+        "curb_ramp"
+      ],
+      "title": "Element",
+      "type": "string"
+    },
+    "flare_slope_pct": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Flare Slope Pct"
+    },
+    "flare_slope_status": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Flare Slope Status"
+    },
+    "gutter_step_m": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Gutter Step M"
+    },
+    "gutter_step_status": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Gutter Step Status"
+    },
+    "height_m": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Height M"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "kind": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Kind"
+    },
+    "n_points": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "N Points"
+    },
+    "nearest_crosswalk_m": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Nearest Crosswalk M"
+    },
+    "origin": {
+      "enum": [
+        "drafted",
+        "operator"
+      ],
+      "title": "Origin",
+      "type": "string"
+    },
+    "run_length_m": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Run Length M"
+    },
+    "running_slope_pct": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Running Slope Pct"
+    },
+    "running_slope_status": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Running Slope Status"
+    },
+    "source_feature_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Feature Id"
+    },
+    "source_file": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source File"
+    },
+    "source_marking_type": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Marking Type"
+    },
+    "status": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Status"
+    },
+    "type": {
+      "enum": [
+        "solid_line",
+        "dashed_line",
+        "edge_line",
+        "stop_line",
+        "arrow",
+        "text",
+        "zebra",
+        "parallel",
+        "curb",
+        "curb_ramp"
+      ],
+      "title": "Type",
+      "type": "string"
+    },
+    "width_m": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Width M"
+    }
+  },
+  "required": [
+    "id",
+    "element",
+    "type",
+    "origin"
+  ],
+  "title": "LabelFeature",
+  "type": "object"
+}

@@ -8,9 +8,11 @@ from twin import REPO
 from twin.contracts import (
     STAGE_NAMES,
     AreaIndex,
+    LabelFeature,
     Manifest,
     Params,
     Pipeline,
+    SiteMeta,
     StageResult,
 )
 from twin.dataset import DatasetConfig
@@ -22,6 +24,8 @@ SCHEMA_MODELS = {
     "manifest": Manifest,
     "stage_result": StageResult,
     "area_index": AreaIndex,
+    "site_meta": SiteMeta,
+    "label_feature": LabelFeature,
 }
 
 

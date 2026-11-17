@@ -119,7 +119,7 @@ def test_schemas_on_disk_are_current(tmp_path):
         assert on_disk.read_text() == path.read_text(), (
             f"{on_disk} is stale; run `uv run twin schema`"
         )
-    assert len(list(tmp_path.glob("*.schema.json"))) == 5
+    assert len(list(tmp_path.glob("*.schema.json"))) == 7
 
 
 def test_schema_render_is_sorted_json():
