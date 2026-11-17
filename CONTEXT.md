@@ -15,12 +15,24 @@ The making of the twin from sensor data. This is the main product.
 _Avoid_: rendering, visualisation
 
 **Feature**:
-A road element extracted from the twin's points: a lane marking, a crosswalk or a curb.
+A road element extracted from the twin: a lane marking, a crosswalk, a curb or a curb ramp.
 _Avoid_: object, asset, annotation
 
 **Reference**:
-The external geometry that features are scored against: in v1, a nuScenes HD-map layer.
+The external geometry that features are scored against: the audit set first, a nuScenes HD-map layer as a second check.
 _Avoid_: ground truth (the HD map is itself a model)
+
+**Audit set**:
+Hand-checked features at a few varied intersections, drafted from the twin and approved by the operator. It is frozen and versioned, and used only to score, never to tune or train.
+_Avoid_: ground truth, training data, test set
+
+**Inventory grade**:
+The standard a facility's features meet when each element type is found, typed and placed within its stated targets against the audit set, scored per element and never summed.
+_Avoid_: production quality, good enough
+
+**Area vote**:
+Fusing the evidence from every frame of every drive over an area into one grid, so features are extracted once per area. Inside changed regions only the newest drives vote.
+_Avoid_: per-drive merge, stacking
 
 **Orthoimage**:
 A true-colour, top-down image of the ground surface, made from the camera images.
@@ -49,7 +61,18 @@ A nuScenes sample at 2 Hz that has annotated boxes.
 
 **Sweep**:
 One lidar scan, at about 20 Hz. Only keyframes have boxes.
-_Avoid_: frame, scan
+_Avoid_: frame, scan, and never for a parameter search
+
+**Parameter search**:
+Rounds of runs that vary a method's parameters around a base run, looking for a better score.
+_Avoid_: sweep (a sweep is one lidar scan)
+
+**Noise**:
+The score difference between two rebuilds of the same code and data. A change smaller than the noise is a tie.
+
+**Plateau**:
+A search or a training run that has stopped improving: three rounds or epochs with no gain beyond the noise. A plateau stops the search and asks for a new direction instead of more rounds.
+_Avoid_: stall, convergence
 
 ### Honesty labels
 
