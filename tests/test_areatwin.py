@@ -51,13 +51,26 @@ def test_flag_and_mask():
     feats = [
         {"geometry": mapping(LineString([(1, 1), (2, 2)])), "properties": {}},
         {"geometry": mapping(LineString([(8, 8), (9, 9)])), "properties": {}},
+        {"geometry": mapping(LineString([(2, 1), (9, 1)])), "properties": {}},  # touches, mostly outside
     ]
     assert at.flag_changed(feats, [region]) == 1
     assert feats[0]["properties"]["change_dates"] == ["d2"]
-    assert "changed" not in feats[1]["properties"]
-    ref = [{"geometry": mapping(LineString([(0, 1), (9, 1)])), "properties": {}}]
+    assert "changed" not in feats[1]["properties"] and "changed" not in feats[2]["properties"]
+    ref = [
+        {"geometry": mapping(LineString([(0, 1), (9, 1)])), "properties": {}},  # a third inside: kept whole
+        {"geometry": mapping(box(0.5, 0.5, 2.5, 2.5)), "properties": {}},  # all inside: dropped
+    ]
     out = at.mask_reference(ref, [region])
-    assert abs(out[0]["geometry"]["coordinates"][0][0] - 3) < 1e-9 or out[0]["geometry"]["type"] == "LineString"
+    assert out == ref[:1]
+
+
+def test_crosswalk_touching_change_is_scored_on_both_sides():
+    """#283: a detected crosswalk and its map polygon that both clip a change region stay in accuracy together."""
+    region = {"geometry": mapping(box(0, 0, 1, 4)), "properties": {"dates": ["d2"]}}
+    cw = box(0.5, 0, 4.5, 4)
+    feats = [{"geometry": mapping(cw), "properties": {}}]
+    assert at.flag_changed(feats, [region]) == 0
+    assert len(at.mask_reference([{"geometry": mapping(cw), "properties": {}}], [region])) == 1
 
 
 def test_support_counts_drives():
