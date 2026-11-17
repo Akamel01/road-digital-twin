@@ -320,16 +320,37 @@ def support(
         f["properties"]["support"] = {"n_drives": len(have), "drives": have}
 
 
+CHANGED_SHARE = 0.5  # a feature (or map feature) mostly on changed cells is left out of accuracy
+
+
+def _changed_share(geom, cut) -> float:
+    """Share of a geometry on changed cells: by area, length, or point count."""
+    geom = shapely.make_valid(shapely.force_2d(geom))
+    if geom.is_empty:
+        return 0.0
+    inside = geom.intersection(cut)
+    if geom.area > 0:
+        return inside.area / geom.area
+    if geom.length > 0:
+        return inside.length / geom.length
+    return 0.0 if inside.is_empty else 1.0
+
+
 def flag_changed(feats: list[dict], regions: list[dict]) -> int:
-    """Mark features that touch a change region: properties.changed and change_dates. Returns how many."""
+    """Mark features mostly on a change region (CHANGED_SHARE): properties.changed and change_dates. The map
+    reference uses the same rule (mask_reference), so a feature and its map counterpart leave accuracy together;
+    before #283 a feature touching a region was dropped while the map one was only clipped, which scored correct
+    crosswalks as missed. Returns how many."""
     if not regions:
         return 0
     polys = [shape(r["geometry"]) for r in regions]
+    cut = shapely.union_all(polys)
     tree = shapely.STRtree(polys)
     n = 0
     for f in feats:
-        hit = tree.query(shapely.force_2d(shape(f["geometry"])), predicate="intersects")
-        if len(hit):
+        g = shape(f["geometry"])
+        hit = tree.query(shapely.force_2d(g), predicate="intersects")
+        if len(hit) and _changed_share(g, cut) > CHANGED_SHARE:
             f["properties"]["changed"] = True
             f["properties"]["change_dates"] = sorted({d for i in hit for d in regions[i]["properties"]["dates"]})
             n += 1
@@ -337,16 +358,12 @@ def flag_changed(feats: list[dict], regions: list[dict]) -> int:
 
 
 def mask_reference(reference: list[dict], regions: list[dict]) -> list[dict]:
-    """The map reference without the changed regions: accuracy compares only what did not change."""
+    """The map reference without the features mostly on changed regions (same rule as flag_changed):
+    accuracy compares only what did not change."""
     if not regions:
         return reference
     cut = shapely.union_all([shape(r["geometry"]) for r in regions])
-    out = []
-    for f in reference:
-        geom = shapely.make_valid(shape(f["geometry"])).difference(cut)
-        if not geom.is_empty:
-            out.append({**f, "geometry": mapping(geom)})
-    return out
+    return [f for f in reference if _changed_share(shape(f["geometry"]), cut) <= CHANGED_SHARE]
 
 
 def construction_check(regions: list[dict], drives: list[dict], work: Path, centre: np.ndarray, date: str) -> dict:
