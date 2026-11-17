@@ -392,14 +392,24 @@ def publish_runs(
     report = PublishReport(
         run_ids=run_ids,
         layers=layer_reports,
-        total_bytes=sum(lr.bytes for lr in layer_reports.values()),
+        total_bytes=0,
         total_files=len(files),
         max_file_bytes=max_file_bytes,
         max_files=max_files,
     )
-    # fix total_bytes to sum all files? plan says total_bytes maybe all files. Use sum files sizes? Plan report total_bytes likely PMTiles? Let's set total bytes of all files in out.
-    report.total_bytes = sum(p.stat().st_size for p in files)
-    (out / "publish_report.json").write_text(report.model_dump_json(indent=2))
+    report_path = out / "publish_report.json"
+    other = [p for p in files if p != report_path]
+    base = sum(p.stat().st_size for p in other)
+    total = base
+    for _ in range(10):
+        report.total_bytes = total
+        report_path.write_text(report.model_dump_json(indent=2))
+        new_total = base + report_path.stat().st_size
+        if new_total == total:
+            break
+        total = new_total
+    report.total_bytes = total
+    report_path.write_text(report.model_dump_json(indent=2))
     return area, report
 
 
