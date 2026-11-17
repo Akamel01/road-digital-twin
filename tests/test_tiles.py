@@ -79,10 +79,10 @@ def test_seam_check(store):
                     for c in range(3):
                         maxdiff = max(maxdiff, abs(lp[c] - rp[c]))
         if layer == "lidar":
-            # lidar is sparse in this fixture; an opaque seam may be absent at this zoom.
-            # shortcut: if no opaque seam pairs, lidar continuity is not exercised here.
+            # lidar is sparse at this zoom; an opaque seam may be absent.
+            # shortcut: acceptable sparsity at this zoom; skip seam check if no opaque pairs.
             if compared == 0:
-                # note: lidar has no opaque seam at this zoom; skip (acceptable for sparse lidar)
+                # acceptable sparsity at this zoom; skip seam check for lidar
                 continue
             assert compared > 0, (layer, "no opaque pairs compared")
             assert maxdiff <= 1, (layer, maxdiff, compared)
@@ -157,6 +157,48 @@ def test_overlap_tiebreak(store):
         else:
             run = 0
     assert maxrun >= 10, (maxrun, "gap in overlap region")
+
+
+def test_overlap_production(tmp_path):
+    from twin.fake_run import write_fake_runs
+    from twin.publish import publish_runs
+
+    store = tmp_path / "store"
+    run_dirs = write_fake_runs(store, drives=2)
+    run_ids = [p.name for p in run_dirs]
+    # publish_runs already invoked by write_fake_runs; call explicitly to be production-backed.
+    publish_runs(run_ids, store / "showcase", store=store)
+
+    # ortho: first drive wins in the overlapping (observed) region — production path.
+    ortho_data = (store / "showcase" / "tiles" / "ortho.pmtiles").read_bytes()
+    ortho_reader = Reader(MemorySource(ortho_data))
+    ortho_blob = ortho_reader.get(1, 1, 0)
+    assert ortho_blob is not None
+    ortho_img = Image.open(io.BytesIO(ortho_blob)).convert("RGBA")
+    covered = [ (x, y) for y in range(TILE) for x in range(TILE)
+                if ortho_img.getpixel((x, y))[3] > 0 ]
+    assert covered, "no covered ortho pixel in overlap tile"
+    assert ortho_img.getpixel(covered[0])[:3] == (168, 160, 150), "ortho != first drive"
+
+    # coverage: union -> alpha > 0 in covered region.
+    cov_data = (store / "showcase" / "tiles" / "coverage.pmtiles").read_bytes()
+    cov_reader = Reader(MemorySource(cov_data))
+    cov_blob = cov_reader.get(1, 1, 0)
+    assert cov_blob is not None
+    cov_img = Image.open(io.BytesIO(cov_blob)).convert("RGBA")
+    assert any(cov_img.getpixel((x, y))[3] > 0 for y in range(TILE) for x in range(TILE)), "no coverage"
+
+    # height: build-wide field produced (PMTiles exists).
+    height_data = (store / "showcase" / "tiles" / "height.pmtiles").read_bytes()
+    height_reader = Reader(MemorySource(height_data))
+    height_blob = height_reader.get(0, 0, 0)
+    assert height_blob is not None, "height tile missing"
+
+    # lidar: PMTiles exists.
+    lidar_data = (store / "showcase" / "tiles" / "lidar.pmtiles").read_bytes()
+    lidar_reader = Reader(MemorySource(lidar_data))
+    lidar_blob = lidar_reader.get(1, 1, 0)
+    assert lidar_blob is not None, "lidar tile missing"
 
 
 def test_file_count_and_size(store):
