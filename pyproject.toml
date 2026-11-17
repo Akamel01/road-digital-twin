@@ -27,7 +27,6 @@ dependencies = [
     "uvicorn==0.54.0",
     "PyJWT==2.15.1",
     "pillow==13.0.0",
-    "pmtiles==3.8.1",
     "scipy==1.17.1",
     "cryptography==50.0.2",
 ]

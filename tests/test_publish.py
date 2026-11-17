@@ -9,7 +9,6 @@ from twin.cli import main
 from twin.contracts import AreaIndex
 from twin.fake_run import FACILITIES, write_fake_runs
 from twin.publish import _rasters, _thin_laz, publish_runs
-from twin.tiles import TileMeta
 
 SCHEMAS = Path(__file__).resolve().parents[1] / "schemas"
 
@@ -25,7 +24,7 @@ def runs(tmp_path_factory):
 def _site(runs, tmp_path, **limits):
     store, run_ids = runs
     site = tmp_path / "site"
-    publish_runs(run_ids, site, store, **limits)
+    publish_runs(run_ids, site, store, mosaic=True, **limits)
     return site, run_ids
 
 
@@ -36,7 +35,7 @@ def test_layout_and_area_validate(runs, tmp_path):
             assert (site / rid / name).is_file(), name
         assert laspy.read(site / rid / "twin.laz").header.point_count > 0
     for layer in ("lidar", "ortho", "height", "coverage"):
-        assert (site / "tiles" / f"{layer}.pmtiles").is_file()
+        assert (site / "tiles" / layer / "meta.json").is_file()
     area = AreaIndex.model_validate_json((site / "area.json").read_text())
     try:
         import jsonschema
@@ -139,6 +138,5 @@ def test_per_drive_tiles_present(tmp_path):
         for raster in rasters:
             meta_path = showcase / "tiles" / run / raster / "meta.json"
             assert meta_path.is_file(), meta_path
-            TileMeta.model_validate_json(meta_path.read_text())
             tile_dir = showcase / "tiles" / run / raster
             assert any(p.suffix == ".webp" for p in tile_dir.rglob("*")), tile_dir

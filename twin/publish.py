@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from twin.contracts import AreaFacility, AreaIndex, Drive, Manifest, stage_dir
 from twin.height_raster import compute_height_above_road, render_height_rgba
 from twin.runner import default_store
-from twin.tiles import TILE, PMTilesMeta, write_pmtiles, write_tiles
+from twin.tiles import TILE, write_mosaic_tiles, write_tiles
 
 MAX_FILE_BYTES = 25 * 1024 * 1024  # Pages limit per file
 INTENSITY_WHITE = 60  # nuScenes ground LAZ intensity white point (P99.5 ~59, max 110, run 20261115-183951-13e4b7)
@@ -115,9 +115,6 @@ def _resample_ortho(run_dir: Path, grid: tuple) -> np.ndarray | None:
     return out
 
 
-# backward compat alias
-_ortho = _resample_ortho
-
 
 def _grid_from_points(xs: np.ndarray, ys: np.ndarray, target: float) -> tuple[float, float, float, int]:
     xs = np.asarray(xs, dtype=np.float64)
@@ -129,25 +126,16 @@ def _grid_from_points(xs: np.ndarray, ys: np.ndarray, target: float) -> tuple[fl
         x0 = float(xs.min())
         y0 = float(ys.min())
         extent = max(float(xs.max()) - x0, float(ys.max()) - y0, target)
-    # max zoom min-cell
     if extent <= 0:
         extent = target
     ratio = extent / (target * TILE)
-    if ratio < 1:
+    if ratio <= 1:
         z = 0
     else:
-        z = math.floor(math.log2(ratio))
+        z = math.ceil(math.log2(ratio))
     z = max(0, min(MAX_ZOOM, z))
-    # bound mosaic side by memory
-    while z > 0 and TILE * 2 ** z > MOSAIC_MAX_SIDE:
-        z -= 1
     side = TILE * 2 ** z
     cell = extent / side
-    # ensure cell >= target
-    while z > 0 and cell < target:
-        z -= 1
-        side = TILE * 2 ** z
-        cell = extent / side
     return x0, y0, cell, side
 
 
@@ -181,7 +169,7 @@ def _rasters(
     gsd = _gsd(manifest)
     grid = _grid_from_points(x, y, max(gsd, 0.05))
     x0, y0, cell, side = grid
-    zoom = min(RASTER_MAX_ZOOM, _z_for(side * cell, max(gsd, 0.05)))
+    zoom = min(RASTER_MAX_ZOOM, round(math.log2(side / TILE)) if side >= TILE else 0)
     lidar = _bincount_intensity(x, y, intensity, grid)
     rasters = {"lidar": lidar}
     ortho = _resample_ortho(run_dir, grid)
@@ -233,24 +221,6 @@ def _area(runs: list[tuple[Manifest, Path, tuple]]) -> AreaIndex:
         )
     return AreaIndex(drives=drives, facilities=facilities)
 
-
-def _z_for(extent: float, target: float) -> int:
-    ratio = extent / (target * TILE)
-    if ratio < 1:
-        z = 0
-    else:
-        z = math.floor(math.log2(ratio))
-    z = max(0, min(MAX_ZOOM, z))
-    while z > 0 and TILE * 2 ** z > MOSAIC_MAX_SIDE:
-        z -= 1
-    # ensure cell >= target
-    side = TILE * 2 ** z
-    cell = extent / side
-    while z > 0 and cell < target:
-        z -= 1
-        side = TILE * 2 ** z
-        cell = extent / side
-    return z
 
 
 def _tiles_by_zoom(base: np.ndarray, zmax: int) -> dict[int, dict[tuple[int, int], bytes]]:
@@ -307,6 +277,7 @@ def publish_runs(
     store: Path,
     max_file_bytes: int = MAX_FILE_BYTES,
     max_files: int = MAX_FILES,
+    mosaic: bool = False,
 ) -> tuple[AreaIndex, PublishReport]:
     out.mkdir(parents=True, exist_ok=True)
     # Preload ground points for all drives to compute build-wide height above road.
@@ -329,40 +300,8 @@ def publish_runs(
     target_lidar = max(0.05, max(gsds) if gsds else 0.05)
     grid = _grid_from_points(all_x, all_y, target_lidar)
     x0, y0, cell, side = grid
-    extent = side * cell
 
-    # aggregate lidar intensity across all drives
-    all_xs = np.concatenate([p[0] for p in all_drive_pts])
-    all_ys = np.concatenate([p[1] for p in all_drive_pts])
-    all_int = np.concatenate([
-        np.clip(np.asarray(laspy.read(_stage(rd, "ground") / "ground.laz").intensity, dtype=np.float64) / INTENSITY_WHITE, 0.0, 1.0)
-        for rd in run_dirs
-    ])
-    lidar_mosaic = _bincount_intensity(all_xs, all_ys, all_int, grid)
-
-    # ortho mosaic: first drive in run order whose resampled ortho has alpha>0 wins
-    drive_orthos = []
-    for rd in run_dirs:
-        o = _resample_ortho(rd, grid)
-        if o is not None:
-            drive_orthos.append(o)
-    ortho_mosaic = _ortho_first_wins(drive_orthos)
-
-    # height mosaic
-    height_mosaic = render_height_rgba(h_map_all, x0=x0, y0=y0, cell=cell, side=side)
-
-    # coverage mosaic
-    coverage_mosaic = _coverage_union(drive_orthos, lidar_mosaic[..., 3] > 0)
-
-    bbox = (x0, y0, x0 + side * cell, y0 + side * cell)
-
-    layers_data = {
-        "lidar": (lidar_mosaic, target_lidar),
-        "ortho": (ortho_mosaic, target_lidar),
-        "height": (height_mosaic, HEIGHT_MOSAIC_TARGET_M),
-        "coverage": (coverage_mosaic, target_lidar),
-    }
-
+    # per-drive pyramids (default behaviour)
     runs = []
     for i, rid in enumerate(run_ids):
         run_dir = run_dirs[i]
@@ -387,43 +326,77 @@ def publish_runs(
         )
         height_rgba = render_height_rgba(h_map_all, x0=x0d, y0=y0d, cell=celld, side=sided)
         write_tiles(out, manifest.run_id, {"height": height_rgba}, bbox_drive, max_zoom=hzoom)
-        runs.append((manifest, run_dir, bbox))
+        runs.append((manifest, run_dir, bbox_drive))
 
     area = _area(runs)
     (out / "area.json").write_text(area.model_dump_json(indent=2))
 
-    # write 4 PMTiles, one layer at a time
-    tile_counts = {}
     layer_reports = {}
-    for layer in LAYERS:
-        arr, target = layers_data[layer]
-        zmax = _z_for(extent, target)
-        tiles_by_zoom = _tiles_by_zoom(arr, zmax)
-        tile_count = sum(len(t) for t in tiles_by_zoom.values())
-        meta = PMTilesMeta(
-            crs="EPSG:32619",
-            bbox=bbox,
-            tile_px=TILE,
-            zmin=0,
-            zmax=zmax,
-            cell_m_at_zmax=extent / (TILE * 2 ** zmax),
-            origin="top-left",
-            layer=layer,
-            run_ids=run_ids,
-        )
-        pmtiles_path = out / "tiles" / f"{layer}.pmtiles"
-        write_pmtiles(pmtiles_path, tiles_by_zoom, meta, bbox)
-        size = pmtiles_path.stat().st_size
-        if size > max_file_bytes:
-            raise ValueError(f"{layer}: {size} bytes exceeds {max_file_bytes} byte limit")
-        tile_counts[layer] = tile_count
-        layer_reports[layer] = LayerReport(
-            path=f"tiles/{layer}.pmtiles",
-            max_zoom=zmax,
-            bytes=size,
-            tile_count=tile_count,
-            cell_m_at_zmax=extent / (TILE * 2 ** zmax),
-        )
+    if mosaic:
+        # aggregate mosaics
+        all_xs = np.concatenate([p[0] for p in all_drive_pts])
+        all_ys = np.concatenate([p[1] for p in all_drive_pts])
+        all_int = np.concatenate([
+            np.clip(np.asarray(laspy.read(_stage(rd, "ground") / "ground.laz").intensity, dtype=np.float64) / INTENSITY_WHITE, 0.0, 1.0)
+            for rd in run_dirs
+        ])
+        lidar_mosaic = _bincount_intensity(all_xs, all_ys, all_int, grid)
+
+        drive_orthos = []
+        for rd in run_dirs:
+            o = _resample_ortho(rd, grid)
+            if o is not None:
+                drive_orthos.append(o)
+        ortho_mosaic = _ortho_first_wins(drive_orthos)
+
+        height_mosaic = render_height_rgba(h_map_all, x0=x0, y0=y0, cell=cell, side=side)
+
+        coverage_mosaic = _coverage_union(drive_orthos, lidar_mosaic[..., 3] > 0)
+
+        bbox = (x0, y0, x0 + side * cell, y0 + side * cell)
+
+        layers_data = {
+            "lidar": (lidar_mosaic, target_lidar),
+            "ortho": (ortho_mosaic, target_lidar),
+            "height": (height_mosaic, HEIGHT_MOSAIC_TARGET_M),
+            "coverage": (coverage_mosaic, target_lidar),
+        }
+
+        for layer in LAYERS:
+            arr, target = layers_data[layer]
+            g = _grid_from_points(all_x, all_y, target)
+            _gx, _gy, gcell, gside = g
+            gextent = gside * gcell
+            # zmax = smallest z with cell <= target (computed below)
+            zmax = 0
+            ratio = gextent / (target * TILE)
+            if ratio > 1:
+                zmax = math.ceil(math.log2(ratio))
+            zmax = max(0, min(MAX_ZOOM, zmax))
+            meta = {
+                "crs": "EPSG:32619",
+                "bbox": [float(v) for v in bbox],
+                "tile_px": TILE,
+                "zmin": 0,
+                "zmax": zmax,
+                "cell_m_at_zmax": float(gextent / (TILE * 2**zmax)),
+                "origin": "top-left",
+                "layer": layer,
+                "run_ids": run_ids,
+            }
+            write_mosaic_tiles(out, layer, arr, zmax, bbox, meta)
+            # compute tile count
+            layer_dir = out / "tiles" / layer
+            tiles = [p for p in layer_dir.rglob("*.webp")]
+            # per layer bytes = sum of webp + meta
+            layer_bytes = sum(p.stat().st_size for p in layer_dir.rglob("*") if p.is_file())
+            layer_reports[layer] = LayerReport(
+                path=f"tiles/{layer}",
+                max_zoom=zmax,
+                bytes=layer_bytes,
+                tile_count=len(tiles),
+                cell_m_at_zmax=float(gextent / (TILE * 2**zmax)),
+            )
 
     files = [p for p in out.rglob("*") if p.is_file()]
     for path in files:
@@ -454,10 +427,9 @@ def publish_runs(
     report_path.write_text(report.model_dump_json(indent=2))
     return area, report
 
-
-def publish_command(run_ids: list[str], out: Path, store: Path | None) -> int:
+def publish_command(run_ids: list[str], out: Path, store: Path | None, mosaic: bool = False) -> int:
     try:
-        _area, report = publish_runs(run_ids, out, store or default_store())
+        _area, report = publish_runs(run_ids, out, store or default_store(), mosaic=mosaic)
     except ValueError as err:
         print(f"twin publish: {err}", file=sys.stderr)
         return 1
