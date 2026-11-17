@@ -160,3 +160,15 @@ def test_params_bounds():
     lo, hi = Params().bounds("features.cluster_eps_m")
     assert lo is not None and hi is not None and lo < hi
     assert Params().bounds("nope.x") is None and Params().bounds("seed") is None
+
+
+def test_ramps_params_defaults_and_schema():
+    from twin.contracts import FeaturesParams, RampsParams
+
+    r = RampsParams()
+    assert r.enabled is True and r.min_measure_cells == 4
+    fp = FeaturesParams()
+    assert fp.ramps.min_measure_cells == 4
+    with pytest.raises(ValidationError):
+        RampsParams(gap_min_m=5.0, gap_max_m=1.0)
+    assert "ramps.geojson" in STAGES["features"].outputs

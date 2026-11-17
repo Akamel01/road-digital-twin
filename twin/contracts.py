@@ -100,7 +100,7 @@ STAGES: dict[str, StageSpec] = {
         number=5,
         methods=("raster", "intensity"),
         requires=("ground",),
-        outputs=("markings.geojson", "crosswalks.geojson", "curbs.geojson"),
+        outputs=("markings.geojson", "crosswalks.geojson", "curbs.geojson", "ramps.geojson"),
         optional=False,
     ),
     "colour": StageSpec(
@@ -219,6 +219,46 @@ class CurbsParams(_Strict):
     step_max_m: float = Field(0.25, ge=0.1, le=0.5)
 
 
+class RampsParams(_Strict):
+    enabled: bool = True
+    gap_min_m: float = Field(1.0, ge=0.1, le=5.0)
+    gap_max_m: float = Field(3.0, ge=0.5, le=10.0)
+    height_step_max_m: float = Field(0.02, ge=0.001, le=0.1)
+    crosswalk_end_m: float = Field(3.0, ge=0.5, le=20.0)
+    measure_cell_m: float = Field(0.25, ge=0.05, le=2.0)
+    min_measure_cells: int = Field(4, ge=1, le=1000)
+    running_slope_max_pct: float = Field(
+        8.33,
+        ge=0.0,
+        le=100.0,
+        description="ADA 2010 405.2: ramp running slope max 1:12 (8.33%).",
+    )
+    cross_slope_max_pct: float = Field(
+        2.08,
+        ge=0.0,
+        le=100.0,
+        description="ADA 2010 406.1/405.3: ramp run cross slope max 1:48 (~2.08%).",
+    )
+    flare_slope_max_pct: float = Field(
+        10.0,
+        ge=0.0,
+        le=100.0,
+        description="ADA 2010 406.3: curb ramp flares max 1:10 (10%), reported separately from ramp run cross slope.",
+    )
+    gutter_step_max_m: float = Field(
+        0.006,
+        ge=0.0,
+        le=0.1,
+        description="ADA 2010 405.4/302-303: level changes max 6 mm at transitions/gutters.",
+    )
+
+    @model_validator(mode="after")
+    def _gap_order(self) -> "RampsParams":
+        if self.gap_min_m > self.gap_max_m:
+            raise ValueError("gap_min_m must be <= gap_max_m")
+        return self
+
+
 class FeaturesParams(_Strict):
     intensity_pct: float = Field(95.0, ge=50, le=99.9)
     cluster_eps_m: float = Field(0.3, ge=0.05, le=2)
@@ -228,6 +268,7 @@ class FeaturesParams(_Strict):
     lidarseg_flat_share: float = Field(0.8, ge=0, le=1)
     lidarseg_min_points: int = Field(10, ge=1, le=1000)
     curbs: CurbsParams = Field(default_factory=CurbsParams)
+    ramps: RampsParams = Field(default_factory=RampsParams)
 
 
 class ColourParams(_Strict):

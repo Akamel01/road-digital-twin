@@ -8,6 +8,7 @@ import laspy
 import numpy as np
 from shapely.geometry import shape
 
+import twin.stages.features_raster as fr
 from twin import registry
 from twin.contracts import FeaturesParams, GroundParams
 from twin.runner import StageContext
@@ -493,3 +494,113 @@ def test_short_fragment_off_angle_keeps_divider_type():
     # the same angle on a 5 m marking is still not a divider
     long = LineString([(5, 0.3), (5 + 5 * c, 0.3 + 5 * sn)])
     assert marking_type(long, REF) == "other_paint"
+
+
+def _features_or_skip():
+    import twin.stages.features  # noqa: F401
+    from twin import registry
+
+    return registry
+
+
+def _raster_ramp_ctx(tmp_path, with_gap=True, with_crosswalk=True):
+    xs, ys = np.arange(0, 12, 0.05), np.arange(-3, 4, 0.05)
+    gx, gy = np.meshgrid(xs, ys)
+    x, y = gx.ravel(), gy.ravel()
+    curb_y, h, gap_x, width, run_m = 0.4, 0.125, 4.0, 1.5, 1.5
+    z = np.where(y >= curb_y, h, 0.0)
+    if with_gap:
+        in_x = (x >= gap_x) & (x <= gap_x + width)
+        ramp_zone = in_x & (y >= curb_y)
+        t = np.clip((y - curb_y) / run_m, 0.0, 1.0)
+        z = np.where(ramp_zone, t * h, z)
+        for side, sign in ((gap_x, -1), (gap_x + width, 1)):
+            fx = (x >= side - 0.6) & (x < side) if sign < 0 else (x > side) & (x <= side + 0.6)
+            m = fx & (y >= curb_y)
+            xt = np.clip(np.abs(x[m] - side) / 0.6, 0.0, 1.0)
+            yt = np.clip((y[m] - curb_y) / run_m, 0.0, 1.0)
+            ramp_edge = yt * h
+            z[m] = xt * h + (1.0 - xt) * ramp_edge
+    pts = np.column_stack([x, y, z, np.full_like(x, 10.0)])
+    ctx = _ctx(tmp_path, pts)
+    if with_crosswalk:
+        ref = [{
+            "type": "Feature",
+            "properties": {"layer": "ped_crossing", "token": "cw1"},
+            "geometry": {"type": "Polygon", "coordinates": [[[4.25,-2.8],[5.75,-2.8],[5.75,-0.1],[4.25,-0.1],[4.25,-2.8]]]},
+        }]
+        (ctx.stage_dir("load")).mkdir(exist_ok=True)
+        (ctx.stage_dir("load") / "reference.geojson").write_text(json.dumps({"type":"FeatureCollection","features":ref}))
+    return ctx
+
+
+def test_ramp_off_switch_writes_no_file(tmp_path):
+    registry = _features_or_skip()
+    ctx = _raster_ramp_ctx(tmp_path)
+    result = registry.lookup("features", "raster")(ctx, FeaturesParams(ramps={"enabled": False}))
+    assert result.status == "ok"
+    assert "ramps.geojson" not in result.files
+    assert not (ctx.stage_dir("features") / "ramps.geojson").exists()
+
+
+def test_ramp_intensity_method_writes_no_file(tmp_path):
+    registry = _features_or_skip()
+    ctx = _raster_ramp_ctx(tmp_path / "i")
+    result = registry.lookup("features", "intensity")(ctx, FeaturesParams())
+    assert result.status == "ok"
+    assert "ramps.geojson" not in result.files
+    assert not (ctx.stage_dir("features") / "ramps.geojson").exists()
+
+
+def test_ramp_pose_stamping(tmp_path, monkeypatch):
+    registry = _features_or_skip()
+
+    def _fake_extract_ramps(xyz, curbs, crosswalks, params=None):
+        return [{
+            "type": "Feature",
+            "properties": {
+                "id": "ramp-0001", "kind": "curb_ramp", "evidence": ["lidar"], "reliability": "observed",
+                "status": "ok", "running_slope_pct": 8.0, "cross_slope_pct": 1.0, "flare_slope_pct": None, "gutter_step_m": 0.001,
+            },
+            "geometry": {"type": "Point", "coordinates": [0.0, 0.0, 0.0]},
+        }]
+
+    monkeypatch.setattr(fr, "extract_ramps", _fake_extract_ramps)
+    ctx = _ctx(tmp_path / "p", _background(np.random.default_rng(0)))
+    result = registry.lookup("features", "raster")(ctx, FeaturesParams())
+    assert result.status == "ok"
+    ramps = json.loads((ctx.stage_dir("features") / "ramps.geojson").read_text())["features"]
+    assert ramps
+    assert ramps[0]["properties"]["pose"] == {
+        "method": "kiss-icp",
+        "fallback_used": False,
+        "xy_drift_p95_m": 0.12,
+    }
+
+
+def test_ramp_height_valid_false_is_indeterminate(tmp_path, monkeypatch):
+    registry = _features_or_skip()
+
+    def _fake_extract_ramps(xyz, curbs, crosswalks, params=None):
+        return [{
+            "type": "Feature",
+            "properties": {
+                "id": "ramp-0001", "kind": "curb_ramp", "evidence": ["lidar"], "reliability": "observed",
+                "status": "ok", "running_slope_pct": 8.0, "cross_slope_pct": 1.0, "flare_slope_pct": None, "gutter_step_m": 0.001,
+            },
+            "geometry": {"type": "Point", "coordinates": [0.0, 0.0, 0.0]},
+        }]
+
+    monkeypatch.setattr(fr, "extract_ramps", _fake_extract_ramps)
+    ctx = _ctx(tmp_path / "hv", _background(np.random.default_rng(1)))
+    (ctx.stage_dir("ground") / "qa.json").write_text(json.dumps({"height_valid": False, "not_scanned_enough": []}))
+    result = registry.lookup("features", "raster")(ctx, FeaturesParams())
+    assert result.status == "ok"
+    ramps = json.loads((ctx.stage_dir("features") / "ramps.geojson").read_text())["features"]
+    assert ramps
+    p = ramps[0]["properties"]
+    assert p["status"] == "indeterminate"
+    assert p["running_slope_pct"] is None
+    assert p["cross_slope_pct"] is None
+    assert p["flare_slope_pct"] is None
+    assert p["gutter_step_m"] is None

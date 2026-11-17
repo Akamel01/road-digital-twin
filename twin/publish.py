@@ -12,6 +12,7 @@ import numpy as np
 from PIL import Image
 
 from twin.contracts import AreaFacility, AreaIndex, Drive, Manifest, stage_dir
+from twin.height_raster import compute_height_above_road, render_height_rgba
 from twin.runner import default_store
 from twin.tiles import TILE, write_tiles
 
@@ -93,8 +94,10 @@ def _ortho(run_dir: Path, grid: tuple) -> np.ndarray | None:
 
 def _rasters(
     run_dir: Path, manifest: Manifest
-) -> tuple[dict[str, np.ndarray], int, tuple[float, float, float, float]]:
-    """Lidar intensity, orthoimage and coverage on one square grid over the ground points."""
+) -> tuple[dict[str, np.ndarray], int, tuple[float, float, float, float], tuple[float, float, float, int]]:
+    """Lidar intensity, orthoimage and coverage on one square grid over the ground points.
+    Returns (rasters, zoom, bbox, grid_params) where grid_params=(x0,y0,cell,side).
+    """
     las = laspy.read(_stage(run_dir, "ground") / "ground.laz")
     x, y = np.asarray(las.x), np.asarray(las.y)
     intensity = np.clip(np.asarray(las.intensity, dtype=np.float64) / INTENSITY_WHITE, 0.0, 1.0)
@@ -122,11 +125,11 @@ def _rasters(
         rasters["ortho"] = ortho
         observed = ortho[..., 3] > 0
     coverage = np.zeros((side, side, 4), np.uint8)
-    coverage[lidar[..., 3] > 0] = UNOBSERVED  # ground the lidar saw but no camera coloured
+    coverage[lidar[..., 3] > 0] = UNOBSERVED
     coverage[observed] = OBSERVED
     rasters["coverage"] = coverage
     bbox = (x0, y0, x0 + side * cell, y0 + side * cell)
-    return rasters, zoom, bbox
+    return rasters, zoom, bbox, (x0, y0, cell, side)
 
 
 def _area(runs: list[tuple[Manifest, Path, tuple]]) -> AreaIndex:
@@ -179,8 +182,17 @@ def publish_runs(
     folder holds max_files or more files.
     """
     out.mkdir(parents=True, exist_ok=True)
-    runs = []
+    # Preload ground points for all drives to compute build-wide height above road (B2).
+    all_drive_pts: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
     for rid in run_ids:
+        run_dir = store / rid
+        manifest = Manifest.model_validate_json((run_dir / "manifest.json").read_text())
+        las = laspy.read(_stage(run_dir, "ground") / "ground.laz")
+        all_drive_pts.append((np.asarray(las.x), np.asarray(las.y), np.asarray(las.z)))
+    h_map_all = compute_height_above_road(all_drive_pts)
+
+    runs = []
+    for i, rid in enumerate(run_ids):
         run_dir = store / rid
         manifest = Manifest.model_validate_json((run_dir / "manifest.json").read_text())
         dest = out / manifest.run_id
@@ -189,11 +201,14 @@ def publish_runs(
         outputs = _stage(run_dir, "outputs")
         for name in PUBLIC_FILES:
             shutil.copy(outputs / name, dest / name)
-        for name in ("profile.csv", "centrelines.geojson"):  # the profile stage is optional
+        for name in ("profile.csv", "centrelines.geojson"):
             if (_stage(run_dir, "profile") / name).exists():
                 shutil.copy(_stage(run_dir, "profile") / name, dest / name)
         _thin_laz(outputs / "twin.laz", dest / "twin.laz", max_file_bytes)
-        rasters, zoom, bbox = _rasters(run_dir, manifest)
+        rasters, zoom, bbox, grid = _rasters(run_dir, manifest)
+        x0, y0, cell, side = grid
+        height_rgba = render_height_rgba(h_map_all, x0=x0, y0=y0, cell=cell, side=side)
+        rasters["height"] = height_rgba
         write_tiles(out, manifest.run_id, rasters, bbox, max_zoom=zoom)
         runs.append((manifest, run_dir, bbox))
     area = _area(runs)
