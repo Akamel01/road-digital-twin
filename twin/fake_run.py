@@ -928,5 +928,5 @@ def write_fake_runs(out: Path, drives: int = 2) -> list[Path]:
     run_ids = [_write_run(out, i) for i in range(drives)]
     from twin.publish import publish_runs
 
-    publish_runs(run_ids, out / "showcase", store=out, mosaic=True)
+    publish_runs(run_ids, out / "showcase", store=out, mosaic=False)
     return [out / rid for rid in run_ids]
