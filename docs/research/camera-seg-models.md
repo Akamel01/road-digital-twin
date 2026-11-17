@@ -12,7 +12,7 @@ Research date: 2026-11-17. Researched by a Claude subagent.
 4. Weights are not clean to reuse commercially: Vistas data is CC BY-NC-SA 4.0, and the HF weights carry the tag `license: other`. Fine for the non-commercial research demo, and the site must say so.
 5. No per-class IoU for our classes is published by the model authors. See section 5.
 
-Recommended spike: Mask2Former Swin-L semantic (A), OneFormer ConvNeXt-L (B), and a v2.0 fine-tune of a smaller model only if the demo needs lane-marking types (C). Details at the end.
+Recommended spike: Mask2Former Swin-L semantic (A), OneFormer ConvNeXt-L (B), and a v2.0 fine-tune of a smaller model only if the demo needs lane-marking types (F). Details at the end.
 
 ## 1. The class list (exact names)
 
@@ -104,7 +104,7 @@ Practical stance: demo is non-commercial, so use is acceptable. State on the sit
 
 - **A. Mask2Former Swin-L Vistas semantic (HF).** Easiest install (Transformers, safetensors), best published balance (63.2 mIoU), all needed classes present. Baseline for everything else.
 - **B. OneFormer ConvNeXt-L Vistas.** Independent architecture at the same accuracy; use its disagreement with A as a confidence signal when voting across frames. Needs the OneFormer repo and Detectron2 (not on HF).
-- **C (conditional). Fine-tune on Vistas v2.0 for lane-marking types.** Only if the demo needs dashed/solid/arrow/stop-line. Vistas v2.0 is NC-licensed on download. Mask2Former Swin-L training likely will not fit 12 GB (**ESTIMATE**); start from the R50 Mask2Former config (57.4 mIoU on v1.2) or use a 1024 crop with small batch. This is a separate ticket with its own cost; keep it out of the first spike.
-- Skip D and E except D as a speed floor. Skip panoptic (C above) unless instance masks are wanted.
+- **F (conditional). Fine-tune on Vistas v2.0 for lane-marking types.** Only if the demo needs dashed/solid/arrow/stop-line. Vistas v2.0 is NC-licensed on download. Mask2Former Swin-L training likely will not fit 12 GB (**ESTIMATE**); start from the R50 Mask2Former config (57.4 mIoU on v1.2) or use a 1024 crop with small batch. This is a separate ticket with its own cost; keep it out of the first spike.
+- Skip D and E except D as a speed floor. Skip panoptic (C) unless instance masks are wanted.
 
 Open risks: v1.2 `Curb Cut` quality may be low (see section 5); the label for ramps does not exist; nuScenes Boston night and rain frames are far from Vistas daytime imagery; cost numbers are unmeasured.
