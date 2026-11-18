@@ -1073,9 +1073,11 @@ def test_generate_reset_refuses_frozen_site(tmp_path, monkeypatch):
     _mk_run(store, "20261101-000000-aaaaaa", "t1", "v1.0-trainval", full)
     labels.draft(store, "s1", "a1", areas_root=store / "areas")
     labels.approve(store, "s1", "op")
+    before = _site_label_bytes(store, "s1")
     _patch_export_window(monkeypatch)
     with pytest.raises(DraftError):
         generate(store, "s1", area="a1", reset=True)
+    assert _site_label_bytes(store, "s1") == before
 
 
 def test_generate_import_replace_gives_exactly_fifteen(tmp_path, monkeypatch):
@@ -1257,4 +1259,31 @@ def test_generate_reset_zero_run_existing_site_raises_and_leaves_unchanged(tmp_p
     _patch_export_window(monkeypatch)
     with pytest.raises(DraftError, match="no resolvable runs"):
         generate(store, "s1", area="a1", areas_root=store / "areas", reset=True)
+    assert _site_label_bytes(store, "s1") == before
+
+
+def test_generate_reset_bad_import_leaves_site_unchanged(tmp_path, monkeypatch):
+    store = tmp_path / "store"
+    area_def = {
+        "name": "a1",
+        "dataset_version": "v1.0-trainval",
+        "polygon": {"type": "Polygon", "coordinates": [[[0, 0], [20, 0], [20, 20], [0, 20], [0, 0]]]},
+        "drives": [{"scene": "sc1", "scene_token": "t1"}],
+    }
+    _mk_area_build(store, "a1", area_def, ["sc1"])
+    full = {"load": "ok", "align": "ok", "ground": "ok"}
+    _mk_run(store, "20261101-000000-aaaaaa", "t1", "v1.0-trainval", full)
+    labels.draft(store, "s1", "a1", areas_root=store / "areas", role="audit")
+    fc = labels.read_labels(store, "s1")
+    fc["features"].append({"type": "Feature", "geometry": {"type": "LineString", "coordinates": [[1, 1], [2, 2]]}, "properties": {"id": "keep", "element": "marking", "type": "solid_line", "origin": "operator"}})
+    labels.write_labels(store, "s1", fc, expected_version=labels.read_site(store, "s1").version)
+    before = _site_label_bytes(store, "s1")
+
+    bad = {"set": "other", "version": 1, "surfaces": [{"id": "x", "type": "curb", "geom": "polyline", "xy": [[0, 0], [1, 1]], "by": "operator"}], "supports": [], "devices": []}
+    dpath = tmp_path / "bad.json"
+    dpath.write_text(json.dumps(bad))
+    _patch_export_window(monkeypatch)
+
+    with pytest.raises(DraftError):
+        generate(store, "s1", area="a1", areas_root=store / "areas", reset=True, import_path=dpath, replace=True)
     assert _site_label_bytes(store, "s1") == before

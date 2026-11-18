@@ -108,8 +108,7 @@ def surface_to_feature(surface: dict) -> dict:
     return {"type": "Feature", "geometry": geometry, "properties": props}
 
 
-def import_draft(store: Path, site: str, draft_path, *, replace: bool = False) -> int:
-    store = Path(store)
+def _load_draft(draft_path, site: str) -> tuple[dict, list]:
     if not valid_site(site):
         raise DraftError(f"bad site id: {site!r}")
     path = Path(draft_path)
@@ -142,6 +141,19 @@ def import_draft(store: Path, site: str, draft_path, *, replace: bool = False) -
         raise DraftError("draft supports must be empty")
     if devices:
         raise DraftError("draft devices must be empty")
+    return data, surfaces
+
+
+def validate_draft(draft_path, site: str) -> int:
+    _data, surfaces = _load_draft(draft_path, site)
+    for surface in surfaces:
+        surface_to_feature(surface)
+    return len(surfaces)
+
+
+def import_draft(store: Path, site: str, draft_path, *, replace: bool = False) -> int:
+    store = Path(store)
+    _data, surfaces = _load_draft(draft_path, site)
 
     meta = read_site(store, site)
 
@@ -426,6 +438,9 @@ def generate(
         wx0, wy1 = float(x0), float(y1)
     else:
         wx0 = wy1 = None  # set after import/auto
+
+    if import_path is not None:
+        validate_draft(import_path, site)
 
     if reset:
         assert meta is not None
