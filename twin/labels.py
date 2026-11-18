@@ -9,10 +9,17 @@ A labelled site lives at ``<store>/labels/<site>/`` and holds:
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+SITE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def valid_site(site: str) -> bool:
+    return bool(SITE_ID.fullmatch(site)) and ".." not in site and "\\" not in site
 
 from shapely.geometry import mapping, shape
 
@@ -92,7 +99,7 @@ def write_site(store: Path | str, site: str, meta: SiteMeta) -> None:
     site_path(store, site).write_text(meta.model_dump_json(indent=2) + "\n")
 
 
-def _area_build_dir(store: Path | str, area: str) -> Path:
+def area_build_dir(store: Path | str, area: str, *, areas_root: Path | None = None) -> Path:
     # area may be a name or a path; prefer a -twin build (or one with 5_features),
     # then a -merged build.
     store = Path(store)
@@ -101,12 +108,24 @@ def _area_build_dir(store: Path | str, area: str) -> Path:
     for suf in ("-twin", "-merged"):
         if not area.endswith(suf):
             names.append(area + suf)
+    root = Path(areas_root) if areas_root is not None else store / "areas"
     cand_set: list[Path] = []
     if p.is_dir():
         cand_set.append(p)
+    # areas_root candidates first
+    for nm in (f"{area}-twin", area, f"{area}-merged"):
+        cand_set.append(root / nm)
+    for name in names:
+        cand_set.append(root / name)
+    # preserve current candidates
     for name in names:
         cand_set.append(store / name)
         cand_set.append(store / "areas" / name)
+    # explicit *.json -> sibling builds
+    if p.suffix == ".json":
+        stem = p.stem
+        for suf in ("-twin", "-merged", ""):
+            cand_set.append(p.parent / (stem + suf if suf else stem))
     seen: set[Path] = set()
     uniq: list[Path] = []
     for c in cand_set:
@@ -133,26 +152,48 @@ def _area_build_dir(store: Path | str, area: str) -> Path:
     cand = store / "areas" / area
     if cand.is_dir():
         return cand
+    if areas_root is not None:
+        cand2 = root / area
+        if cand2.is_dir():
+            return cand2
     raise FileNotFoundError(f"no area build for {area!r}")
 
 
-def _area_def(store: Path, area: str, build_dir: Path) -> dict:
+def _area_def(store: Path | str, area: str, build_dir: Path, areas_root: Path | None = None) -> dict:
+    store = Path(store)
     name = build_dir.name.removesuffix("-twin").removesuffix("-merged")
-    for cand in (Path(store) / "areas" / f"{name}.json", Path(area)):
+    root = Path(areas_root) if areas_root is not None else store / "areas"
+    # named candidates
+    named = [
+        build_dir.parent / f"{name}.json",
+        root / f"{name}.json",
+        store / "areas" / f"{name}.json",
+    ]
+    p = Path(area)
+    if p.is_file():
+        named.append(p)
+    for cand in named:
         if cand.is_file():
             try:
-                return json.loads(cand.read_text())
+                d = json.loads(cand.read_text())
             except (OSError, ValueError):
-                pass
-    # fall back: search next to build dir
+                continue
+            if isinstance(d, dict):
+                return d
+    # wildcard next to build dir, only if exactly one parses to dict with polygon
+    wildcard = []
     for cand in build_dir.parent.glob("*.json"):
         try:
             d = json.loads(cand.read_text())
-            if isinstance(d, dict) and "polygon" in d:
-                return d
         except (OSError, ValueError):
             continue
-    raise FileNotFoundError(f"area def for {area!r} not found")
+        if isinstance(d, dict) and "polygon" in d:
+            wildcard.append(d)
+    if len(wildcard) == 1:
+        return wildcard[0]
+    if len(wildcard) == 0:
+        raise FileNotFoundError(f"area def for {area!r} not found")
+    raise ValueError(f"ambiguous area def for {area!r}: {len(wildcard)} polygon JSON files in {build_dir.parent}")
 
 
 def _map_feature(element: str, feat: dict, source_file: str, idx: int) -> dict:
@@ -183,6 +224,13 @@ def _map_feature(element: str, feat: dict, source_file: str, idx: int) -> dict:
     return out
 
 
+def resolve_area(store: Path | str, area: str, *, areas_root: Path | None = None) -> tuple[Path, dict]:
+    store = Path(store)
+    build_dir = area_build_dir(store, area, areas_root=areas_root)
+    area_def = _area_def(store, area, build_dir, areas_root=areas_root)
+    return build_dir, area_def
+
+
 def draft(
     store: Path | str,
     site: str,
@@ -191,6 +239,8 @@ def draft(
     force: bool = False,
     role: str = "dev",
     created_at: str | None = None,
+    empty: bool = False,
+    areas_root: Path | None = None,
 ) -> SiteMeta:
     store = Path(store)
     d = labels_dir(store, site)
@@ -200,8 +250,7 @@ def draft(
         shutil.rmtree(d, ignore_errors=True)
     d.mkdir(parents=True, exist_ok=True)
 
-    build_dir = _area_build_dir(store, area)
-    area_def = _area_def(store, area, build_dir)
+    build_dir, area_def = resolve_area(store, area, areas_root=areas_root)
 
     features_dir = build_dir / "5_features" if (build_dir / "5_features").is_dir() else build_dir
     site_poly = area_def["polygon"]
@@ -222,24 +271,25 @@ def draft(
         return mapping(inter)
 
     features_out: list[dict] = []
-    for fname in FEATURE_FILES:
-        fpath = features_dir / fname
-        if not fpath.is_file():
-            continue
-        try:
-            fc = json.loads(fpath.read_text())
-        except (OSError, ValueError):
-            continue
-        element = _ELEMENT_BY_FILE[fname]
-        for i, feat in enumerate(fc.get("features", []) if isinstance(fc, dict) else []):
-            if not isinstance(feat, dict):
+    if not empty:
+        for fname in FEATURE_FILES:
+            fpath = features_dir / fname
+            if not fpath.is_file():
                 continue
-            geom = _clip_geom(feat.get("geometry"))
-            if geom is None:
+            try:
+                fc = json.loads(fpath.read_text())
+            except (OSError, ValueError):
                 continue
-            feat = dict(feat)
-            feat["geometry"] = geom
-            features_out.append(_map_feature(element, feat, fname, i))
+            element = _ELEMENT_BY_FILE[fname]
+            for i, feat in enumerate(fc.get("features", []) if isinstance(fc, dict) else []):
+                if not isinstance(feat, dict):
+                    continue
+                geom = _clip_geom(feat.get("geometry"))
+                if geom is None:
+                    continue
+                feat = dict(feat)
+                feat["geometry"] = geom
+                features_out.append(_map_feature(element, feat, fname, i))
 
     meta = SiteMeta(
         id=site,
@@ -316,6 +366,16 @@ def write_labels(
             LabelFeature.model_validate(props)
     labels_path(store, site).write_text(json.dumps(fc, indent=2) + "\n")
     return meta
+
+
+def set_meta(store: Path | str, site: str, *, control, notes) -> SiteMeta:
+    store = Path(store)
+    meta = read_site(store, site)
+    new_meta = SiteMeta.model_validate(
+        {**meta.model_dump(mode="json"), "control": control, "notes": notes}
+    )
+    write_site(store, site, new_meta)
+    return new_meta
 
 
 # aliases used by API/CLI
