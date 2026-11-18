@@ -1,12 +1,14 @@
 {
   "venue": "live-mirror: Seaport (15 drives)",
-  "generated_at": "2026-11-18T13:18:38.464Z",
+  "generated_at": "2026-11-18T14:03:02.938Z",
   "base_ref": "1d3951c",
   "fixture_source": "live-mirror",
   "commits": {
     "before": "1d3951c7fbaba434250e8432aeb9acfa165ca5e9",
-    "after": "396a00a56076c11286b1c3cb0d6627c71335dba6"
+    "after": "ff20468bf8813a8b31ae16cce036727584a0340f"
   },
+  "git_head": "ff20468bf8813a8b31ae16cce036727584a0340f",
+  "git_status_porcelain": "",
   "publish_report": {
     "tile_version": "99b0085b341d"
   },
@@ -45,8 +47,8 @@
   },
   "whole": {
     "before": {
-      "count": 258,
-      "bytes": 1919162
+      "count": 268,
+      "bytes": 2033391
     },
     "after": {
       "count": 54,
@@ -55,8 +57,8 @@
   },
   "gesture": {
     "before": {
-      "count": 50,
-      "bytes": 260928
+      "count": 60,
+      "bytes": 375157
     },
     "after": {
       "count": 34,
@@ -65,8 +67,8 @@
   },
   "during_gesture": {
     "before": {
-      "count": 50,
-      "bytes": 260928
+      "count": 60,
+      "bytes": 375157
     },
     "after": {
       "count": 34,
@@ -76,18 +78,44 @@
   "frame_ms": {
     "before": {
       "median": 16.7,
-      "p95": 400,
-      "samples": 460
+      "p95": 283.4,
+      "samples": 518
     },
     "after": {
       "median": 16.7,
-      "p95": 983.3,
-      "samples": 318
+      "p95": 783.3,
+      "samples": 312
     }
   },
   "heap": {
-    "before": 44406844,
-    "after": 21403392
+    "before": 19127848,
+    "after": 20487416
+  },
+  "gpu_memory_bytes": null,
+  "gpu_memory_note": "not exposed by WEBGL_debug_renderer_info on SwiftShader",
+  "limitations": {
+    "full_res_by_layer": {
+      "lidar": {
+        "observed_z": 6,
+        "expected_z_at_max_k": 7,
+        "zmax": 6
+      },
+      "ortho": {
+        "observed_z": null,
+        "expected_z_at_max_k": 7,
+        "zmax": 6
+      },
+      "height": {
+        "observed_z": null,
+        "expected_z_at_max_k": 7,
+        "zmax": 5
+      },
+      "coverage": {
+        "observed_z": null,
+        "expected_z_at_max_k": 7,
+        "zmax": 6
+      }
+    }
   },
   "final_zoom": {
     "before": {
@@ -160,106 +188,122 @@
   "http_404s": {
     "before": [
       {
-        "url": "http://127.0.0.1:46047/showcase/status.json",
+        "url": "http://127.0.0.1:33081/showcase/status.json",
         "classification": "known_app_404"
       },
       {
-        "url": "http://127.0.0.1:46047/favicon.ico",
+        "url": "http://127.0.0.1:33081/favicon.ico",
         "classification": "known_app_404"
       },
       {
-        "url": "http://127.0.0.1:46047/dev",
+        "url": "http://127.0.0.1:33081/dev",
         "classification": "known_app_404"
       },
       {
-        "url": "http://127.0.0.1:46047/latest",
+        "url": "http://127.0.0.1:33081/latest",
         "classification": "known_app_404"
       },
       {
-        "url": "http://127.0.0.1:46047/showcase/status.json",
+        "url": "http://127.0.0.1:33081/showcase/status.json",
         "classification": "known_app_404"
       },
       {
-        "url": "http://127.0.0.1:46047/dev",
+        "url": "http://127.0.0.1:33081/dev",
         "classification": "known_app_404"
       },
       {
-        "url": "http://127.0.0.1:46047/latest",
+        "url": "http://127.0.0.1:33081/latest",
         "classification": "known_app_404"
       }
     ],
     "after": [
       {
-        "url": "http://127.0.0.1:40527/showcase/status.json",
+        "url": "http://127.0.0.1:45049/favicon.ico",
         "classification": "known_app_404"
       },
       {
-        "url": "http://127.0.0.1:40527/favicon.ico",
+        "url": "http://127.0.0.1:45049/showcase/status.json",
         "classification": "known_app_404"
       },
       {
-        "url": "http://127.0.0.1:40527/showcase/status.json",
+        "url": "http://127.0.0.1:45049/dev",
         "classification": "known_app_404"
       },
       {
-        "url": "http://127.0.0.1:40527/dev",
+        "url": "http://127.0.0.1:45049/latest",
         "classification": "known_app_404"
       },
       {
-        "url": "http://127.0.0.1:40527/latest",
+        "url": "http://127.0.0.1:45049/showcase/status.json",
+        "classification": "known_app_404"
+      },
+      {
+        "url": "http://127.0.0.1:45049/dev",
+        "classification": "known_app_404"
+      },
+      {
+        "url": "http://127.0.0.1:45049/latest",
         "classification": "known_app_404"
       }
     ],
     "after_unexpected": [],
     "before_known_app_404s": [
       {
-        "url": "http://127.0.0.1:46047/showcase/status.json",
+        "url": "http://127.0.0.1:33081/showcase/status.json",
         "classification": "known_app_404"
       },
       {
-        "url": "http://127.0.0.1:46047/favicon.ico",
+        "url": "http://127.0.0.1:33081/favicon.ico",
         "classification": "known_app_404"
       },
       {
-        "url": "http://127.0.0.1:46047/dev",
+        "url": "http://127.0.0.1:33081/dev",
         "classification": "known_app_404"
       },
       {
-        "url": "http://127.0.0.1:46047/latest",
+        "url": "http://127.0.0.1:33081/latest",
         "classification": "known_app_404"
       },
       {
-        "url": "http://127.0.0.1:46047/showcase/status.json",
+        "url": "http://127.0.0.1:33081/showcase/status.json",
         "classification": "known_app_404"
       },
       {
-        "url": "http://127.0.0.1:46047/dev",
+        "url": "http://127.0.0.1:33081/dev",
         "classification": "known_app_404"
       },
       {
-        "url": "http://127.0.0.1:46047/latest",
+        "url": "http://127.0.0.1:33081/latest",
         "classification": "known_app_404"
       }
     ],
     "after_known_app_404s": [
       {
-        "url": "http://127.0.0.1:40527/showcase/status.json",
+        "url": "http://127.0.0.1:45049/favicon.ico",
         "classification": "known_app_404"
       },
       {
-        "url": "http://127.0.0.1:40527/favicon.ico",
+        "url": "http://127.0.0.1:45049/showcase/status.json",
         "classification": "known_app_404"
       },
       {
-        "url": "http://127.0.0.1:40527/showcase/status.json",
+        "url": "http://127.0.0.1:45049/dev",
         "classification": "known_app_404"
       },
       {
-        "url": "http://127.0.0.1:40527/dev",
+        "url": "http://127.0.0.1:45049/latest",
         "classification": "known_app_404"
       },
       {
-        "url": "http://127.0.0.1:40527/latest",
+        "url": "http://127.0.0.1:45049/showcase/status.json",
+        "classification": "known_app_404"
+      },
+      {
+        "url": "http://127.0.0.1:45049/dev",
+        "classification": "known_app_404"
+      },
+      {
+        "url": "http://127.0.0.1:45049/latest",
         "classification": "known_app_404"
       }
     ]
@@ -279,6 +323,8 @@
       "Failed to load resource: the server responded with a status of 404 (Not Found)",
       "Failed to load resource: the server responded with a status of 404 (Not Found)",
       "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "Failed to load resource: the server responded with a status of 404 (Not Found)",
       "Failed to load resource: the server responded with a status of 404 (Not Found)"
     ],
     "after_non_404": []
@@ -293,8 +339,8 @@
       "zoom_changed": true
     },
     "after": {
-      "before_fp": "8a31c4fb0b12057c46fccccdad45972ed6fadaf60cf21324a3ccc0e082d544bc",
-      "after_fp": "132f41964c2c767445ea593d77e98fda4317738c75c6368b8914cb5841995f9d",
+      "before_fp": "ac4551f3569ebd1485b3ef944f1e34b0cc4c42a2a96d371ff2566b787bfefd06",
+      "after_fp": "29c79468e94ff091acdae198f5f9f30b5e7b97118ab2a3919741623faebb7240",
       "changed": true,
       "delta": 1,
       "drag_ok": true,
@@ -319,23 +365,23 @@
     },
     {
       "path": "docs/evidence/288/after-lidar-full.png",
-      "sha256": "9480ebadee6d87f57daac93d0f916027ac7dffdbea99bb52aed3332ef07334fc",
-      "pixel_variance": 6369.701228321953
+      "sha256": "e4f09c94b021467ef8386f652d1765585aefb23602dbca02b9cc72affc93c1e4",
+      "pixel_variance": 6394.841547407744
     },
     {
       "path": "docs/evidence/288/after-ortho-full.png",
-      "sha256": "a571a871547a9a6eae2765ea59bc9070dfa69a9e5cea83c9c593dd77dfff1d39",
-      "pixel_variance": 5150.127486722946
+      "sha256": "0c9a0afe9d5cb5a36dafbce12cf0fde70cf72b1cf93b4b93aedeac8d7d6dff3d",
+      "pixel_variance": 5162.254192599752
     },
     {
       "path": "docs/evidence/288/after-height-full.png",
-      "sha256": "3a3b0fda1ad929fafe8753ca7e8a940dcc8c73eeec3f9896eb70c0b6c049c473",
-      "pixel_variance": 6821.891216040995
+      "sha256": "fdafbb2266a7ed080fc46d3a6bcd9ddab9deab41ca577cfa80aa5f91a0376ef1",
+      "pixel_variance": 6819.6866668973225
     },
     {
       "path": "docs/evidence/288/after-lidar-phone.png",
-      "sha256": "00be23aea7d28516faf2eced9a40c941aa519714ebbca292e22f063a5dabf42c",
-      "pixel_variance": 5765.004502161924
+      "sha256": "2351f163eada94430f087e98ef92085bf09dd12b3d59aa8c8217dc1cf67f6285",
+      "pixel_variance": 5551.617985150361
     }
   ],
   "fixture": {
@@ -669,16 +715,16 @@
     }
   },
   "comparison": {
-    "frame_p95_before": 400,
-    "frame_p95_after": 983.3,
-    "whole_count_before": 258,
+    "frame_p95_before": 283.4,
+    "frame_p95_after": 783.3,
+    "whole_count_before": 268,
     "whole_count_after": 54,
     "before_source": "measured"
   },
   "gate": {
     "passed": false,
     "reasons": [
-      "frame p95 not improved: 400 -> 983.3"
+      "frame p95 not improved: 283.4 -> 783.3"
     ]
   }
 }

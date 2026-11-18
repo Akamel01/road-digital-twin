@@ -57,7 +57,60 @@ export function fitView(r: Rect, size: Size, pad: number, maxK = Infinity): View
   return { k: kk, tx: size.w / 2 - kk * cx, ty: size.h / 2 - kk * cy };
 }
 
-/** Tiles at level z that intersect the viewport. Only these get requested. */
+
+export const TILE = 256;
+
+export interface Tile {
+  url: string;
+  left: number;
+  top: number;
+  w: number;
+  h: number;
+}
+
+/** Smallest level whose pixels are at least one per device pixel, capped at zmax. */
+export function tileLevel(k: number, dpr: number, widthM: number, zmax: number): number {
+  const want = (k * dpr * widthM) / TILE;
+  if (!Number.isFinite(want) || want <= 0) return 0;
+  return Math.min(zmax, Math.max(0, Math.ceil(Math.log2(want))));
+}
+
+/** Tiles at level z intersecting the viewport. Compat for per-run/mosaic callers; uses mosaic URL shape. */
+export function visibleTiles(
+  raster: string,
+  run: string,
+  r: Rect,
+  z: number,
+  v: View,
+  size: Size,
+): Tile[] {
+  const n = 2 ** z;
+  const tw = (r.x1 - r.x0) / n;
+  const th = (r.y1 - r.y0) / n;
+  if (!Number.isFinite(tw) || !Number.isFinite(th) || tw <= 0 || th <= 0) return [];
+  const vx0 = -v.tx / v.k;
+  const vx1 = (size.w - v.tx) / v.k;
+  const vy0 = -v.ty / v.k;
+  const vy1 = (size.h - v.ty) / v.k;
+  const ix0 = Math.max(0, Math.floor((vx0 - r.x0) / tw));
+  const ix1 = Math.min(n - 1, Math.floor((vx1 - r.x0) / tw));
+  const iy0 = Math.max(0, Math.floor((vy0 - r.y0) / th));
+  const iy1 = Math.min(n - 1, Math.floor((vy1 - r.y0) / th));
+  const out: Tile[] = [];
+  for (let x = ix0; x <= ix1; x++) {
+    for (let y = iy0; y <= iy1; y++) {
+      out.push({
+        url: `showcase/tiles/${raster}/${z}/${x}/${y}.webp`,
+        left: r.x0 + x * tw,
+        top: r.y0 + y * th,
+        w: tw,
+        h: th,
+      });
+    }
+  }
+  return out;
+}
+
 export const MAX_K = 40;
 export const MAX_VIEW_ZOOM = Math.log2(MAX_K);
 

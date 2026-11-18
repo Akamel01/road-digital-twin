@@ -8,6 +8,25 @@ export type ElementKey = "markings" | "crosswalks" | "curbs";
 export type Point = [number, number];
 
 export const ELEMENTS: readonly ElementKey[] = ["markings", "crosswalks", "curbs"];
+export const RASTERS: readonly Raster[] = ["lidar", "ortho", "coverage", "height"];
+
+export interface RasterMeta {
+  bbox: number[];
+  zmin?: number;
+  zmax: number;
+  tile_px?: number;
+  cell_m_at_zmax?: number;
+  tiles?: [number, number, number][];
+}
+
+export async function loadRasterMeta(run: string, raster: Raster): Promise<RasterMeta> {
+  // Prefer per-run tiles if present (legacy); fall back to mosaic meta.
+  try {
+    return await getJson<RasterMeta>(`showcase/tiles/${run}/${raster}/meta.json`);
+  } catch {
+    return await getJson<RasterMeta>(`showcase/tiles/${raster}/meta.json`);
+  }
+}
 
 
 export function isElement(s: string | null): s is ElementKey {

@@ -339,7 +339,7 @@ def test_labelled_store_tie_publishes_and_records_score(tmp_path, monkeypatch):
     token = tmp_path / "tok"
     token.write_text("secret\n")
     monkeypatch.setenv("TWIN_CF_TOKEN_FILE", str(token))
-    monkeypatch.setattr(site, "build", lambda run_ids, store, rep, web=None, mosaic=False: None)
+    monkeypatch.setattr(site, "build", lambda run_ids, store, rep, web=None: None)
     monkeypatch.setattr(site, "deploy", lambda token, web=None: None)
     assert site.publish_run(store, "r1") == "published r1"
     assert site.publish_run(store, "r2") == "published r2"
@@ -354,7 +354,7 @@ def test_labelled_store_regression_skips(tmp_path, monkeypatch):
     token = tmp_path / "tok"
     token.write_text("secret\n")
     monkeypatch.setenv("TWIN_CF_TOKEN_FILE", str(token))
-    monkeypatch.setattr(site, "build", lambda run_ids, store, rep, web=None, mosaic=False: None)
+    monkeypatch.setattr(site, "build", lambda run_ids, store, rep, web=None: None)
     monkeypatch.setattr(site, "deploy", lambda token, web=None: None)
     assert site.publish_run(store, "r1") == "published r1"
     out = site.publish_run(store, "r2")
@@ -369,7 +369,7 @@ def test_old_history_entry_falls_back_with_note(tmp_path, monkeypatch, capsys):
     token = tmp_path / "tok"
     token.write_text("secret\n")
     monkeypatch.setenv("TWIN_CF_TOKEN_FILE", str(token))
-    monkeypatch.setattr(site, "build", lambda run_ids, store, rep, web=None, mosaic=False: None)
+    monkeypatch.setattr(site, "build", lambda run_ids, store, rep, web=None: None)
     monkeypatch.setattr(site, "deploy", lambda token, web=None: None)
     site._record(store, {"run_id": "old", "go_count": 0, "margin_sum": site.GateReport(report()).score(),
                         "published_at": "t", "verdict": "go", "margins": {}, "runs": ["old"], "report": report()})
@@ -392,7 +392,7 @@ def test_more_gate_checks_do_not_override_score_regression(tmp_path, monkeypatch
     token = tmp_path / "tok"
     token.write_text("secret\n")
     monkeypatch.setenv("TWIN_CF_TOKEN_FILE", str(token))
-    monkeypatch.setattr(site, "build", lambda run_ids, store, rep, web=None, mosaic=False: None)
+    monkeypatch.setattr(site, "build", lambda run_ids, store, rep, web=None: None)
     monkeypatch.setattr(site, "deploy", lambda token, web=None: None)
     assert site.publish_run(store, "b1") == "published b1"
     out = site.publish_run(store, "r2")
@@ -407,7 +407,7 @@ def test_label_version_bump_falls_back_with_note(tmp_path, monkeypatch, capsys):
     token = tmp_path / "tok"
     token.write_text("secret\n")
     monkeypatch.setenv("TWIN_CF_TOKEN_FILE", str(token))
-    monkeypatch.setattr(site, "build", lambda run_ids, store, rep, web=None, mosaic=False: None)
+    monkeypatch.setattr(site, "build", lambda run_ids, store, rep, web=None: None)
     monkeypatch.setattr(site, "deploy", lambda token, web=None: None)
     assert site.publish_run(store, "r1") == "published r1"
     _labelled(store, "r2", 0.10, version=1)
@@ -432,7 +432,7 @@ def test_run_after_area_falls_back_with_note(tmp_path, monkeypatch, capsys):
     token = tmp_path / "tok"
     token.write_text("secret\n")
     monkeypatch.setenv("TWIN_CF_TOKEN_FILE", str(token))
-    monkeypatch.setattr(site, "build", lambda run_ids, store, rep, web=None, mosaic=False: None)
+    monkeypatch.setattr(site, "build", lambda run_ids, store, rep, web=None: None)
     monkeypatch.setattr(site, "deploy", lambda token, web=None: None)
     assert site.publish_run(store, "r1") == "published r1"
     assert "not comparable" in capsys.readouterr().err
@@ -471,7 +471,7 @@ def test_area_publish_records_score(tmp_path, monkeypatch):
     token.write_text("secret\n")
     monkeypatch.setenv("TWIN_CF_TOKEN_FILE", str(token))
     monkeypatch.setattr(site, "area_runs", lambda store, area: ["r1"])
-    monkeypatch.setattr(site, "build", lambda run_ids, store, rep, web=None, mosaic=False: None)
+    monkeypatch.setattr(site, "build", lambda run_ids, store, rep, web=None: None)
     monkeypatch.setattr(site, "deploy", lambda token, web=None: None)
     out = site.publish_run(store, str(store / "areas" / "seaport-1-twin"))
     assert out.startswith("published ")
@@ -482,7 +482,7 @@ def test_corrupt_label_cannot_stop_publish(tmp_path, monkeypatch, capsys):
     token = tmp_path / "tok"
     token.write_text("secret\n")
     monkeypatch.setenv("TWIN_CF_TOKEN_FILE", str(token))
-    monkeypatch.setattr(site, "build", lambda run_ids, store, rep, web=None, mosaic=False: None)
+    monkeypatch.setattr(site, "build", lambda run_ids, store, rep, web=None: None)
     monkeypatch.setattr(site, "deploy", lambda token, web=None: None)
 
     # case 1: corrupt JSON
