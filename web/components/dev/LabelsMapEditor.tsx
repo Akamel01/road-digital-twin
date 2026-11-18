@@ -64,9 +64,10 @@ function makeFeature(mode: Mode, pts: [number, number][]): GeoJsonFeature<LabelF
 }
 
 function featureColor(f: LabelFeature): string {
-  if (f.element === "crosswalk") return "var(--feat-cross, #d97706)";
-  if (f.element === "curb" || f.element === "curb_ramp") return "var(--feat-curb, #16a34a)";
-  return "var(--feat-mark, #2563eb)";
+  if (f.element === "crosswalk") return "#f59e0b";
+  if (f.element === "curb") return "#22c55e";
+  if (f.element === "curb_ramp") return "#a855f7";
+  return "#22d3ee";
 }
 
 function vertexList(f: GeoJsonFeature<LabelFeature>): [number, number][] {
@@ -469,71 +470,66 @@ export default function LabelsMapEditor({ site, meta, onMeta, runs }: Props) {
                 {labels.features.map((f, i) => {
                   const drafted = f.properties.origin === "drafted";
                   const color = featureColor(f.properties);
-                  const stroke = drafted ? color : color;
-                  const opacity = drafted ? 0.55 : 1;
-                  const width = drafted ? 1 : 2;
-                  const dash = drafted ? "4 3" : undefined;
+                  const selectedFeat = selected === i;
+                  const base = selectedFeat ? 3.5 : 2.5;
+                  const dash = drafted ? "6 3" : undefined;
                   const coords = f.geometry?.coordinates;
+                  const onSelect = () => mode === "select" && setSelected(i);
                   if (f.geometry?.type === "Point") {
                     const [x, y] = coords as [number, number];
                     const [lx, ly] = utmToLocal(frame, [x, y]);
+                    const r = 3 / view.k;
                     return (
-                      <circle
-                        key={i}
-                        data-feature={i}
-                        cx={lx}
-                        cy={ly}
-                        r={3 / view.k}
-                        fill={color}
-                        opacity={opacity}
-                        onClick={() => mode === "select" && setSelected(i)}
-                      />
+                      <g key={i} data-feature={i} onClick={onSelect}>
+                        <circle cx={lx} cy={ly} r={(3 + 1) / view.k} fill="#0b0f10" opacity={0.9} vectorEffect="non-scaling-stroke" />
+                        <circle cx={lx} cy={ly} r={r} fill={color} opacity={0.9} vectorEffect="non-scaling-stroke" />
+                      </g>
                     );
                   }
                   if (f.geometry?.type === "LineString") {
                     const pts = (coords as [number, number][]).map((p) => utmToLocal(frame, p).join(",")).join(" ");
                     return (
-                      <polyline
-                        key={i}
-                        data-feature={i}
-                        points={pts}
-                        fill="none"
-                        stroke={stroke}
-                        strokeWidth={width}
-                        strokeDasharray={dash}
-                        opacity={opacity}
-                        vectorEffect="non-scaling-stroke"
-                        onClick={() => mode === "select" && setSelected(i)}
-                        onDoubleClick={(e) => {
-                          e.stopPropagation();
-                          const pt = toUtmFromScreen(e.clientX, e.clientY);
-                          addVertexToFeature(i, pt);
-                        }}
-                      />
+                      <g key={i} data-feature={i} onClick={onSelect}>
+                        <polyline points={pts} fill="none" stroke="#0b0f10" strokeWidth={base + 2} strokeDasharray={dash} opacity={0.9} vectorEffect="non-scaling-stroke" />
+                        <polyline
+                          points={pts}
+                          fill="none"
+                          stroke={color}
+                          strokeWidth={base}
+                          strokeDasharray={dash}
+                          opacity={0.9}
+                          vectorEffect="non-scaling-stroke"
+                          onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            const pt = toUtmFromScreen(e.clientX, e.clientY);
+                            addVertexToFeature(i, pt);
+                          }}
+                        />
+                      </g>
                     );
                   }
                   if (f.geometry?.type === "Polygon") {
                     const ring = (coords as [number, number][][])[0] ?? [];
                     const pts = ring.map((p) => utmToLocal(frame, p).join(",")).join(" ");
                     return (
-                      <polygon
-                        key={i}
-                        data-feature={i}
-                        points={pts}
-                        fill={color}
-                        fillOpacity={drafted ? 0.12 : 0.2}
-                        stroke={stroke}
-                        strokeWidth={width}
-                        strokeDasharray={dash}
-                        opacity={opacity}
-                        vectorEffect="non-scaling-stroke"
-                        onClick={() => mode === "select" && setSelected(i)}
-                        onDoubleClick={(e) => {
-                          e.stopPropagation();
-                          const pt = toUtmFromScreen(e.clientX, e.clientY);
-                          addVertexToFeature(i, pt);
-                        }}
-                      />
+                      <g key={i} data-feature={i} onClick={onSelect}>
+                        <polygon points={pts} fill="none" stroke="#0b0f10" strokeWidth={base + 2} strokeDasharray={dash} opacity={0.9} vectorEffect="non-scaling-stroke" />
+                        <polygon
+                          points={pts}
+                          fill={color}
+                          fillOpacity={drafted ? 0.12 : 0.2}
+                          stroke={color}
+                          strokeWidth={base}
+                          strokeDasharray={dash}
+                          opacity={0.9}
+                          vectorEffect="non-scaling-stroke"
+                          onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            const pt = toUtmFromScreen(e.clientX, e.clientY);
+                            addVertexToFeature(i, pt);
+                          }}
+                        />
+                      </g>
                     );
                   }
                   return null;
@@ -549,7 +545,7 @@ export default function LabelsMapEditor({ site, meta, onMeta, runs }: Props) {
                 )}
                 {draft.map((p, i) => {
                   const [lx, ly] = utmToLocal(frame!, p);
-                  return <circle key={`d${i}`} cx={lx} cy={ly} r={3 / (view?.k ?? 1)} fill="#090" />;
+                  return <circle key={`d${i}`} cx={lx} cy={ly} r={3 / (view?.k ?? 1)} fill="#090" vectorEffect="non-scaling-stroke" />;
                 })}
                 {selected !== null &&
                   vertexList(labels.features[selected]).map((v, vi) => {
@@ -564,6 +560,7 @@ export default function LabelsMapEditor({ site, meta, onMeta, runs }: Props) {
                         fill="#fff"
                         stroke="#d00"
                         strokeWidth={1}
+                        vectorEffect="non-scaling-stroke"
                         style={{ cursor: "grab" }}
                         onPointerDown={(e) => {
                           e.stopPropagation();
@@ -583,7 +580,7 @@ export default function LabelsMapEditor({ site, meta, onMeta, runs }: Props) {
           </svg>
         </div>
         <div style={{ marginTop: 8, fontSize: 12 }}>
-          <b>Legend:</b> drafted (dashed, faint) vs operator (solid); colours: marking=blue, crosswalk=amber, curb/curb_ramp=green.
+          <b>Legend:</b> drafted (dashed) vs operator (solid); colours: marking=cyan, crosswalk=amber, curb=green, curb_ramp=purple.
         </div>
       </div>
       <aside style={{ border: "1px solid #ccc", padding: 8 }}>
