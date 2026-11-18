@@ -328,10 +328,10 @@ def main(argv: list[str] | None = None) -> int:
         return publish_command(args.run_ids, args.out, args.store, getattr(args, "mosaic", False))
     if args.command == "site":
         from twin.site import site_command
+
         return site_command(args.action, args.run_id, args.dry_run, args.store, args.latest, getattr(args, "mosaic", False))
     if args.command == "fake-run":
         from twin.fake_run import write_fake_runs
-
         for path in write_fake_runs(args.out, args.drives):
             print(path)
         return 0

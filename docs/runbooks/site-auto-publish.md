@@ -1,9 +1,10 @@
 # Auto-publish twin.papyrus-ai.net
 
-A run publishes when the per-element score against the audit labels shows no geometry element worse than the published run beyond its noise; ties publish; the first run publishes. No fewer HD-map gate checks pass (gate veto kept). Attributes (curb height has no producer; ramp slopes are noisy) are reported but do not block publishing. `TIE_MARGIN` moves to the legacy fallback (margin_sum ± 0.01). Operator, 2026-11-16 (it was "strictly better", ADR 0005). The first run publishes.
+A run publishes when the per-element score against the audit labels shows no geometry element worse than the published run beyond its noise; ties publish; the first run publishes. No fewer HD-map gate checks pass (gate veto kept). Attributes (curb height has no producer; ramp slopes are noisy) are reported but do not block publishing. `TIE_MARGIN` moves to the legacy fallback (margin_sum ± 0.01). Operator, 2026-11-16 (it was "strictly better", ADR 0005).
 
-## Queue itAfter an eval: `{"type": "publish", "run_id": "<run>"}`, or add `"publish": true` to a `run`/`rerun`/`eval` job to publish when its eval is GO. Add `"dry_run": true` to build without deploying.
+## Queue it
 
+After an eval: `{"type": "publish", "run_id": "<run>"}`, or add `"publish": true` to a `run`/`rerun`/`eval` job to publish when its eval is GO. Add `"dry_run": true` to build without deploying.
 A publish job builds the showcase from the run (`twin publish`), writes `status.json` (verdict, time) which the site shows in the top bar, builds `web/` (needs Node and npm) and runs `npx -y wrangler@4.151.2 deploy` from `web/`. It then appends the run to `<store>/published/history.json`. A skip (NO-GO, not better) finishes the job with `publish_result: skipped: <reason>`.
 
 By hand: `uv run twin site publish <run> [--dry-run] --store /data/twin-dev`.
