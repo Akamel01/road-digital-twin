@@ -449,11 +449,15 @@ def generate(
     needs_snapshot = bool(reset or import_path is not None)
     backup_root: Path | None = None
     backup_ok = False
-    restored = False
+    keep_backup = False
     if needs_snapshot and existed_before:
         backup_root = Path(tempfile.mkdtemp(prefix="labeltool-site-"))
-        shutil.copytree(site_dir, backup_root / "site")
-        backup_ok = True
+        try:
+            shutil.copytree(site_dir, backup_root / "site")
+            backup_ok = True
+        except BaseException:
+            shutil.rmtree(backup_root, ignore_errors=True)
+            raise
 
     try:
         if reset:
@@ -518,8 +522,8 @@ def generate(
                 if site_dir.exists():
                     shutil.rmtree(site_dir)
                 shutil.copytree(backup_root / "site", site_dir)
-                restored = True
-            except Exception:
+            except BaseException:
+                keep_backup = True
                 print(
                     f"labeltool: restore failed; backup preserved at {backup_root}",
                     file=sys.stderr,
@@ -529,7 +533,7 @@ def generate(
             shutil.rmtree(site_dir)
         raise
     finally:
-        if backup_root is not None and (not backup_ok or restored):
+        if backup_root is not None and not keep_backup:
             shutil.rmtree(backup_root, ignore_errors=True)
 
 

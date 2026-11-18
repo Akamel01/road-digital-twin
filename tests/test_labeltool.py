@@ -1391,6 +1391,9 @@ def test_generate_new_site_export_failure_removes_labels_dir(tmp_path, monkeypat
 
 
 def test_generate_reset_success_replaces_site_contents(tmp_path, monkeypatch):
+    import tempfile
+    from pathlib import Path
+
     store = tmp_path / "store"
     area_def = {
         "name": "a1",
@@ -1416,11 +1419,15 @@ def test_generate_reset_success_replaces_site_contents(tmp_path, monkeypatch):
         }
     )
     labels.write_labels(store, "s1", fc, expected_version=labels.read_site(store, "s1").version)
+    tmpdir = Path(tempfile.gettempdir())
+    before_tmp = set(tmpdir.glob("labeltool-site-*"))
     _patch_export_window(monkeypatch)
     out = generate(store, "s1", area="a1", areas_root=store / "areas", reset=True)
     assert out.is_file()
     assert labels.read_labels(store, "s1")["features"] == []
     assert labels.read_site(store, "s1").frozen is False
+    after_tmp = set(tmpdir.glob("labeltool-site-*"))
+    assert after_tmp == before_tmp
 
 
 def test_generate_reset_import_failure_restores_bytes(tmp_path, monkeypatch):
