@@ -357,6 +357,21 @@ a:focus-visible {
   filter: drop-shadow(0 0 1.5px #000);
 }
 
+.labels {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.labels .flabel {
+  fill: #fff;
+  font-family: var(--text);
+  font-weight: 600;
+  pointer-events: none;
+  filter: drop-shadow(0 0 1.5px #000);
+}
 .world polyline.hit {
   stroke: transparent;
   fill: none;
