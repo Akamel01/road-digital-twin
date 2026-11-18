@@ -42,10 +42,16 @@ export function localRect(bbox: number[], f: Frame): Rect {
 
 /** Fit a rect into the viewport with some padding, centred. */
 export function fitView(r: Rect, size: Size, pad: number, maxK = Infinity): View {
-  const k = Math.min(maxK, size.w / ((r.x1 - r.x0) * pad), size.h / ((r.y1 - r.y0) * pad));
+  const rw = (r.x1 - r.x0) * pad;
+  const rh = (r.y1 - r.y0) * pad;
+  if (!size.w || !size.h || !rw || !rh || !Number.isFinite(rw) || !Number.isFinite(rh)) {
+    return { k: 1, tx: size.w ? size.w / 2 : 0, ty: size.h ? size.h / 2 : 0 };
+  }
+  const k = Math.min(maxK, size.w / rw, size.h / rh);
   const cx = (r.x0 + r.x1) / 2;
   const cy = (r.y0 + r.y1) / 2;
-  return { k, tx: size.w / 2 - k * cx, ty: size.h / 2 - k * cy };
+  const kk = Number.isFinite(k) && k > 0 ? k : 1;
+  return { k: kk, tx: size.w / 2 - kk * cx, ty: size.h / 2 - kk * cy };
 }
 
 /** Tiles at level z that intersect the viewport. Only these get requested. */
@@ -63,7 +69,7 @@ export type BBox = [[number, number], [number, number]];
 export type TileIndex = { x: number; y: number; z: number };
 
 export function viewStateOf(v: View, size: Size): ViewState {
-  const k = v.k;
+  const k = Number.isFinite(v.k) && v.k > 0 ? v.k : 1;
   const target: [number, number, number] = [(size.w / 2 - v.tx) / k, (size.h / 2 - v.ty) / k, 0];
   const zoom = Math.log2(k);
   return { target, zoom, k };
@@ -80,7 +86,9 @@ export function fitState(r: Rect, size: Size, pad: number, maxK?: number): ViewS
 }
 
 export function minZoomOf(area: Rect, size: Size): number {
-  return Math.log2(fitView(area, size, 1.02).k * 0.8);
+  const k = fitView(area, size, 1.02).k;
+  if (!Number.isFinite(k) || k <= 0) return 0;
+  return Math.log2(k * 0.8);
 }
 
 export function bitmapBounds(b: BBox): [number, number, number, number] {
@@ -105,7 +113,7 @@ export function normaliseTileBBox(b: unknown): BBox | null {
     return null;
   }
   if (b !== null && typeof b === "object") {
-    const o = b as { west?: unknown; south?: unknown; east?: unknown; north?: unknown };
+    const o = b as { west?: unknown; south?: unknown; east?: unknown; north?: unknown; left?: unknown; top?: unknown; right?: unknown; bottom?: unknown };
     if (
       typeof o.west === "number" &&
       typeof o.south === "number" &&
@@ -113,6 +121,15 @@ export function normaliseTileBBox(b: unknown): BBox | null {
       typeof o.north === "number"
     ) {
       return [[o.west, o.south], [o.east, o.north]];
+    }
+    if (
+      typeof o.left === "number" &&
+      typeof o.top === "number" &&
+      typeof o.right === "number" &&
+      typeof o.bottom === "number"
+    ) {
+      // deck.gl non-geo TileLayer getTileMetadata returns {left,top,right,bottom}
+      return [[o.left, o.top], [o.right, o.bottom]];
     }
   }
   return null;

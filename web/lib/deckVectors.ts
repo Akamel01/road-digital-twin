@@ -109,11 +109,11 @@ export function vectorLayers(opts: VectorLayersOptions | VectorDeps, ...rest: un
         const st = overlayStyle(d.el, true, element === d.el, element !== null && element !== d.el, accuracyColor(d), tokens);
         return st.width;
       },
-      // @ts-expect-error deck types
-      getLineDashArray: (d: any) => {
+      getDashArray: (d: any) => {
         const st = overlayStyle(d.el, true, element === d.el, element !== null && element !== d.el, accuracyColor(d), tokens);
         return st.dash ?? [1, 0];
       },
+      extensions: [ext],
       pickable: false,
       onClick: (info: any) => handlers?.pickElement?.(info?.object?.el ?? null),
     }),
@@ -182,7 +182,7 @@ export function vectorLayers(opts: VectorLayersOptions | VectorDeps, ...rest: un
       getFillColor: withAlpha(tokens.fac, 18) as any,
       getLineColor: tokens.fac,
       getLineWidth: 1.4,
-      getLineDashArray: [5, 4] as any,
+      getDashArray: [5, 4] as any,
       extensions: [ext],
       pickable: state.facility === null,
       onClick: (info: any) => handlers?.onFacility?.(info?.object?.id ?? null),
