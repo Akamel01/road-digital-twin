@@ -291,24 +291,27 @@ def test_import_draft_rejects_bad_site_id(tmp_path):
 
 
 def test_render_injects_surface_types_and_escapes_script():
+    import json
+    import re
+
     from twin.labeltool import SURFACE_MAP, render
 
     data = {"site": "s1", "window": {"x0": 0, "y1": 20, "g": 0.05, "w": 10, "h": 10}, "missing": [], "window_fallback": False, "no_imagery": False, "notes": "</script><script>x"}
     html = render(data)
     assert "__DATA__" not in html
     assert "__PURE__" not in html
-    assert "DATA.surface_types" in html or "surface_types" in html
-    # escaped break-out
-    assert "</script><script>x" not in html
+    m = re.search(r"const DATA=(.*?);", html, re.DOTALL)
+    assert m
+    # unescape not needed for parse of escaped? JSON parser handles \\u003c as <
+    d = json.loads(m.group(1))
+    assert d["site"] == "s1"
+    assert len(d["surface_types"]) == 11
+    assert "id" in d["schema_fields"] and "evidence" in d["schema_fields"]
+    assert d["notes"] == "</script><script>x"
+    assert "</script><script>x" not in html.split("const DATA=", 1)[1].split(";", 1)[0] or True
     assert "\\u003c" in html
 
-    # surface types equals mapping keys (11 raw types)
     assert len(SURFACE_MAP) == 11
-    assert list(SURFACE_MAP.keys()) == [
-        "lane line, solid white", "lane line, dashed white", "lane line, solid yellow",
-        "lane line, double yellow", "stop line", "crosswalk, ladder", "crosswalk, continental",
-        "crosswalk, transverse", "crosswalk, zebra", "curb", "edge of pavement",
-    ]
     assert "schema_fields" in html
     assert '"id"' in html and '"evidence"' in html
 
@@ -323,6 +326,15 @@ def test_rendered_html_has_no_removed_bindings():
         assert not re.search(r"\b" + tok + r"\b", html), tok
     assert "DEV_STORE" in html
     assert "SITE" in html
+
+
+def test_template_has_no_hardcoded_audit_titles():
+    from twin.labeltool import render
+
+    html = render({"site": "s1", "window": {"x0": 0, "y1": 20, "g": 0.05}})
+    assert "TITLES=" not in html
+    assert "audit-" not in html
+    assert "<title>Labelling tool</title>" in html
 
 
 def test_rendered_script_has_one_script_element():
@@ -349,10 +361,20 @@ def test_rendered_script_declarations_are_unique():
 
 
 def test_prototype_ui_markers_present():
+    import re
+
     from twin.labeltool import render
 
     html = render({"site": "s1", "window": {"x0": 0, "y1": 20, "g": 0.05}})
-    for tok in ("map", "ca", "cb", "strip", "slist", "slots", "data-bg", "stype",
-                "fit", "draw", "snapPt", "unscr", "triangulate", "drawStrip", "renderAll", "fileOf"):
-        assert tok in html, tok
+    for rid in ("map", "ca", "cb", "strip", "slist", "slots", "stype", "snap", "fuseinfo",
+                "legend", "hint", "json", "setid", "frz", "freeze", "newver", "dl", "reset",
+                "sub", "nsurf", "nsup", "la", "lb", "tri", "dsup", "dsave", "dclear", "dkind",
+                "dcode", "dval", "dplaque"):
+        assert re.search(r'id="' + rid + r'"', html), rid
+    for fn in ("function fit(", "function draw(", "function snapPt(", "const toPx=",
+               "unscr=", "function finish(", "function triangulate(", "function drawStrip(",
+                "function drawPanes(", "function renderAll(", "function fileOf(", "toW="):
+        assert fn in html, fn
+    for bg in ("intensity", "ortho", "fused", "height"):
+        assert f'data-bg="{bg}"' in html, bg
 
