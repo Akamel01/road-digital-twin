@@ -394,32 +394,26 @@ def generate(
     preexisting = labels.site_path(store, site).is_file()
     if (x0 is None) != (y1 is None):
         raise DraftError("must provide both --x0 and --y1")
+    if reset and not preexisting:
+        raise DraftError(f"site {site!r} does not exist; cannot reset")
 
-    if reset:
-        if not preexisting:
-            raise DraftError(f"site {site!r} does not exist; cannot reset")
-        meta = read_site(store, site)
-        if meta.frozen:
-            raise DraftError("site is frozen; reset refused")
-        if area is None:
-            raise DraftError("area required to reset site")
-        labels.draft(store, site, area, force=True, empty=True, areas_root=areas_root)
-        meta = read_site(store, site)
-    elif not preexisting:
-        if area is None:
-            raise DraftError("missing site without --area")
-        labels.draft(store, site, area, empty=True, areas_root=areas_root)
-        meta = read_site(store, site)
-    else:
-        meta = read_site(store, site)
+    meta = read_site(store, site) if preexisting else None
 
-    area_name = area or meta.source_area
+    if reset and area is None:
+        raise DraftError("area required to reset site")
+    if not preexisting and not reset and area is None:
+        raise DraftError("missing site without --area")
+    if reset and meta is not None and meta.frozen:
+        raise DraftError("site is frozen; reset refused")
+
+    area_name = area or (meta.source_area if meta else None)
     if not area_name:
         raise DraftError("area required")
+
     _build_dir, area_def = labels.resolve_area(store, area_name, areas_root=areas_root)
     runs = runs_for_area(store, area_name, areas_root=areas_root)
 
-    if preexisting and not reset and not runs:
+    if preexisting and not runs:
         raise DraftError(
             f"existing site {site!r} has no resolvable runs for area {area_name!r}; "
             "check --store/--areas/--area"
@@ -432,6 +426,30 @@ def generate(
         wx0, wy1 = float(x0), float(y1)
     else:
         wx0 = wy1 = None  # set after import/auto
+
+    if reset:
+        assert meta is not None
+        role = meta.role or "audit"
+        labels.draft(
+            store,
+            site,
+            area_name,
+            force=True,
+            empty=True,
+            areas_root=areas_root,
+            role=role,
+        )
+        meta = read_site(store, site)
+    elif not preexisting:
+        labels.draft(
+            store,
+            site,
+            area_name,
+            empty=True,
+            areas_root=areas_root,
+            role="audit",
+        )
+        meta = read_site(store, site)
 
     if import_path is not None:
         import_draft(store, site, Path(import_path), replace=replace)

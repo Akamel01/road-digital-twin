@@ -899,6 +899,7 @@ def test_generate_creates_empty_site_for_b_and_c(tmp_path, monkeypatch):
         out = generate(store, site, area="a1")
         assert out.is_file()
         assert labels.read_labels(store, site)["features"] == []
+        assert labels.read_site(store, site).role == "audit"
 
 
 def test_two_sites_from_different_polygons_get_different_windows(tmp_path, monkeypatch):
@@ -1045,9 +1046,11 @@ def test_generate_reset_recreates_existing_site_empty(tmp_path, monkeypatch):
         "name": "a1",
         "dataset_version": "v1.0-trainval",
         "polygon": {"type": "Polygon", "coordinates": [[[0, 0], [20, 0], [20, 20], [0, 20], [0, 0]]]},
-        "drives": [],
+        "drives": [{"scene": "sc1", "scene_token": "t1"}],
     }
-    _mk_area_build(store, "a1", area_def, [])
+    _mk_area_build(store, "a1", area_def, ["sc1"])
+    full = {"load": "ok", "align": "ok", "ground": "ok"}
+    _mk_run(store, "20261101-000000-aaaaaa", "t1", "v1.0-trainval", full)
     labels.draft(store, "s1", "a1", areas_root=store / "areas")
     fc = labels.read_labels(store, "s1")
     fc["features"].append({"type": "Feature", "geometry": {"type": "LineString", "coordinates": [[1, 1], [2, 2]]}, "properties": {"id": "x", "element": "marking", "type": "solid_line", "origin": "operator"}})
@@ -1063,9 +1066,11 @@ def test_generate_reset_refuses_frozen_site(tmp_path, monkeypatch):
         "name": "a1",
         "dataset_version": "v1.0-trainval",
         "polygon": {"type": "Polygon", "coordinates": [[[0, 0], [20, 0], [20, 20], [0, 20], [0, 0]]]},
-        "drives": [],
+        "drives": [{"scene": "sc1", "scene_token": "t1"}],
     }
-    _mk_area_build(store, "a1", area_def, [])
+    _mk_area_build(store, "a1", area_def, ["sc1"])
+    full = {"load": "ok", "align": "ok", "ground": "ok"}
+    _mk_run(store, "20261101-000000-aaaaaa", "t1", "v1.0-trainval", full)
     labels.draft(store, "s1", "a1", areas_root=store / "areas")
     labels.approve(store, "s1", "op")
     _patch_export_window(monkeypatch)
@@ -1150,3 +1155,106 @@ def test_gitignore_blocks_generated_pages(tmp_path):
     r2 = subprocess.run(["git", "check-ignore", "-q", "labels/x"], cwd=repo, check=False)
     assert r1.returncode == 0
     assert r2.returncode == 0
+
+
+def test_generate_reset_preserves_audit_role(tmp_path, monkeypatch):
+    store = tmp_path / "store"
+    area_def = {
+        "name": "a1",
+        "dataset_version": "v1.0-trainval",
+        "polygon": {"type": "Polygon", "coordinates": [[[0, 0], [20, 0], [20, 20], [0, 20], [0, 0]]]},
+        "drives": [{"scene": "sc1", "scene_token": "t1"}],
+    }
+    _mk_area_build(store, "a1", area_def, ["sc1"])
+    full = {"load": "ok", "align": "ok", "ground": "ok"}
+    _mk_run(store, "20261101-000000-aaaaaa", "t1", "v1.0-trainval", full)
+    labels.draft(store, "s1", "a1", areas_root=store / "areas", role="audit")
+    _patch_export_window(monkeypatch)
+    generate(store, "s1", area="a1", reset=True)
+    assert labels.read_site(store, "s1").role == "audit"
+
+
+def test_generate_reset_preserves_non_audit_role(tmp_path, monkeypatch):
+    store = tmp_path / "store"
+    area_def = {
+        "name": "a1",
+        "dataset_version": "v1.0-trainval",
+        "polygon": {"type": "Polygon", "coordinates": [[[0, 0], [20, 0], [20, 20], [0, 20], [0, 0]]]},
+        "drives": [{"scene": "sc1", "scene_token": "t1"}],
+    }
+    _mk_area_build(store, "a1", area_def, ["sc1"])
+    full = {"load": "ok", "align": "ok", "ground": "ok"}
+    _mk_run(store, "20261101-000000-aaaaaa", "t1", "v1.0-trainval", full)
+    labels.draft(store, "s1", "a1", areas_root=store / "areas", role="dev")
+    _patch_export_window(monkeypatch)
+    generate(store, "s1", area="a1", reset=True)
+    assert labels.read_site(store, "s1").role == "dev"
+
+
+def _site_label_bytes(store, site):
+    base = store / "labels" / site
+    return (base / "site.json").read_bytes(), (base / "labels.geojson").read_bytes()
+
+
+def test_generate_reset_missing_area_leaves_site_unchanged(tmp_path, monkeypatch):
+    store = tmp_path / "store"
+    area_def = {
+        "name": "a1",
+        "dataset_version": "v1.0-trainval",
+        "polygon": {"type": "Polygon", "coordinates": [[[0, 0], [20, 0], [20, 20], [0, 20], [0, 0]]]},
+        "drives": [{"scene": "sc1", "scene_token": "t1"}],
+    }
+    _mk_area_build(store, "a1", area_def, ["sc1"])
+    full = {"load": "ok", "align": "ok", "ground": "ok"}
+    _mk_run(store, "20261101-000000-aaaaaa", "t1", "v1.0-trainval", full)
+    labels.draft(store, "s1", "a1", areas_root=store / "areas", role="audit")
+    fc = labels.read_labels(store, "s1")
+    fc["features"].append({"type": "Feature", "geometry": {"type": "LineString", "coordinates": [[1, 1], [2, 2]]}, "properties": {"id": "keep", "element": "marking", "type": "solid_line", "origin": "operator"}})
+    labels.write_labels(store, "s1", fc, expected_version=labels.read_site(store, "s1").version)
+    before = _site_label_bytes(store, "s1")
+    _patch_export_window(monkeypatch)
+    with pytest.raises((DraftError, FileNotFoundError)):
+        generate(store, "s1", area="missing-area", areas_root=store / "areas", reset=True)
+    assert _site_label_bytes(store, "s1") == before
+
+
+def test_generate_reset_uncovered_explicit_window_leaves_site_unchanged(tmp_path, monkeypatch):
+    store = tmp_path / "store"
+    area_def = {
+        "name": "a1",
+        "dataset_version": "v1.0-trainval",
+        "polygon": {"type": "Polygon", "coordinates": [[[0, 0], [20, 0], [20, 20], [0, 20], [0, 0]]]},
+        "drives": [{"scene": "sc1", "scene_token": "t1"}],
+    }
+    _mk_area_build(store, "a1", area_def, ["sc1"])
+    full = {"load": "ok", "align": "ok", "ground": "ok"}
+    _mk_run(store, "20261101-000000-aaaaaa", "t1", "v1.0-trainval", full)
+    labels.draft(store, "s1", "a1", areas_root=store / "areas", role="audit")
+    fc = labels.read_labels(store, "s1")
+    fc["features"].append({"type": "Feature", "geometry": {"type": "LineString", "coordinates": [[1, 1], [2, 2]]}, "properties": {"id": "keep", "element": "marking", "type": "solid_line", "origin": "operator"}})
+    labels.write_labels(store, "s1", fc, expected_version=labels.read_site(store, "s1").version)
+    before = _site_label_bytes(store, "s1")
+    _patch_export_window(monkeypatch)
+    with pytest.raises(DraftError):
+        generate(store, "s1", area="a1", areas_root=store / "areas", reset=True, x0=1000.0, y1=1000.0)
+    assert _site_label_bytes(store, "s1") == before
+
+
+def test_generate_reset_zero_run_existing_site_raises_and_leaves_unchanged(tmp_path, monkeypatch):
+    store = tmp_path / "store"
+    area_def = {
+        "name": "a1",
+        "dataset_version": "v1.0-trainval",
+        "polygon": {"type": "Polygon", "coordinates": [[[0, 0], [20, 0], [20, 20], [0, 20], [0, 0]]]},
+        "drives": [{"scene": "sc1", "scene_token": "t1"}],
+    }
+    _mk_area_build(store, "a1", area_def, ["sc1"])
+    labels.draft(store, "s1", "a1", areas_root=store / "areas", role="audit")
+    fc = labels.read_labels(store, "s1")
+    fc["features"].append({"type": "Feature", "geometry": {"type": "LineString", "coordinates": [[1, 1], [2, 2]]}, "properties": {"id": "keep", "element": "marking", "type": "solid_line", "origin": "operator"}})
+    labels.write_labels(store, "s1", fc, expected_version=labels.read_site(store, "s1").version)
+    before = _site_label_bytes(store, "s1")
+    _patch_export_window(monkeypatch)
+    with pytest.raises(DraftError, match="no resolvable runs"):
+        generate(store, "s1", area="a1", areas_root=store / "areas", reset=True)
+    assert _site_label_bytes(store, "s1") == before

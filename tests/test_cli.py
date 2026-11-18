@@ -100,7 +100,28 @@ def test_labels_import_frozen_site_exit_2(tmp_path, capsys):
 
 def test_labels_tool_reset_refuses_frozen_exit_2(tmp_path, capsys, monkeypatch):
     store = tmp_path / "store"
-    areas = _make_cli_area(store)
+    areas = store / "areas"
+    build = areas / "a1-twin"
+    (build / "5_features").mkdir(parents=True, exist_ok=True)
+    area_def = {
+        "name": "a1",
+        "dataset_version": "v1.0-trainval",
+        "polygon": {"type": "Polygon", "coordinates": [[[0, 0], [20, 0], [20, 20], [0, 20], [0, 0]]]},
+        "drives": [{"scene": "sc1", "scene_token": "t1"}],
+    }
+    (areas / "a1.json").write_text(json.dumps(area_def))
+    (build / "drives.json").write_text(json.dumps([{"scene": "sc1"}]))
+    run = store / "20261101-000000-aaaaaa"
+    run.mkdir(parents=True, exist_ok=True)
+    manifest = {
+        "data": {"scene_token": "t1", "nuscenes_version": "v1.0-trainval"},
+        "stages": [
+            {"name": "load", "status": "ok"},
+            {"name": "align", "status": "ok"},
+            {"name": "ground", "status": "ok"},
+        ],
+    }
+    (run / "manifest.json").write_text(json.dumps(manifest))
     from twin import labels
 
     labels.draft(store, "s1", "a1", areas_root=areas)
