@@ -223,3 +223,23 @@ console.log(JSON.stringify({open:PURE.closeRing(open), closed:PURE.closeRing(clo
     d = json.loads(out)
     assert d["open"] == [[0, 0], [1, 0], [1, 1], [0, 0]]
     assert d["closed"] == [[0, 0], [1, 0], [1, 1], [0, 0]]
+
+
+@pytest.mark.skipif(not _node_available(), reason="node not available")
+def test_js_props_less_finish_surface_becomes_feature():
+    out = _run_js("""
+const s = {id:"n",rawType:"curb",geom:"polyline",xy:[[0,0],[1,1]],px:[],evidence:"intensity",props:{}};
+const b = PURE.putBody(2,[],[s],{"curb":["curb","curb"]});
+console.log(JSON.stringify({count:b.feature_collection.features.length}));
+""")
+    d = json.loads(out)
+    assert d["count"] == 1
+
+
+@pytest.mark.skipif(not _node_available(), reason="node not available")
+def test_js_meta_body_empty_control_is_null():
+    out = _run_js("""
+console.log(JSON.stringify(PURE.metaBody("", "notes")));
+""")
+    d = json.loads(out)
+    assert d == {"control": None, "notes": "notes"}

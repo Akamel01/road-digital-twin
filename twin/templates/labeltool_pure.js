@@ -34,6 +34,7 @@
     var mapping = surfaceMap[rawType];
     var element = mapping[0], type = mapping[1];
     var props = (surface.props && typeof surface.props === "object") ? surface.props : {};
+    if (props.origin && props.origin !== "operator") return null;
 
     var xy = surface.xy;
     if (!Array.isArray(xy) || xy.length === 0) return null;

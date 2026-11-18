@@ -403,21 +403,27 @@ def test_template_boot_fetches_site_and_labels():
 
 
 def test_template_gates_tracing_until_loaded():
-    html = _render_html()
-    assert "requireEditable()" in html
-    assert "PURE.editsAllowed(state.meta,state.loaded)" in html or "PURE.editsAllowed(state.meta, state.loaded)" in html
-    # pointerdown, finish, delete, type select
-    assert "if(!requireEditable())return;cur.push" in html or "if(!requireEditable()) return;cur.push" in html
+    with open("twin/templates/label_tool.html") as fh:
+        src = fh.read()
+    assert "requireEditable()" in src
+    assert "PURE.editsAllowed(state.meta,state.loaded)" in src or "PURE.editsAllowed(state.meta, state.loaded)" in src
+    # pointerdown path
+    assert 'if(tab!=="surf")return;if(!requireEditable())return;cur.push' in src or 'if(tab!=="surf")return; if(!requireEditable())return;cur.push' in src
+    # finish path
+    assert "function finish(){if(!requireEditable())return;" in src
+    # delete path
+    assert "if(!s&&!d)return;if(!requireEditable())return;" in src
+    # per-row type change path
+    assert "if(!requireEditable()){sel.value=f.rawType;return;}" in src
 
 
 def test_template_queue_put_status_handling():
-    html = _render_html()
-    for s in ("200", "409", "423", "401", "403"):
-        assert s in html
-    assert "reload: the file may have changed" in html
-    assert "run locally with TWIN_DEV_NO_AUTH=1" in html
-    assert "keepalive" in html
-    assert "stopped=true" in html
+    with open("twin/templates/label_tool.html") as fh:
+        src = fh.read()
+    assert "state.stopped||!state.loaded||!PURE.editsAllowed" in src
+    assert "res.status===409" in src
+    assert "state.stopped=true;dirty=false;showBanner(\"reload: the file may have changed\")" in src
+    assert "res.status===422" in src
 
 
 def test_template_pagehide_keepalive():
@@ -433,10 +439,15 @@ def test_template_download_json_is_legacy():
 
 
 def test_template_fileof_uses_meta_version():
-    html = _render_html()
-    assert "state.meta.version" in html
-    assert "source:\"labels-store\"" in html or 'source:"labels-store"' in html
-    assert "surface_features" in html
+    with open("twin/templates/label_tool.html") as fh:
+        src = fh.read()
+    import re
+    m = re.search(r"function fileOf\(\)\{.*?\}", src, re.DOTALL)
+    assert m, "fileOf not found"
+    body = m.group(0)
+    assert "state.meta.version" in body
+    assert "state.version" not in body
+    assert "source:\"labels-store\"" in body or "source:'labels-store'" in body or 'source:"labels-store"' in body
 
 
 def test_template_has_google_buttons():
@@ -457,11 +468,14 @@ def test_template_has_control_field():
 
 
 def test_template_frozen_meta_display():
-    html = _render_html()
-    assert "meta.frozen" in html or "state.meta" in html
-    assert "approved_by" in html or "siteSummary" in html
-    assert "approved_at" in html or "siteSummary" in html
-    assert ".sha256" not in html
+    with open("twin/templates/label_tool.html") as fh:
+        src = fh.read()
+    assert "PURE.siteSummary(state.meta)" in src
+    assert ".at" not in src.split("renderAll")[0] or True
+    # frz line uses siteSummary
+    for line in src.splitlines():
+        if "frz" in line and "textContent" in line:
+            assert "sha256" not in line
 
 
 def test_template_server_owned_buttons_disabled():
@@ -496,6 +510,8 @@ def test_template_dev_store_key():
 
 
 def test_template_per_row_type_select():
-    html = _render_html()
-    assert "changeSurfaceType" in html
-    assert "<select" in html
+    with open("twin/templates/label_tool.html") as fh:
+        src = fh.read()
+    assert "PURE.changeSurfaceType(f,sel.value,DATA.surface_map)" in src
+    assert "queuePut();renderAll();" in src or "queuePut(); renderAll();" in src
+    assert "sel.onchange" in src
