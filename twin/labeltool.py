@@ -395,7 +395,9 @@ def generate(
     y1: float | None = None,
 ) -> Path:
     import os
+    import shutil
     import sys
+    import tempfile
 
     store = Path(store)
     if areas_root is not None:
@@ -442,62 +444,81 @@ def generate(
     if import_path is not None:
         validate_draft(import_path, site)
 
-    if reset:
-        assert meta is not None
-        role = meta.role or "audit"
-        labels.draft(
-            store,
-            site,
-            area_name,
-            force=True,
-            empty=True,
-            areas_root=areas_root,
-            role=role,
-        )
-        meta = read_site(store, site)
-    elif not preexisting:
-        labels.draft(
-            store,
-            site,
-            area_name,
-            empty=True,
-            areas_root=areas_root,
-            role="audit",
-        )
-        meta = read_site(store, site)
+    site_dir = labels.labels_dir(store, site)
+    existed_before = preexisting
+    backup_root: Path | None = None
+    try:
+        if existed_before:
+            backup_root = Path(tempfile.mkdtemp(prefix="labeltool-site-"))
+            shutil.copytree(site_dir, backup_root / "site")
 
-    if import_path is not None:
-        import_draft(store, site, Path(import_path), replace=replace)
-
-    if not explicit_window:
-        wx0, wy1, info = window_for(store, site)
-        if preexisting and not reset:
-            print(
-                f"warning: auto window for existing site {site!r}; "
-                f"use --x0/--y1 to pin the recorded window",
-                file=sys.stderr,
+        if reset:
+            assert meta is not None
+            role = meta.role or "audit"
+            labels.draft(
+                store,
+                site,
+                area_name,
+                force=True,
+                empty=True,
+                areas_root=areas_root,
+                role=role,
             )
+            meta = read_site(store, site)
+        elif not preexisting:
+            labels.draft(
+                store,
+                site,
+                area_name,
+                empty=True,
+                areas_root=areas_root,
+                role="audit",
+            )
+            meta = read_site(store, site)
 
-    from twin import labelraster
-    from twin.dataset import DatasetConfig
+        if import_path is not None:
+            import_draft(store, site, Path(import_path), replace=replace)
 
-    nuscenes_root = DatasetConfig.from_env().root
-    data = labelraster.export_window(
-        store, runs, site=site, x0=wx0, y1=wy1, nuscenes_root=nuscenes_root
-    )
-    data["site"] = site
-    data["window_fallback"] = bool(info.get("fallback", False))
-    data.setdefault("missing", [])
-    data.setdefault("no_imagery", False)
+        if not explicit_window:
+            wx0, wy1, info = window_for(store, site)
+            if preexisting and not reset:
+                print(
+                    f"warning: auto window for existing site {site!r}; "
+                    f"use --x0/--y1 to pin the recorded window",
+                    file=sys.stderr,
+                )
 
-    html = render(data)
-    out_dir = labels.labels_dir(store, site)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    target = out_dir / "tool.html"
-    tmp = out_dir / "tool.html.tmp"
-    tmp.write_text(html, encoding="utf-8")
-    os.replace(tmp, target)
-    return target
+        from twin import labelraster
+        from twin.dataset import DatasetConfig
+
+        nuscenes_root = DatasetConfig.from_env().root
+        data = labelraster.export_window(
+            store, runs, site=site, x0=wx0, y1=wy1, nuscenes_root=nuscenes_root
+        )
+        data["site"] = site
+        data["window_fallback"] = bool(info.get("fallback", False))
+        data.setdefault("missing", [])
+        data.setdefault("no_imagery", False)
+
+        html = render(data)
+        out_dir = labels.labels_dir(store, site)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        target = out_dir / "tool.html"
+        tmp = out_dir / "tool.html.tmp"
+        tmp.write_text(html, encoding="utf-8")
+        os.replace(tmp, target)
+        return target
+    except Exception:
+        if existed_before and backup_root is not None:
+            if site_dir.exists():
+                shutil.rmtree(site_dir)
+            shutil.copytree(backup_root / "site", site_dir)
+        elif not existed_before and site_dir.exists():
+            shutil.rmtree(site_dir)
+        raise
+    finally:
+        if backup_root is not None:
+            shutil.rmtree(backup_root, ignore_errors=True)
 
 
 def render(data: dict) -> str:

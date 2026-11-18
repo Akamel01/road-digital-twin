@@ -1287,3 +1287,167 @@ def test_generate_reset_bad_import_leaves_site_unchanged(tmp_path, monkeypatch):
     with pytest.raises(DraftError):
         generate(store, "s1", area="a1", areas_root=store / "areas", reset=True, import_path=dpath, replace=True)
     assert _site_label_bytes(store, "s1") == before
+
+# --- transactional reset/create (M6b2 atomicity) ---
+
+
+def _site_dir_bytes(store, site):
+    base = store / "labels" / site
+    if not base.exists():
+        return None
+    return {
+        p.relative_to(base).as_posix(): p.read_bytes()
+        for p in sorted(base.rglob("*"))
+        if p.is_file()
+    }
+
+
+def _raise_export(*args, **kwargs):
+    raise RuntimeError("boom")
+
+
+def test_generate_reset_export_failure_restores_site_byte_identical(tmp_path, monkeypatch):
+    store = tmp_path / "store"
+    area_def = {
+        "name": "a1",
+        "dataset_version": "v1.0-trainval",
+        "polygon": {"type": "Polygon", "coordinates": [[[0, 0], [20, 0], [20, 20], [0, 20], [0, 0]]]},
+        "drives": [{"scene": "sc1", "scene_token": "t1"}],
+    }
+    _mk_area_build(store, "a1", area_def, ["sc1"])
+    full = {"load": "ok", "align": "ok", "ground": "ok"}
+    _mk_run(store, "20261101-000000-aaaaaa", "t1", "v1.0-trainval", full)
+    labels.draft(store, "s1", "a1", areas_root=store / "areas", role="audit")
+    fc = labels.read_labels(store, "s1")
+    fc["features"].append(
+        {
+            "type": "Feature",
+            "geometry": {"type": "LineString", "coordinates": [[1, 1], [2, 2]]},
+            "properties": {
+                "id": "keep",
+                "element": "marking",
+                "type": "solid_line",
+                "origin": "operator",
+            },
+        }
+    )
+    labels.write_labels(store, "s1", fc, expected_version=labels.read_site(store, "s1").version)
+    (store / "labels" / "s1" / "labels.v1.geojson").write_text(
+        '{"type":"FeatureCollection","features":[{"snap":1}]}\n'
+    )
+    before = _site_dir_bytes(store, "s1")
+    assert before is not None
+    for name in ("site.json", "labels.geojson", "labels.v1.geojson"):
+        assert name in before
+
+    import twin.labelraster as lr
+
+    monkeypatch.setattr(lr, "export_window", _raise_export)
+    with pytest.raises(RuntimeError, match="boom"):
+        generate(store, "s1", area="a1", areas_root=store / "areas", reset=True)
+    assert _site_dir_bytes(store, "s1") == before
+
+
+def test_generate_new_site_export_failure_removes_labels_dir(tmp_path, monkeypatch):
+    store = tmp_path / "store"
+    area_def = {
+        "name": "a1",
+        "dataset_version": "v1.0-trainval",
+        "polygon": {"type": "Polygon", "coordinates": [[[0, 0], [20, 0], [20, 20], [0, 20], [0, 0]]]},
+        "drives": [],
+    }
+    _mk_area_build(store, "a1", area_def, [])
+    site_dir = store / "labels" / "s1"
+    assert not site_dir.exists()
+
+    import twin.labelraster as lr
+
+    monkeypatch.setattr(lr, "export_window", _raise_export)
+    with pytest.raises(RuntimeError, match="boom"):
+        generate(store, "s1", area="a1", areas_root=store / "areas")
+    assert not site_dir.exists()
+
+
+def test_generate_reset_success_replaces_site_contents(tmp_path, monkeypatch):
+    store = tmp_path / "store"
+    area_def = {
+        "name": "a1",
+        "dataset_version": "v1.0-trainval",
+        "polygon": {"type": "Polygon", "coordinates": [[[0, 0], [20, 0], [20, 20], [0, 20], [0, 0]]]},
+        "drives": [{"scene": "sc1", "scene_token": "t1"}],
+    }
+    _mk_area_build(store, "a1", area_def, ["sc1"])
+    full = {"load": "ok", "align": "ok", "ground": "ok"}
+    _mk_run(store, "20261101-000000-aaaaaa", "t1", "v1.0-trainval", full)
+    labels.draft(store, "s1", "a1", areas_root=store / "areas", role="audit")
+    fc = labels.read_labels(store, "s1")
+    fc["features"].append(
+        {
+            "type": "Feature",
+            "geometry": {"type": "LineString", "coordinates": [[1, 1], [2, 2]]},
+            "properties": {
+                "id": "old",
+                "element": "marking",
+                "type": "solid_line",
+                "origin": "operator",
+            },
+        }
+    )
+    labels.write_labels(store, "s1", fc, expected_version=labels.read_site(store, "s1").version)
+    _patch_export_window(monkeypatch)
+    out = generate(store, "s1", area="a1", areas_root=store / "areas", reset=True)
+    assert out.is_file()
+    assert labels.read_labels(store, "s1")["features"] == []
+    assert labels.read_site(store, "s1").frozen is False
+
+
+def test_generate_reset_import_failure_restores_bytes(tmp_path, monkeypatch):
+    from twin import labeltool
+
+    store = tmp_path / "store"
+    area_def = {
+        "name": "a1",
+        "dataset_version": "v1.0-trainval",
+        "polygon": {"type": "Polygon", "coordinates": [[[-50, -50], [200, -50], [200, 200], [-50, 200], [-50, -50]]]},
+        "drives": [{"scene": "sc1", "scene_token": "t1"}],
+    }
+    _mk_area_build(store, "a1", area_def, ["sc1"])
+    full = {"load": "ok", "align": "ok", "ground": "ok"}
+    _mk_run(store, "20261101-000000-aaaaaa", "t1", "v1.0-trainval", full)
+    labels.draft(store, "s1", "a1", areas_root=store / "areas", role="audit")
+    fc = labels.read_labels(store, "s1")
+    fc["features"].append(
+        {
+            "type": "Feature",
+            "geometry": {"type": "LineString", "coordinates": [[1, 1], [2, 2]]},
+            "properties": {
+                "id": "keep",
+                "element": "marking",
+                "type": "solid_line",
+                "origin": "operator",
+            },
+        }
+    )
+    labels.write_labels(store, "s1", fc, expected_version=labels.read_site(store, "s1").version)
+    (store / "labels" / "s1" / "labels.v1.geojson").write_text(
+        '{"type":"FeatureCollection","features":[{"snap":1}]}\n'
+    )
+    before = _site_dir_bytes(store, "s1")
+    dpath = _write_draft(tmp_path / "d.json", "s1", 15)
+    _patch_export_window(monkeypatch)
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("import boom")
+
+    monkeypatch.setattr(labeltool, "import_draft", boom)
+    with pytest.raises(RuntimeError, match="import boom"):
+        generate(
+            store,
+            "s1",
+            area="a1",
+            areas_root=store / "areas",
+            reset=True,
+            import_path=dpath,
+            replace=True,
+        )
+    assert _site_dir_bytes(store, "s1") == before
