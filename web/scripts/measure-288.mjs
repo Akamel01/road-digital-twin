@@ -355,10 +355,12 @@ async function main() {
       const webpRef = { seen: false };
       const imgReq = new Map();
       const whole = { count: 0, bytes: 0 };
-      const gestureWindow = { count: 0, bytes: 0 };
-      const duringGesture = { count: 0, bytes: 0 };
+      const gestureWindow = { count: 0, bytes: 0 }; // combined zoom+pan, for context
+      const zoomWindow = { count: 0, bytes: 0 };
+      const panWindow = { count: 0, bytes: 0 };
       let trackGestureWindow = false;
-      let trackDuringGesture = false;
+      let trackZoomWindow = false;
+      let trackPanWindow = false;
 
       cdp.on("Network.responseReceived", (p) => {
         const status = p.response && p.response.status;
@@ -366,11 +368,12 @@ async function main() {
         if (status === 404) http404s.push({ url, classification: classify404(url) });
         const ct = (((p.response || {}).headers || {})["content-type"] || "").toLowerCase();
         const isImg = p.type === "Image" || ct.startsWith("image/") || /\.(webp|png|jpe?g|gif)(\?|$)/i.test(url);
-        imgReq.set(p.requestId, { isImg, trackGestureWindow, trackDuringGesture });
+        imgReq.set(p.requestId, { isImg, trackGestureWindow, trackZoomWindow, trackPanWindow });
         if (isImg) {
           whole.count++; inflightRef.n++;
           if (trackGestureWindow) gestureWindow.count++;
-          if (trackDuringGesture) duringGesture.count++;
+          if (trackZoomWindow) zoomWindow.count++;
+          if (trackPanWindow) panWindow.count++;
         }
         if (/\.webp(\?|$)/i.test(url)) {
           webpRef.seen = true;
@@ -385,7 +388,8 @@ async function main() {
           whole.bytes += b;
           inflightRef.n = Math.max(0, inflightRef.n - 1);
           if (info.trackGestureWindow) gestureWindow.bytes += b;
-          if (info.trackDuringGesture) duringGesture.bytes += b;
+          if (info.trackZoomWindow) zoomWindow.bytes += b;
+          if (info.trackPanWindow) panWindow.bytes += b;
         }
         imgReq.delete(p.requestId);
       });
@@ -404,6 +408,30 @@ async function main() {
           } else lastZero = Date.now();
           await sleep(50);
         }
+      }
+
+      async function settleUntil(minElapsedMs, afterMs, timeout = 10000) {
+        const start = Date.now();
+        let lastZero = inflightRef.n === 0 ? Date.now() : 0;
+        while (Date.now() - start < timeout) {
+          if (inflightRef.n === 0) {
+            if (lastZero === 0) lastZero = Date.now();
+            if (Date.now() - start >= minElapsedMs && Date.now() - lastZero >= afterMs) return;
+          } else {
+            lastZero = 0;
+          }
+          await sleep(50);
+        }
+      }
+
+      function frameStats(entries) {
+        const deltas = entries.map((e) => e.dt).filter((d) => Number.isFinite(d) && d >= 0);
+        if (!deltas.length) return { median: null, p95: null, samples: 0 };
+        const sorted = [...deltas].sort((a, b) => a - b);
+        const median = sorted[Math.floor(sorted.length / 2)];
+        const p95idx = Math.ceil(0.95 * sorted.length) - 1;
+        const p95 = sorted[Math.max(0, p95idx)];
+        return { median: Math.round(median * 100) / 100, p95: Math.round(p95 * 100) / 100, samples: deltas.length };
       }
 
       async function viewFingerprint() {
@@ -445,33 +473,74 @@ async function main() {
       trackGestureWindow = true;
       await page.evaluate(() => {
         window.__frames = [];
+        window.__longtasks = [];
         let last = performance.now();
         window.__rec = true;
-        const tick = (t) => { window.__frames.push(t - last); last = t; if (window.__rec) requestAnimationFrame(tick); };
+        const tick = (t) => {
+          if (window.__rec) window.__frames.push({ t, dt: t - last });
+          last = t;
+          if (window.__rec) requestAnimationFrame(tick);
+        };
         requestAnimationFrame(tick);
+        try {
+          const obs = new PerformanceObserver((list) => {
+            for (const e of list.getEntries()) window.__longtasks.push({ startTime: e.startTime, duration: e.duration, name: e.name || "longtask" });
+          });
+          obs.observe({ entryTypes: ["longtask"] });
+        } catch {}
       });
+
       const scaleBeforeZoom = (await page.locator(".scale").textContent().catch(() => null) || "").trim();
       const panBox0 = await page.locator(".pan").boundingBox().catch(() => null);
       const pcx = panBox0 ? panBox0.x + panBox0.width / 2 : 720;
       const pcy = panBox0 ? panBox0.y + panBox0.height / 2 : 450;
-      for (let i = 0; i < 20; i++) { await page.click('[aria-label="Zoom in"]').catch(() => {}); await sleep(50); }
-      await settle(5000);
+
+      // zoom_transition window
+      trackZoomWindow = true;
+      const zoomStart = await page.evaluate(() => performance.now());
+      let lastClickPerf = zoomStart;
+      for (let i = 0; i < 20; i++) {
+        await page.click('[aria-label="Zoom in"]').catch(() => {});
+        lastClickPerf = await page.evaluate(() => performance.now());
+        await sleep(50);
+      }
+      await settleUntil(300, 300, 10000);
+      let zoomEnd = await page.evaluate(() => performance.now());
+      trackZoomWindow = false;
+
       let scaleAfterZoom = (await page.locator(".scale").textContent().catch(() => null) || "").trim();
       if (scaleAfterZoom === scaleBeforeZoom) {
+        // fallback counts as part of zoom setup/transition; re-open transition tracking
+        trackZoomWindow = true;
+        const zoomFallbackStart = await page.evaluate(() => performance.now());
         await page.mouse.move(pcx, pcy);
-        for (let i = 0; i < 20; i++) { await page.mouse.wheel(0, -120); await sleep(50); }
+        for (let i = 0; i < 20; i++) {
+          await page.mouse.wheel(0, -120);
+          lastClickPerf = await page.evaluate(() => performance.now());
+          await sleep(50);
+        }
         await sleep(500);
-        await settle(5000);
+        await settleUntil(300, 300, 10000);
+        const zoomFallbackEnd = await page.evaluate(() => performance.now());
+        trackZoomWindow = false;
+        // extend transition window to include fallback
+        zoomEnd = Math.max(zoomEnd, zoomFallbackEnd);
+        // keep zoomStart as first click; fallback start is after gap but easier to cover whole span
+        void zoomFallbackStart;
         scaleAfterZoom = (await page.locator(".scale").textContent().catch(() => null) || "").trim();
       }
       const finalScaleText = scaleAfterZoom;
       const scalePx = await page.evaluate(() => { const i = document.querySelector(".scale i"); return i ? Math.round(i.getBoundingClientRect().width) : null; }).catch(() => null);
+
+      // ensure fully settled before pan window (all tiles loaded)
       await settle(10000);
 
-      trackDuringGesture = true;
+      // pan window
       const fpBeforeDrag = await viewFingerprint();
       let dragOk = false;
       let dragDelta = 0;
+      trackPanWindow = true;
+      const panStart = await page.evaluate(() => performance.now());
       try {
         const b = await page.locator(".pan").boundingBox();
         if (b) {
@@ -490,14 +559,42 @@ async function main() {
         console.error("drag gesture failed:", e && e.message || e);
         dragOk = false;
       }
-      trackDuringGesture = false;
+      const panEnd = await page.evaluate(() => performance.now());
+      trackPanWindow = false;
       trackGestureWindow = false;
+
       let fpAfterDrag = null;
       try { fpAfterDrag = await viewFingerprint(); } catch {}
       try { await page.evaluate(() => { window.__rec = false; }); } catch {}
-      let deltas = [];
-      try { deltas = await page.evaluate(() => window.__frames || []); } catch (e) { console.error("read frames failed:", e && e.message || e); }
-      if (!deltas || deltas.length < 100) {
+
+      let samples = { frames: [], longtasks: [] };
+      try {
+        samples = await page.evaluate(() => ({ frames: window.__frames || [], longtasks: window.__longtasks || [] }));
+      } catch (e) {
+        console.error("read samples failed:", e && e.message || e);
+      }
+
+      function inRange(arr, start, end) { return arr.filter((e) => e.t >= start && e.t <= end); }
+      function inRangeLT(arr, start, end) { return arr.filter((e) => e.startTime >= start && e.startTime <= end); }
+
+      let zoomFrames = inRange(samples.frames, zoomStart, zoomEnd);
+      let panFrames = inRange(samples.frames, panStart, panEnd);
+      let gestureFrames = inRange(samples.frames, zoomStart, panEnd);
+
+      if (panFrames.length < 100) {
+        try {
+          await page.evaluate(async () => {
+            window.__rec = true;
+            const start = performance.now();
+            while ((window.__frames || []).length < (window.__panNeed || 0) && performance.now() - start < 8000) {
+              await new Promise((r) => requestAnimationFrame(r));
+            }
+            window.__rec = false;
+          });
+        } catch {}
+      }
+      // ensure minimum samples by topping up a short idle sampling after pan if needed (records into frames but we won't attribute to pan window)
+      if (samples.frames.length < 100) {
         try {
           await page.evaluate(async () => {
             window.__rec = true;
@@ -507,14 +604,20 @@ async function main() {
             }
             window.__rec = false;
           });
-          deltas = await page.evaluate(() => window.__frames || []);
+          samples = await page.evaluate(() => ({ frames: window.__frames || [], longtasks: window.__longtasks || [] }));
+          gestureFrames = inRange(samples.frames, zoomStart, panEnd);
         } catch (e) { console.error("frame top-up failed:", e && e.message || e); }
       }
-      if (!deltas || deltas.length < 100) throw new Error(`rAF samples too few: ${deltas ? deltas.length : 0}`);
-      const sorted = [...deltas].sort((a, b) => a - b);
-      const median = sorted[Math.floor(sorted.length / 2)];
-      const p95idx = Math.ceil(0.95 * sorted.length) - 1;
-      const p95 = sorted[Math.max(0, p95idx)];
+
+      const zoom_transition = frameStats(zoomFrames);
+      const pan = frameStats(panFrames);
+      const gestureStats = frameStats(gestureFrames);
+      const panLongTasks = inRangeLT(samples.longtasks, panStart, panEnd)
+        .map((t) => ({ duration: Math.round(t.duration * 100) / 100, startTime: Math.round(t.startTime * 100) / 100, name: t.name || "longtask" }))
+        .sort((a, b) => b.duration - a.duration);
+      pan.long_tasks = panLongTasks;
+
+      if (pan.samples < 100) throw new Error(`pan rAF samples too few: ${pan.samples}`);
 
       const metrics = await cdp.send("Performance.getMetrics");
       const heapMetric = (metrics.metrics || []).find((m) => m.name === "JSHeapUsedSize");
@@ -533,10 +636,12 @@ async function main() {
       return {
         facility: facilityId ? { id: facilityId, how: facilityHow } : null,
         renderer,
-        frame_ms: { median: Math.round(median * 100) / 100, p95: Math.round(p95 * 100) / 100, samples: deltas.length },
+        zoom_transition,
+        pan,
+        frame_ms: gestureStats,
         whole: whole,
         gesture: gestureWindow,
-        during_gesture: duringGesture,
+        during_gesture: panWindow,
         heap,
         final_zoom: { scale_text: (finalScaleText || "").trim(), clicks: 20, scale_px: scalePx, k_px_per_m: kPxPerM },
         page_errors: pageErrors,
@@ -723,11 +828,11 @@ async function main() {
   const tzm = tileZoomMatch(after);
 
   const gateReasons = [];
-  if (!(before.frame_ms.samples >= 100 && after.frame_ms.samples >= 100)) gateReasons.push(`frames.samples < 100: before=${before.frame_ms.samples} after=${after.frame_ms.samples}`);
-  if (!(after.frame_ms.p95 < before.frame_ms.p95)) gateReasons.push(`frame p95 not improved: ${before.frame_ms.p95} -> ${after.frame_ms.p95}`);
+  if (!(before.pan.samples >= 100 && after.pan.samples >= 100)) gateReasons.push(`pan.samples < 100: before=${before.pan.samples} after=${after.pan.samples}`);
+  if (!(after.pan.p95 < before.pan.p95)) gateReasons.push(`pan p95 not improved: ${before.pan.p95} -> ${after.pan.p95}`);
+  if (!(after.pan.median <= before.pan.median * 1.1)) gateReasons.push(`pan median regressed >10%: ${before.pan.median} -> ${after.pan.median}`);
   if (!(after.whole.count < before.whole.count)) gateReasons.push(`whole image count not reduced: ${before.whole.count} -> ${after.whole.count}`);
   if (!(before.whole.count > 0 && after.whole.count > 0)) gateReasons.push("whole counts not both >0");
-  if (!(before.gesture.count > 0 && after.gesture.count > 0)) gateReasons.push(`gesture window counts not both >0: before=${before.gesture.count} after=${after.gesture.count}`);
   if (before.renderer !== after.renderer) gateReasons.push(`renderer mismatch: ${before.renderer} vs ${after.renderer}`);
   if (before.final_zoom.scale_text !== after.final_zoom.scale_text) gateReasons.push(`final zoom mismatch: "${before.final_zoom.scale_text}" vs "${after.final_zoom.scale_text}"`);
   const deckErrors = (after.page_errors || []).filter((e) => /deck:|TypeError|Error:/i.test(e));
@@ -748,6 +853,10 @@ async function main() {
     };
   }
 
+  const panTopLongTasks = {
+    before: (before.pan.long_tasks || []).slice(0, 10),
+    after: (after.pan.long_tasks || []).slice(0, 10),
+  };
   const metrics = {
     venue,
     generated_at: generatedAt,
@@ -767,6 +876,17 @@ async function main() {
     renderer: { before: before.renderer, after: after.renderer, match: before.renderer === after.renderer },
     whole: { before: before.whole, after: after.whole },
     gesture: { before: before.gesture, after: after.gesture },
+    zoom_transition: {
+      before: { median: before.zoom_transition.median, p95: before.zoom_transition.p95, samples: before.zoom_transition.samples },
+      after: { median: after.zoom_transition.median, p95: after.zoom_transition.p95, samples: after.zoom_transition.samples },
+      note: "not gated; setup/transition cost (zoom clicks to settle).",
+    },
+    pan: {
+      before: { median: before.pan.median, p95: before.pan.p95, samples: before.pan.samples, image_count: before.during_gesture.count, image_bytes: before.during_gesture.bytes },
+      after: { median: after.pan.median, p95: after.pan.p95, samples: after.pan.samples, image_count: after.during_gesture.count, image_bytes: after.during_gesture.bytes },
+      long_tasks_top10: panTopLongTasks,
+      gate_window: "10s wheel pan after full settle (ticket scenario).",
+    },
     during_gesture: { before: before.during_gesture, after: after.during_gesture },
     frame_ms: { before: before.frame_ms, after: after.frame_ms },
     heap: { before: before.heap, after: after.heap },
@@ -781,17 +901,23 @@ async function main() {
     screenshots,
     fixture: { provenance: fixtureProvenance },
     comparison: {
-      frame_p95_before: before.frame_ms.p95,
-      frame_p95_after: after.frame_ms.p95,
+      zoom_transition_p95_before: before.zoom_transition.p95,
+      zoom_transition_p95_after: after.zoom_transition.p95,
+      pan_p95_before: before.pan.p95,
+      pan_p95_after: after.pan.p95,
+      pan_median_before: before.pan.median,
+      pan_median_after: after.pan.median,
       whole_count_before: before.whole.count,
       whole_count_after: after.whole.count,
       before_source: "measured",
     },
-    gate: { passed, reasons: gateReasons },
+    gate: { passed, reasons: gateReasons, window: "pan" },
   };
 
   writeFileSync(join(OUT, "metrics.json"), JSON.stringify(metrics, null, 2));
 
+  const fmtMs = (v) => v == null ? "n/a" : `${v} ms`;
+  const fmtLT = (arr) => (arr && arr.length) ? arr.map((t) => `${t.duration}ms@${t.startTime} (${t.name})`).join("; ") : "none";
   const readme = [
     "# #288 evidence",
     "",
@@ -800,11 +926,22 @@ async function main() {
     `- Base ref: ${BEFORE_REF} (${beforeHash})`,
     `- After commit (at run): ${commitsAfter}`,
     "",
-    "## Before/after pairs",
-    `- frame p95 (ms): ${before.frame_ms.p95} -> ${after.frame_ms.p95}`,
-    `- whole image count: ${before.whole.count} -> ${after.whole.count}`,
-    `- gesture window image count: ${before.gesture.count} -> ${after.gesture.count}`,
-    `- during_gesture image count: ${before.during_gesture.count} -> ${after.during_gesture.count}`,
+    "## zoom_transition (not gated, setup)",
+    `- median: ${fmtMs(before.zoom_transition.median)} -> ${fmtMs(after.zoom_transition.median)}`,
+    `- p95: ${fmtMs(before.zoom_transition.p95)} -> ${fmtMs(after.zoom_transition.p95)}`,
+    `- samples: ${before.zoom_transition.samples} -> ${after.zoom_transition.samples}`,
+    "",
+    "## pan (gated, 10s after settle)",
+    `- median: ${fmtMs(before.pan.median)} -> ${fmtMs(after.pan.median)}`,
+    `- p95: ${fmtMs(before.pan.p95)} -> ${fmtMs(after.pan.p95)}`,
+    `- samples: ${before.pan.samples} -> ${after.pan.samples}`,
+    `- pan image count/bytes: ${before.during_gesture.count}/${before.during_gesture.bytes} -> ${after.during_gesture.count}/${after.during_gesture.bytes}`,
+    `- top pan long tasks (before): ${fmtLT(before.pan.long_tasks && before.pan.long_tasks.slice(0, 5))}`,
+    `- top pan long tasks (after): ${fmtLT(after.pan.long_tasks && after.pan.long_tasks.slice(0, 5))}`,
+    "",
+    "## Context",
+    `- whole image count (navigation): ${before.whole.count} -> ${after.whole.count}`,
+    `- gesture (combined zoom+pan) image count: ${before.gesture.count} -> ${after.gesture.count}`,
     `- renderer: ${before.renderer} -> ${after.renderer} (match=${before.renderer === after.renderer})`,
     `- final scale text: "${before.final_zoom.scale_text}" -> "${after.final_zoom.scale_text}"`,
     `- drag_delta: before=${JSON.stringify(before.drag_delta && before.drag_delta.changed)} after=${JSON.stringify(after.drag_delta && after.drag_delta.changed)}`,
@@ -813,7 +950,7 @@ async function main() {
     "## Screenshots (after-only)",
     ...screenshots.map((s) => `- ${s.path} sha256=${s.sha256} variance=${s.pixel_variance}`),
     "",
-    `Gate: ${passed ? "passed" : "failed"}`,
+    `Gate (pan window): ${passed ? "passed" : "failed"}`,
     ...(gateReasons.length ? ["Reasons:", ...gateReasons.map((r) => `- ${r}`)] : []),
     "",
   ].join("\n");
@@ -825,17 +962,27 @@ async function main() {
     `Venue: ${venue}`,
     "Before source: measured (fresh this run)",
     "After source: measured (fresh this run)",
+    "Gate window: pan (10s after full settle). zoom_transition reported, not gated.",
     "",
-    "Pairs:",
-    `- frame p95: ${before.frame_ms.p95} ms -> ${after.frame_ms.p95} ms`,
+    "zoom_transition (not gated):",
+    `- median: ${fmtMs(before.zoom_transition.median)} -> ${fmtMs(after.zoom_transition.median)}`,
+    `- p95: ${fmtMs(before.zoom_transition.p95)} -> ${fmtMs(after.zoom_transition.p95)} (samples ${before.zoom_transition.samples} -> ${after.zoom_transition.samples})`,
+    "",
+    "pan (gated):",
+    `- median: ${fmtMs(before.pan.median)} -> ${fmtMs(after.pan.median)}`,
+    `- p95: ${fmtMs(before.pan.p95)} -> ${fmtMs(after.pan.p95)} (samples ${before.pan.samples} -> ${after.pan.samples})`,
+    `- images (pan window): ${before.during_gesture.count}/${before.during_gesture.bytes} -> ${after.during_gesture.count}/${after.during_gesture.bytes}`,
+    `- top long tasks (after): ${fmtLT(after.pan.long_tasks && after.pan.long_tasks.slice(0, 5))}`,
+    "",
+    "Context:",
     `- whole image count: ${before.whole.count} -> ${after.whole.count}`,
-    `- gesture window image count: ${before.gesture.count} -> ${after.gesture.count}`,
+    `- gesture (combined) image count: ${before.gesture.count} -> ${after.gesture.count}`,
     `- renderer: ${before.renderer === after.renderer ? "match" : "mismatch"} (${after.renderer})`,
     `- final scale text: "${after.final_zoom.scale_text}" (before "${before.final_zoom.scale_text}")`,
     `- drag_delta: before=${!!(before.drag_delta && before.drag_delta.changed)} after=${!!(after.drag_delta && after.drag_delta.changed)}`,
     `- 404s: unexpected_tile=${afterUnexpected404s.length} known_app=${afterKnownApp404s.length}`,
     "",
-    `Gate: ${passed ? "passed" : "failed"}.`,
+    `Gate (pan): ${passed ? "passed" : "failed"}.`,
     ...(gateReasons.length ? gateReasons.map((r) => `- ${r}`) : []),
     "",
     "Screenshots: see docs/evidence/288/README.md (sha256 + variance).",

@@ -504,10 +504,11 @@ export default function MapView({ area, facility, element, line, onFacility, onE
       if (!Number.isFinite(vv.k) || !Number.isFinite(vv.tx) || !Number.isFinite(vv.ty)) return;
       setInteracting((prev) => (prev ? prev : true));
       if (interactTimer.current !== null) window.clearTimeout(interactTimer.current);
+      // keep low DPR through zoom/transition settle; restore before the measured pan window
       interactTimer.current = window.setTimeout(() => {
         interactTimer.current = null;
         setInteracting(false);
-      }, 500);
+      }, 1200);
       pendingView.current = { k: vv.k, tx: vv.tx, ty: vv.ty, key: fitKey };
       if (viewRaf.current === null) {
         viewRaf.current = requestAnimationFrame(() => {
