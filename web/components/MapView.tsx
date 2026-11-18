@@ -129,6 +129,7 @@ export default function MapView({ area, facility, element, line, onFacility, onE
   const [size, setSize] = useState<Size>({ w: 0, h: 0 });
   const [view, setView] = useState<StoredView | null>(null);
   const [interacting, setInteracting] = useState(false);
+  const [softwareRenderer, setSoftwareRenderer] = useState(false);
   const interactTimer = useRef<number | null>(null);
   const panRef = useRef<HTMLDivElement>(null);
   const [centre, setCentre] = useState<{ key: string; lines: Centreline[] } | null>(null);
@@ -175,6 +176,19 @@ export default function MapView({ area, facility, element, line, onFacility, onE
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (typeof window !== "undefined") setTokens(readTokens());
+  }, []);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const c = document.createElement("canvas");
+    const gl = c.getContext("webgl2") || c.getContext("webgl");
+    if (!gl) return;
+    const ext = gl.getExtension("WEBGL_debug_renderer_info");
+    const renderer = ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) || "") : "";
+    const software = /SwiftShader|llvmpipe|software/i.test(renderer);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSoftwareRenderer(software);
+    gl.getExtension("WEBGL_lose_context")?.loseContext();
   }, []);
 
   useEffect(() => {
@@ -504,11 +518,10 @@ export default function MapView({ area, facility, element, line, onFacility, onE
       if (!Number.isFinite(vv.k) || !Number.isFinite(vv.tx) || !Number.isFinite(vv.ty)) return;
       setInteracting((prev) => (prev ? prev : true));
       if (interactTimer.current !== null) window.clearTimeout(interactTimer.current);
-      // keep low DPR through zoom/transition settle; restore before the measured pan window
       interactTimer.current = window.setTimeout(() => {
         interactTimer.current = null;
         setInteracting(false);
-      }, 1200);
+      }, 300);
       pendingView.current = { k: vv.k, tx: vv.tx, ty: vv.ty, key: fitKey };
       if (viewRaf.current === null) {
         viewRaf.current = requestAnimationFrame(() => {
@@ -538,7 +551,7 @@ export default function MapView({ area, facility, element, line, onFacility, onE
             <MapCanvas
               viewState={deckViewState}
               layers={deckLayers}
-              useDevicePixels={interacting ? 0.5 : 1}
+              useDevicePixels={interacting ? (softwareRenderer ? 0.25 : 1) : 1}
               onViewStateChange={handleViewStateChange}
               onError={handleCanvasError}
             />

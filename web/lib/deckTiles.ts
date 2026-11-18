@@ -34,6 +34,97 @@ function memoTileKeys(meta: MosaicMeta): Set<string> | null {
   return keys;
 }
 
+type Pending = { resolve: (v: ImageBitmap | null) => void };
+type WState = { w: Worker; busy: number; pending: Map<number, Pending> };
+
+const WORKER_SRC = `self.onmessage=async(e)=>{const{id,url}=e.data;try{const r=await fetch(url);if(!r.ok){postMessage({id,ok:false});return}const b=await r.blob();const bmp=await createImageBitmap(b);postMessage({id,ok:true,bmp},[bmp])}catch{postMessage({id,ok:false})}}`;
+let pool: WState[] | null = null;
+let workerUrl: string | null = null;
+let reqId = 1;
+
+function canUseWorkers(): boolean {
+  return typeof window !== "undefined" && typeof Worker !== "undefined" && typeof Blob !== "undefined";
+}
+
+function getPool(): WState[] | null {
+  if (!canUseWorkers()) return null;
+  if (pool) return pool;
+  try {
+    workerUrl = URL.createObjectURL(new Blob([WORKER_SRC], { type: "application/javascript" }));
+    pool = [0, 1].map(() => {
+      const w = new Worker(workerUrl!);
+      const st: WState = { w, busy: 0, pending: new Map() };
+      w.onmessage = (e: MessageEvent) => {
+        const { id, ok, bmp } = e.data || {};
+        const p = st.pending.get(id);
+        if (p) {
+          st.pending.delete(id);
+          st.busy = Math.max(0, st.busy - 1);
+          p.resolve(ok && bmp ? (bmp as ImageBitmap) : null);
+        } else if (ok && bmp) {
+          try { (bmp as ImageBitmap).close?.(); } catch {}
+        }
+      };
+      w.onerror = () => {
+        for (const [, p] of st.pending) p.resolve(null);
+        st.pending.clear();
+        st.busy = 0;
+      };
+      return st;
+    });
+    return pool;
+  } catch {
+    pool = null;
+    return null;
+  }
+}
+
+function fetchBitmapViaWorker(url: string, signal?: AbortSignal): Promise<ImageBitmap | null> | null {
+  if (signal?.aborted) return Promise.resolve(null);
+  const p = getPool();
+  if (!p) return null;
+  const st = p[0].busy <= p[1].busy ? p[0] : p[1];
+  const id = reqId++;
+  return new Promise((resolve) => {
+    const done = (v: ImageBitmap | null) => {
+      if (signal && onAbort) signal.removeEventListener("abort", onAbort);
+      resolve(v);
+    };
+    const onAbort = signal
+      ? () => {
+          if (st.pending.has(id)) {
+            st.pending.delete(id);
+            st.busy = Math.max(0, st.busy - 1);
+          }
+          done(null);
+        }
+      : undefined;
+    st.pending.set(id, { resolve: done });
+    st.busy++;
+    if (signal && onAbort) signal.addEventListener("abort", onAbort, { once: true });
+    try {
+      st.w.postMessage({ id, url });
+    } catch {
+      st.pending.delete(id);
+      st.busy = Math.max(0, st.busy - 1);
+      if (signal && onAbort) signal.removeEventListener("abort", onAbort);
+      resolve(null);
+    }
+  });
+}
+
+async function fetchBitmapMainThread(url: string, signal?: AbortSignal): Promise<ImageBitmap | null> {
+  try {
+    const res = await fetch(url, { signal });
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    if (signal?.aborted) return null;
+    return await createImageBitmap(blob);
+  } catch {
+    return null;
+  }
+}
+
 function makeMosaicTileset(meta: MosaicMeta, dpr: number) {
   const extent = meta.bbox[2] - meta.bbox[0];
   return class MosaicTileset extends Tileset2D {
@@ -108,19 +199,19 @@ export function tileLayers({ metas, rasters, version, dpr }: TileLayersInput) {
           const url = base.replace("{z}", String(z)).replace("{x}", String(x)).replace("{y}", String(y));
           const tag = `${layer}-${z}-${x}-${y}-${Math.random().toString(36).slice(2, 7)}`;
           try {
+            if (props.signal?.aborted) return null;
+            const viaWorker = fetchBitmapViaWorker(url, props.signal);
+            if (viaWorker) {
+              pmark(`tile:${tag}:worker:start`);
+              const bmp = await viaWorker;
+              pmark(`tile:${tag}:worker:end`);
+              pmeasure(`tile:${layer}:worker`, `tile:${tag}:worker:start`, `tile:${tag}:worker:end`);
+              return bmp;
+            }
             pmark(`tile:${tag}:fetch:start`);
-            const res = await fetch(url, { signal: props.signal });
+            const bmp = await fetchBitmapMainThread(url, props.signal);
             pmark(`tile:${tag}:fetch:end`);
             pmeasure(`tile:${layer}:fetch`, `tile:${tag}:fetch:start`, `tile:${tag}:fetch:end`);
-            if (!res.ok) return null;
-            pmark(`tile:${tag}:blob:start`);
-            const blob = await res.blob();
-            pmark(`tile:${tag}:blob:end`);
-            pmeasure(`tile:${layer}:blob`, `tile:${tag}:blob:start`, `tile:${tag}:blob:end`);
-            pmark(`tile:${tag}:bitmap:start`);
-            const bmp = await createImageBitmap(blob);
-            pmark(`tile:${tag}:bitmap:end`);
-            pmeasure(`tile:${layer}:createImageBitmap`, `tile:${tag}:bitmap:start`, `tile:${tag}:bitmap:end`);
             return bmp;
           } catch {
             return null;
