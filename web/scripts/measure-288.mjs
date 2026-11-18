@@ -329,8 +329,14 @@ async function measureUncappedPhase(port, facilityId, CHROME, durationSec = 5) {
         };
         requestAnimationFrame(tick);
       });
+      const panBox = await page.locator(".pan").boundingBox();
+      if (!panBox) throw new Error("no .pan bbox before uncapped pan");
+      await page.mouse.move(panBox.x + panBox.width / 2, panBox.y + panBox.height / 2);
       const steps = Math.max(1, Math.round((durationSec * 1000) / 250));
       for (let i = 0; i < steps; i++) {
+        const jx = ((i % 3) - 1) * 20;
+        const jy = (((Math.floor(i / 3)) % 3) - 1) * 20;
+        await page.mouse.move(panBox.x + panBox.width / 2 + jx, panBox.y + panBox.height / 2 + jy);
         const dx = Math.round(Math.cos(i * 0.4) * 40);
         const dy = Math.round(Math.sin(i * 0.4) * 40);
         await page.mouse.wheel(dx, dy);
@@ -476,11 +482,27 @@ async function measureSideOnce(buildOutDir, fixtureShowcase, sideLabel, CHROME) 
     }
     async function viewFingerprint() {
       try {
+        const scaleText = ((await page.locator(".scale").textContent().catch(() => "")) || "").trim();
+        const domState = await page.evaluate(() => {
+          const labels = document.querySelector(".labels g")?.getAttribute("transform") || null;
+          const scaleI = document.querySelector(".scale i");
+          const scalePx = scaleI ? Math.round(scaleI.getBoundingClientRect().width) : null;
+          const pan = document.querySelector(".pan");
+          const counts = pan ? {
+            centreline: pan.getAttribute("data-centreline-count"),
+            label: pan.getAttribute("data-label-count"),
+            facility: pan.getAttribute("data-facility-count"),
+          } : null;
+          return { labels, scalePx, counts };
+        }).catch(() => null);
         const el = page.locator(".pan");
         const box = await el.boundingBox();
-        if (!box) return null;
-        const buf = await page.screenshot({ clip: { x: Math.max(0, box.x), y: Math.max(0, box.y), width: box.width, height: box.height }, type: "png" });
-        return createHash("sha256").update(buf).digest("hex");
+        let shot = null;
+        if (box) {
+          const buf = await page.screenshot({ clip: { x: Math.max(0, box.x), y: Math.max(0, box.y), width: box.width, height: box.height }, type: "png" });
+          shot = createHash("sha256").update(buf).digest("hex");
+        }
+        return JSON.stringify({ scaleText, domState, shot });
       } catch { return null; }
     }
     async function readLongTasks() {
@@ -562,12 +584,18 @@ async function measureSideOnce(buildOutDir, fixtureShowcase, sideLabel, CHROME) 
 
     // --- pan window (gated) ---
     const fpBeforeDrag = await viewFingerprint();
+    const panBox = await page.locator(".pan").boundingBox();
+    if (!panBox) throw new Error("no .pan bbox before pan");
+    await page.mouse.move(panBox.x + panBox.width / 2, panBox.y + panBox.height / 2);
     await page.evaluate(() => { window.__panFrames = []; window.__panRec = true; });
     trackPan = true;
     const panStart = await page.evaluate(() => performance.now());
     // 10s wheel pan
     const panSteps = 40; // 250ms apart => ~10s
     for (let i = 0; i < panSteps; i++) {
+      const jx = ((i % 3) - 1) * 20;
+      const jy = (((Math.floor(i / 3)) % 3) - 1) * 20;
+      await page.mouse.move(panBox.x + panBox.width / 2 + jx, panBox.y + panBox.height / 2 + jy);
       const dx = Math.round(Math.cos(i * 0.4) * 40);
       const dy = Math.round(Math.sin(i * 0.4) * 40);
       await page.mouse.wheel(dx, dy);
@@ -650,6 +678,8 @@ async function measureSideOnce(buildOutDir, fixtureShowcase, sideLabel, CHROME) 
       drag_delta: {
         changed: fpBeforeDrag !== fpAfterDrag && fpBeforeDrag != null && fpAfterDrag != null,
         zoom_changed: fpBefore !== fpAfterZoom && fpBefore != null && fpAfterZoom != null,
+        before: fpBeforeDrag,
+        after: fpAfterDrag,
       },
     };
 
@@ -820,6 +850,9 @@ async function doCombine(before, after, ctx) {
   const bu = before.uncapped || {};
   const au = after.uncapped || {};
   const gateReasons = [];
+  if (!(before.drag_delta && before.drag_delta.changed && after.drag_delta && after.drag_delta.changed)) {
+    gateReasons.push(`drag_delta.changed must be true on both sides: before=${!!(before.drag_delta && before.drag_delta.changed)} after=${!!(after.drag_delta && after.drag_delta.changed)} (static-pan measurement invalid)`);
+  }
   if (!(before.pan.samples >= 100 && after.pan.samples >= 100)) gateReasons.push(`pan.samples < 100: before=${before.pan.samples} after=${after.pan.samples}`);
   if (!(after.pan.p95 <= before.pan.p95 + TOLERANCE_MS && after.pan.median <= before.pan.median + TOLERANCE_MS)) {
     gateReasons.push(`pan vsync tolerance failed (<=+${TOLERANCE_MS}ms): median ${before.pan.median}->${after.pan.median}, p95 ${before.pan.p95}->${after.pan.p95}`);
