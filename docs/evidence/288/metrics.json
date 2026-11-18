@@ -1,75 +1,237 @@
 {
   "venue": "live-mirror: Seaport (15 drives)",
+  "generated_at": "2026-11-18T12:51:15.892Z",
+  "base_ref": "1d3951c",
+  "fixture_source": "live-mirror",
+  "commits": {
+    "before": "1d3951c7fbaba434250e8432aeb9acfa165ca5e9",
+    "after": "f82c69c0338885b097999ec720badfe5724db303"
+  },
+  "publish_report": {
+    "tile_version": "99b0085b341d"
+  },
+  "scene": {
+    "extent": 555.2451655545738,
+    "bbox": [
+      332112.62579162174,
+      4689895.050188713,
+      332667.8709571763,
+      4690450.295354268
+    ],
+    "zmax": {
+      "lidar": 6,
+      "ortho": 6,
+      "height": 5,
+      "coverage": 6
+    },
+    "facility": {
+      "id": "I-1782",
+      "how": "query-param"
+    }
+  },
   "live": {
     "showcase_reachable": true,
     "mosaic_present": false,
     "area_status": 200,
     "report_status": 200,
-    "bytes_area": 39385,
-    "bytes_report": 591
-  },
-  "commits": {
-    "before": "1d3951c",
-    "after": "90ba0b5e88d60bf499dcf962991bc1acbc00483b"
+    "tiles_200": 16364,
+    "tiles_404": 0,
+    "mirrored_bytes": 41680875
   },
   "renderer": {
     "before": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
     "after": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
     "match": true
   },
-  "facility": {
-    "id": "I-1782",
-    "how": "query-param"
-  },
   "whole": {
     "before": {
-      "count": 320,
-      "bytes": 2314081
+      "count": 325,
+      "bytes": 2353892
     },
     "after": {
-      "count": 20,
-      "bytes": 443348
+      "count": 24,
+      "bytes": 523836
     }
   },
   "gesture": {
     "before": {
-      "count": 112,
-      "bytes": 655847
+      "count": 117,
+      "bytes": 695658
     },
     "after": {
-      "count": 0,
-      "bytes": 0
+      "count": 12,
+      "bytes": 254240
     }
   },
-  "heap": {
-    "before": 24867588,
-    "after": 28521160
+  "during_gesture": {
+    "before": {
+      "count": 117,
+      "bytes": 695658
+    },
+    "after": {
+      "count": 4,
+      "bytes": 80488
+    }
   },
   "frame_ms": {
     "before": {
-      "median": 199.9,
-      "p95": 433.4,
-      "samples": 109
+      "median": 316.5,
+      "p95": 499.9,
+      "samples": 156
     },
     "after": {
-      "median": 16.7,
-      "p95": 16.8,
-      "samples": 673
+      "median": 383.4,
+      "p95": 500,
+      "samples": 144
     }
+  },
+  "heap": {
+    "before": 67727616,
+    "after": 19779188
   },
   "final_zoom": {
     "before": {
       "scale_text": "5 m",
       "clicks": 20,
       "scale_px": 200,
-      "zoom": 200
+      "k_px_per_m": 40
     },
     "after": {
       "scale_text": "5 m",
       "clicks": 20,
       "scale_px": 200,
-      "zoom": 200
+      "k_px_per_m": 40
     }
+  },
+  "tile_zoom_match": {
+    "before": {
+      "ok": true,
+      "details": {
+        "lidar": {
+          "requested_max_z": null,
+          "zmax": 6,
+          "ok": true
+        },
+        "ortho": {
+          "requested_max_z": null,
+          "zmax": 6,
+          "ok": true
+        },
+        "height": {
+          "requested_max_z": null,
+          "zmax": 5,
+          "ok": true
+        },
+        "coverage": {
+          "requested_max_z": null,
+          "zmax": 6,
+          "ok": true
+        }
+      },
+      "expected_max_z_at_final_k": 7
+    },
+    "after": {
+      "ok": true,
+      "details": {
+        "lidar": {
+          "requested_max_z": 6,
+          "zmax": 6,
+          "ok": true
+        },
+        "ortho": {
+          "requested_max_z": null,
+          "zmax": 6,
+          "ok": true
+        },
+        "height": {
+          "requested_max_z": null,
+          "zmax": 5,
+          "ok": true
+        },
+        "coverage": {
+          "requested_max_z": null,
+          "zmax": 6,
+          "ok": true
+        }
+      },
+      "expected_max_z_at_final_k": 7
+    }
+  },
+  "http_404s": {
+    "before": [
+      {
+        "url": "http://127.0.0.1:33019/showcase/status.json",
+        "classification": "unexpected"
+      },
+      {
+        "url": "http://127.0.0.1:33019/favicon.ico",
+        "classification": "unexpected"
+      },
+      {
+        "url": "http://127.0.0.1:33019/dev",
+        "classification": "unexpected"
+      },
+      {
+        "url": "http://127.0.0.1:33019/latest",
+        "classification": "unexpected"
+      },
+      {
+        "url": "http://127.0.0.1:33019/showcase/status.json",
+        "classification": "unexpected"
+      },
+      {
+        "url": "http://127.0.0.1:33019/dev",
+        "classification": "unexpected"
+      },
+      {
+        "url": "http://127.0.0.1:33019/latest",
+        "classification": "unexpected"
+      }
+    ],
+    "after": [
+      {
+        "url": "http://127.0.0.1:36077/showcase/status.json",
+        "classification": "unexpected"
+      },
+      {
+        "url": "http://127.0.0.1:36077/favicon.ico",
+        "classification": "unexpected"
+      },
+      {
+        "url": "http://127.0.0.1:36077/showcase/status.json",
+        "classification": "unexpected"
+      },
+      {
+        "url": "http://127.0.0.1:36077/dev",
+        "classification": "unexpected"
+      },
+      {
+        "url": "http://127.0.0.1:36077/latest",
+        "classification": "unexpected"
+      }
+    ],
+    "after_unexpected": [
+      {
+        "url": "http://127.0.0.1:36077/showcase/status.json",
+        "classification": "unexpected"
+      },
+      {
+        "url": "http://127.0.0.1:36077/favicon.ico",
+        "classification": "unexpected"
+      },
+      {
+        "url": "http://127.0.0.1:36077/showcase/status.json",
+        "classification": "unexpected"
+      },
+      {
+        "url": "http://127.0.0.1:36077/dev",
+        "classification": "unexpected"
+      },
+      {
+        "url": "http://127.0.0.1:36077/latest",
+        "classification": "unexpected"
+      }
+    ]
   },
   "page_errors": {
     "before": [
@@ -87,32 +249,406 @@
       "Failed to load resource: the server responded with a status of 404 (Not Found)",
       "Failed to load resource: the server responded with a status of 404 (Not Found)",
       "Failed to load resource: the server responded with a status of 404 (Not Found)",
-      "Failed to load resource: the server responded with a status of 404 (Not Found)",
-      "Failed to load resource: the server responded with a status of 404 (Not Found)"
+      "deck: `getLineDashArray` has been removed. Use `PathStyleExtension` instead"
     ],
-    "after_stacks": [],
-    "after_404s": [
-      "Failed to load resource: the server responded with a status of 404 (Not Found)",
-      "Failed to load resource: the server responded with a status of 404 (Not Found)",
-      "Failed to load resource: the server responded with a status of 404 (Not Found)",
-      "Failed to load resource: the server responded with a status of 404 (Not Found)",
-      "Failed to load resource: the server responded with a status of 404 (Not Found)",
-      "Failed to load resource: the server responded with a status of 404 (Not Found)",
-      "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    "after_non_404": [
+      "deck: `getLineDashArray` has been removed. Use `PathStyleExtension` instead"
     ]
   },
-  "limitations": {
-    "full_res_by_layer": "displayed level vs published zmax at MAX_K (see docs)"
+  "drag_delta": {
+    "before": {
+      "before_fp": null,
+      "after_fp": null,
+      "changed": false,
+      "zoom_changed": false
+    },
+    "after": {
+      "before_fp": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAA/oAAALQCAYAAAAgpgtFAAAQAElEQVR4AXz9B6AfVdUvfu85J70nkBAgjR6poSMqNfSeKCjdhgULYiFiR1RAxQqi0kUUHglFRIRQlGJUQEB6S4DQWzrpv/f72WFyefzf+x5Zzszea6++1i4z56TrU5/6VOeTn/xk5/3vf/9D/fr1W6vkZ+211z5mr7326uy+++6dPfbYo7PFFlv8Ic31v6OOOur0K6+8sjN16tTON7/5zc7nPve5zgc+8IE70tk3UDbZZJMTjjvuuM7xxx/f2WCDDT6grYVtt932V4cddhj8Dhx8TzjhhM7Xv/71CjvvvPPXW9zQ/PPXvva1yuPUU0/tfPe73+1873vf63z+859/bOjQoWNavPb6nve856ef+MQnOh/60Ic67373uzuRoxN+nQ9/+MOV109+8pPOzTff3Lnxxhsr/PKXv6x6G7PRRhsd2dJprxk/+Rvf+EaV66tf/Wrn5JNP7nzpS19aOmrUqJ1bnLdf+/fvv/mWW275Mp5bb7115b3PPvt09t9//84hhxxSdW51j26d973vfbWNvOzAjgcffHBn11137UycOLFz6KGHdtZZZ52jx48ffyL8I444otIx7iMf+Ui932+//ToHHnhgB13t6LS25NePfvSjHQAf7Ljjjj99u8y57xUYDOLj88j6djjggAM6Bx10UI2B9ddf/7TgDQiUyHTtO9/5zirnZz7zmc4Xv/jFamNjjdl33307e++9d9VvxowZnfZn8eLFnW/EprHt19ABG2644dQddtjhTfhoxb983PngBz/4+LBhwzYODvn6jR49eq2H8rNixYrO3//+9yrXpEmTOmzGvuxz5JFHdlzZi03Ycty4cT8Jjfrf4Ycffsn3v//9zpQpU54ePnz4+vH7OewnFsXBxz72sc7HP/7xzoknnlhlYEPxE1k673rXuzqbbbZZ9dsbb7zRuf766zs/+9nPKpx11lkd8OUvf7mz5557dnbbbbcOO5z2vdM6y5Yu66xYsaLGHt+IIzF/zDHHVB3g7bzzzjVmySJOzz333M5f//rX1mydZcuWVZj9wO8682f9o/O788/s/Pv8Azs3/OSAGidsx+Znn312x1jwwx/+sMM+8hiP6N5hH7jveMc7pvbp02edMWPG3D958mT2qPrKZ8APbLfTTjuJwR+kHkz41re+9eoFP/lK59wzp3SmnnV85wc/+EHnpz/9aeeKX321M/OygzqP/O7Qej314zsuOfPEPTrB7/z85z/vkANNcMopp3ROOumkDlnFOHm0f+UrX6nxkrjoRLbOyJEjOyNGjKhx95vf/KajDnz2s5+tcT527NhO4k9Nqrb+emqHfjmKDvvKBfTlnxoml77wsYM7v/7yblVG8oI//WDvztc+/M7Km85i4NOf/nT136BBg5bFPnPizyViCcgvAE+c4MPGfIkv/vJMDNKVbmJCbpM/tDrbbbddpa8+ijN9aKK1yy671HpBJ3Z6y1cdfpBvfCIfyeIq/42jO34AP3yS69XO9Gl5kE2sqzliQp2EK77Furj8RvKT3O7l0bHHHisXaz3XDuiXeltjli2STzWGvvCFL6j5k5Jsg+PDnaPfbPKgL8blEHy2oBsfiXn+CawIzrzUz0XswKZ4iR/+lVOpEx3AhqmNHTZgO3mLx7XXXtu58sorl4TGnDPPPHPZZZdd1rn88ss7l/720s53vvOdDjuxhZhgU/qhzW/kpCu5xK18Viu+lzmHLdjRFaip6gJ74sue7Com9PHf6aefXues0047rebhNttsU/2IB5zoW2sKXdk+8tY4Z3+02Wq99darPjz66KM77IEX/nRgR7LLMzbg7+23377mxcYbb9yZMGFCzRNxw9fqgPosZtgcT3rjh8YvfvGLzre//e2OuCM/X4ptc5l8k5uxa/W5Nj7gC7QvueSSalu6iU06iQ8ywePnnXbaqfqOXvyFDx",
+      "after_fp": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAA/oAAALQCAYAAAAgpgtFAAAQAElEQVR4Aez9B9heVbUvfM+VhCT0hC41dFSQUARUuhEBlUSRqgiIIlZwC1hAAVG3DaTYC4IFDaBIEQQeBQERkCqISO/SEkIglLT7+/8GrLyRc3Y573X2954iVwZr3bOMPsYcc65138+w9uJ/iyyyyMvf/OY3P/j2t799sPXWW89daaWV5qy44ooFSy655BkZZuz8sMA222xz8S677DIn4y9P/8IB/V2u/T/32v5TsMwyy3x23XXXHYBVV1117iqrrDJnhRVWuCbIxgb6f2uOHj363kUXXXSw4IIL/qRvDP8nLLvssoOMH4SvuZFlzqRJk+buvffeg3322Wfwhje8YbDWWmsN1llnnbouvfTSJ2Zu8fXqjV/947dOeutgu+22uy9410p7Gzly5M4ZMwhPgz322GNw/PHHD4477rhZa6yxxtbpr3n9dcyYMf+y5pprDtI3CM+D6K3A/eqrrz545StfOdhss80Gm2+++WDLLbccbLXVVnRc9695zWsGm2yyyWDjjTceoBe6X1looYU2fsUrXvEEPbzqVa8ajB8/frDeeusNllhiiX3Dz16ve93rCt+hhx46+PznPz/YdtttC2fGzg0fczbccMM5aOMD/fXXX3/w8pe/fLDBBhvUOHzQgzErrbTSvaNGjVqbLNHnLnRo3vLLLz8AscPM6Hsr/bf/5M3b3TN54uCeyZOueeE6cXDBsTvMPP/YNw3e8aYNfmUM+PER2950yH7bDb7xqbcMrvvpvhlvzsTBzT9/9+Ad73jHIPwNNlh3jcGR79l0cNTH9hqc8PmPDD7+8Y8PDjvssMGnPvWpuv/EJz4x+NKXvjSIf5V+Nt100wG5t9hii7LlbrvtNth1110L3va2tw223377waSJkwabbrLpIP56ZfhYdIcddjjrgx/84OBDH/pQARuQ7TUbrDHY+Q2vGnzugNcNjv7w9oM/fG/3wblf2X4en0d/eMfBG9/4xsEBBxwwOPNr7xj84uitB2d+4fWDj+61+eCEQ3cYfP2Tbx4c8r63Dj7xgbcP9t1zp0FsNYieBnjcd999B+985zsHe+211+BNb3pT+cNqq61W9//yL/9CtjmRc86nP/3pOZ/5zGfmfvazny1abMwv9ttvv8HnP77vYP99di15yfyeXbYYfPWg1w9+87U3DX7+uR3n8dnb4JB3bTpYaqmlBmPHjh18dM9Xl1xfPnDbwclf2m9wwuc+PPjCJ/YdTJw4cZB4KD2EdunZNToarLzyyoNx48YNDj744MHXvvY1PA7Wj8/ghx4Av908/pvYKl1r45/0yY/ggEu8JY7EUtnJPP4v9mKXL8bHNtl5u1fNOPuLbxBb30jcviIx8MC73vWuwYEHHlj8vf/97x9MmDCh4iY+PXjta19bPr7RRhtdGLvOi72TTjpp25/85CeDU089dRC6xy+88MKvSiw98u53v3sgNg455JABP6LT9A8OOuigskPyVcnARh/Zf4/BeV/doXQ6YZNVKs723HPPAbuIra9FH1//+tcH3/jGNwYnn3zyIDQHP/jBDwbf/va3yzfJ/J73vKfaTjnllOKfj2pPDhroO+KIIwZHBPjzl7/85eJJvMsXayUnuWcf/kwH8Pz4xz8uXHw2clfsymF4ExORb+7nPve5uR/72McqF/BBsQ4nuju/befBvvvsOzc+xs+KJvuKM3DUUUcNvvKVrxS85S1vGdAJvHSPB7zga/fddx/w6Y9+9KODY489tvyDH5OPz5CVTwD+vtNOOw3AxPibvAnkXzEILzxyAJn4kHZ6xg+byw3ymbGRsfTHN771rW8NQOSpHPLWt751AN6z33vKVubT73HHHTc48cQTK3f867/+a9kcTnyIZ/mAH9ARP5U7yC2faBNvZHIFeKLjo48+egDfF7/4xQEbfuELXxjwL+slMJ9cYp+d+Cw8dE",
+      "changed": true,
+      "zoom_changed": true
+    }
+  },
+  "screenshots": [
+    {
+      "path": "docs/evidence/288/after-lidar-area.png",
+      "sha256": "5924c7f5ac727e04547a1b4aae44932f8a3f3614e6d72d59220e54060ab5a7e4",
+      "pixel_variance": 6931.145100549635
+    },
+    {
+      "path": "docs/evidence/288/after-ortho-area.png",
+      "sha256": "22f5c73fd4683189116c94f12d65a591b0e2cc95b6d47f503e072e093a87537c",
+      "pixel_variance": 6953.396598318908
+    },
+    {
+      "path": "docs/evidence/288/after-height-area.png",
+      "sha256": "64dbcfb6c600cc74d738109355cccef63ebf90cb0d06b5a451d24c8d37badcd5",
+      "pixel_variance": 7133.695675565119
+    },
+    {
+      "path": "docs/evidence/288/after-lidar-full.png",
+      "sha256": "9480ebadee6d87f57daac93d0f916027ac7dffdbea99bb52aed3332ef07334fc",
+      "pixel_variance": 6369.701228321953
+    },
+    {
+      "path": "docs/evidence/288/after-ortho-full.png",
+      "sha256": "7babf9656456d11959832adb2c32d9288997c7e23a3e797ae583b398165ede83",
+      "pixel_variance": 6552.065485056479
+    },
+    {
+      "path": "docs/evidence/288/after-height-full.png",
+      "sha256": "2b700be7a388284c4544e0cfa13f53bfc4a7b776f60408b6b2bf1b8ca1d45adb",
+      "pixel_variance": 6554.691951554735
+    },
+    {
+      "path": "docs/evidence/288/after-lidar-phone.png",
+      "sha256": "9ef58952a1f4ae82ec9883fcf96720b92f17e508ef53530c57c72f0603a10982",
+      "pixel_variance": 5679.775694544446
+    }
+  ],
+  "fixture": {
+    "provenance": {
+      "source": "live-mirror",
+      "drives": [
+        "20261118-091008-2676dd",
+        "20261118-091008-83ccbc",
+        "20261118-091009-c4ac91",
+        "20261118-091010-07481b",
+        "20261118-091011-c57d88",
+        "20261118-091012-195802",
+        "20261118-091013-6541f0",
+        "20261118-091014-a051e2",
+        "20261118-091015-7930fe",
+        "20261118-091016-b66ac5",
+        "20261118-091017-87d172",
+        "20261118-091018-a2e543",
+        "20261118-091019-93e46b",
+        "20261118-091020-673499",
+        "20261118-091021-5eb46d"
+      ],
+      "bbox": [
+        332112.62579162174,
+        4689895.050188713,
+        332667.8709571763,
+        4690450.295354268
+      ],
+      "extent": 555.2451655545738,
+      "layers": {
+        "lidar": {
+          "cell": 0.04962988281249636,
+          "zmax": 6,
+          "tiles": 1123,
+          "bytes": 7074412
+        },
+        "ortho": {
+          "cell": 0.04962988281249636,
+          "zmax": 6,
+          "tiles": 319,
+          "bytes": 3822596
+        },
+        "height": {
+          "cell": 0.12564794921874523,
+          "zmax": 5,
+          "tiles": 281,
+          "bytes": 2489626
+        },
+        "coverage": {
+          "cell": 0.04962988281249636,
+          "zmax": 6,
+          "tiles": 1123,
+          "bytes": 5326248
+        }
+      },
+      "per_file": {
+        "20261118-091008-2676dd": {
+          "manifest.json": {
+            "status": 200,
+            "bytes": 24410
+          },
+          "twin.geojson": {
+            "status": 200,
+            "bytes": 121590
+          },
+          "profile.csv": {
+            "status": 200,
+            "bytes": 3423
+          },
+          "centrelines.geojson": {
+            "status": 200,
+            "bytes": 8289
+          }
+        },
+        "20261118-091008-83ccbc": {
+          "manifest.json": {
+            "status": 200,
+            "bytes": 29833
+          },
+          "twin.geojson": {
+            "status": 200,
+            "bytes": 208886
+          },
+          "profile.csv": {
+            "status": 200,
+            "bytes": 10394
+          },
+          "centrelines.geojson": {
+            "status": 200,
+            "bytes": 26889
+          }
+        },
+        "20261118-091009-c4ac91": {
+          "manifest.json": {
+            "status": 200,
+            "bytes": 40048
+          },
+          "twin.geojson": {
+            "status": 200,
+            "bytes": 329443
+          },
+          "profile.csv": {
+            "status": 200,
+            "bytes": 17617
+          },
+          "centrelines.geojson": {
+            "status": 200,
+            "bytes": 39082
+          }
+        },
+        "20261118-091010-07481b": {
+          "manifest.json": {
+            "status": 200,
+            "bytes": 39383
+          },
+          "twin.geojson": {
+            "status": 200,
+            "bytes": 289509
+          },
+          "profile.csv": {
+            "status": 200,
+            "bytes": 18457
+          },
+          "centrelines.geojson": {
+            "status": 200,
+            "bytes": 41009
+          }
+        },
+        "20261118-091011-c57d88": {
+          "manifest.json": {
+            "status": 200,
+            "bytes": 33842
+          },
+          "twin.geojson": {
+            "status": 200,
+            "bytes": 314628
+          },
+          "profile.csv": {
+            "status": 200,
+            "bytes": 18600
+          },
+          "centrelines.geojson": {
+            "status": 200,
+            "bytes": 51893
+          }
+        },
+        "20261118-091012-195802": {
+          "manifest.json": {
+            "status": 200,
+            "bytes": 31908
+          },
+          "twin.geojson": {
+            "status": 200,
+            "bytes": 300571
+          },
+          "profile.csv": {
+            "status": 200,
+            "bytes": 13739
+          },
+          "centrelines.geojson": {
+            "status": 200,
+            "bytes": 34312
+          }
+        },
+        "20261118-091013-6541f0": {
+          "manifest.json": {
+            "status": 200,
+            "bytes": 32264
+          },
+          "twin.geojson": {
+            "status": 200,
+            "bytes": 377112
+          },
+          "profile.csv": {
+            "status": 200,
+            "bytes": 15564
+          },
+          "centrelines.geojson": {
+            "status": 200,
+            "bytes": 39289
+          }
+        },
+        "20261118-091014-a051e2": {
+          "manifest.json": {
+            "status": 200,
+            "bytes": 32513
+          },
+          "twin.geojson": {
+            "status": 200,
+            "bytes": 362046
+          },
+          "profile.csv": {
+            "status": 200,
+            "bytes": 13880
+          },
+          "centrelines.geojson": {
+            "status": 200,
+            "bytes": 34080
+          }
+        },
+        "20261118-091015-7930fe": {
+          "manifest.json": {
+            "status": 200,
+            "bytes": 28625
+          },
+          "twin.geojson": {
+            "status": 200,
+            "bytes": 252864
+          },
+          "profile.csv": {
+            "status": 200,
+            "bytes": 9305
+          },
+          "centrelines.geojson": {
+            "status": 200,
+            "bytes": 24840
+          }
+        },
+        "20261118-091016-b66ac5": {
+          "manifest.json": {
+            "status": 200,
+            "bytes": 38782
+          },
+          "twin.geojson": {
+            "status": 200,
+            "bytes": 326968
+          },
+          "profile.csv": {
+            "status": 200,
+            "bytes": 17792
+          },
+          "centrelines.geojson": {
+            "status": 200,
+            "bytes": 44767
+          }
+        },
+        "20261118-091017-87d172": {
+          "manifest.json": {
+            "status": 200,
+            "bytes": 35258
+          },
+          "twin.geojson": {
+            "status": 200,
+            "bytes": 351202
+          },
+          "profile.csv": {
+            "status": 200,
+            "bytes": 26139
+          },
+          "centrelines.geojson": {
+            "status": 200,
+            "bytes": 65851
+          }
+        },
+        "20261118-091018-a2e543": {
+          "manifest.json": {
+            "status": 200,
+            "bytes": 33964
+          },
+          "twin.geojson": {
+            "status": 200,
+            "bytes": 311597
+          },
+          "profile.csv": {
+            "status": 200,
+            "bytes": 14598
+          },
+          "centrelines.geojson": {
+            "status": 200,
+            "bytes": 38516
+          }
+        },
+        "20261118-091019-93e46b": {
+          "manifest.json": {
+            "status": 200,
+            "bytes": 34212
+          },
+          "twin.geojson": {
+            "status": 200,
+            "bytes": 288040
+          },
+          "profile.csv": {
+            "status": 200,
+            "bytes": 17728
+          },
+          "centrelines.geojson": {
+            "status": 200,
+            "bytes": 43973
+          }
+        },
+        "20261118-091020-673499": {
+          "manifest.json": {
+            "status": 200,
+            "bytes": 30923
+          },
+          "twin.geojson": {
+            "status": 200,
+            "bytes": 248299
+          },
+          "profile.csv": {
+            "status": 200,
+            "bytes": 13040
+          },
+          "centrelines.geojson": {
+            "status": 200,
+            "bytes": 34517
+          }
+        },
+        "20261118-091021-5eb46d": {
+          "manifest.json": {
+            "status": 200,
+            "bytes": 42647
+          },
+          "twin.geojson": {
+            "status": 200,
+            "bytes": 291562
+          },
+          "profile.csv": {
+            "status": 200,
+            "bytes": 18101
+          },
+          "centrelines.geojson": {
+            "status": 200,
+            "bytes": 38043
+          }
+        }
+      },
+      "tiles_200": 16364,
+      "tiles_404": 0,
+      "mirrored_bytes": 41680875
+    }
   },
   "comparison": {
-    "frame_p95_before": 433.4,
-    "frame_p95_after": 16.8,
-    "whole_count_before": 320,
-    "whole_count_after": 20,
+    "frame_p95_before": 499.9,
+    "frame_p95_after": 500,
+    "whole_count_before": 325,
+    "whole_count_after": 24,
     "before_source": "measured"
   },
   "gate": {
-    "passed": true,
-    "reasons": []
+    "passed": false,
+    "reasons": [
+      "frame p95 not improved: 499.9 -> 500",
+      "after has deck/TypeError/Error entries: deck: `getLineDashArray` has been removed. Use `PathStyleExtension` instead",
+      "unexpected 404s: http://127.0.0.1:36077/showcase/status.json | http://127.0.0.1:36077/favicon.ico | http://127.0.0.1:36077/showcase/status.json | http://127.0.0.1:36077/dev | http://127.0.0.1:36077/latest"
+    ]
   }
 }

@@ -1,20 +1,19 @@
-# #288 measured before/after (fresh after)
+# #288 measured before/after
 
 Venue: live-mirror: Seaport (15 drives)
 Before source: measured (fresh this run)
 After source: measured (fresh this run)
 
 Pairs:
-- frame p95: 433.4 ms -> 16.8 ms
-- whole image count: 320 -> 20
-- renderer: SwiftShader match
-- final scale text: "5 m" (both sides)
+- frame p95: 499.9 ms -> 500 ms
+- whole image count: 325 -> 24
+- gesture window image count: 117 -> 12
+- renderer: match (ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver))
+- final scale text: "5 m" (before "5 m")
 
-Gate: passed.
+Gate: failed.
+- frame p95 not improved: 499.9 -> 500
+- after has deck/TypeError/Error entries: deck: `getLineDashArray` has been removed. Use `PathStyleExtension` instead
+- unexpected 404s: http://127.0.0.1:36077/showcase/status.json | http://127.0.0.1:36077/favicon.ico | http://127.0.0.1:36077/showcase/status.json | http://127.0.0.1:36077/dev | http://127.0.0.1:36077/latest
 
-Screenshot (after-lidar-full.png):
-- sha256: 36fbd9c95ea5248e1318883363cf66024b15e161bd373e2f0c2ff3a46249cb55
-- pixel variance: 5981.98
-- page_errors.after: 7 entries, all 404; no deck:/Error:/TypeError entries.
-" filePath">
-/home/oc/.opencode-runs/Akamel01-road-digital-twin/288/worktree/docs/evidence/288/summary.md
+Screenshots: see docs/evidence/288/README.md (sha256 + variance).
