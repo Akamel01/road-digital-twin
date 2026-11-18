@@ -263,7 +263,11 @@ def test_docs_do_not_contain_draft_a_ids_or_ranges():
             assert f not in text, (p, f)
     import re
 
-    spec_text = (REPO / "docs" / "design" / "twin-v1-spec.md").read_text() + (REPO / "docs" / "design" / "label-schema.md").read_text()
-    # no real draft-A ids (smwi...) and no 6-digit UTM coordinate literals
-    assert re.search(r"smwi[0-9a-z]{6,}", spec_text) is None
-    assert re.search(r"\b\d{6}\.\d{3}\b", spec_text) is None
+    docs_text = (
+        (REPO / "docs" / "design" / "label-schema.md").read_text()
+        + (REPO / "docs" / "design" / "twin-v1-spec.md").read_text()
+        + (REPO / "docs" / "decisions" / "0008-label-tool-persistence.md").read_text()
+    )
+    # no real draft-A ids (smwi...) and no 6-7 digit UTM coordinate literals
+    assert re.search(r"smwi[0-9a-z]{6,}", docs_text) is None
+    assert re.search(r"\b\d{6,7}\.\d{3}\b", docs_text) is None
