@@ -428,15 +428,30 @@ def test_labels_put_then_get_reflects_edit(store, access):
     site = _make_site(store)
     client = TestClient(create_app(store, access.verifier))
     auth = {"Cf-Access-Jwt-Assertion": access.token()}
-    # get current labels
-    client.get(f"/api/r/labels/{site}/labels").json()
-    # modify coordinates? just round trip feature collection
-    fc = {"type": "FeatureCollection", "features": []}
+    feat = {
+        "type": "Feature",
+        "id": "op-1",
+        "geometry": {"type": "LineString", "coordinates": [[0.0, 0.0], [1.0, 1.0]]},
+        "properties": {
+            "id": "op-1",
+            "element": "marking",
+            "type": "solid_line",
+            "origin": "operator",
+        },
+    }
+    fc = {"type": "FeatureCollection", "features": [feat]}
     body = {"version": 1, "feature_collection": fc}
     resp = client.put(f"/api/w/labels/{site}/labels", json=body, headers=auth)
-    assert resp.status_code == 200
-    g2 = client.get(f"/api/r/labels/{site}/labels")
-    assert g2.status_code == 200
+    assert resp.status_code == 200, resp.text
+    # edit coordinate
+    feat2 = dict(feat)
+    feat2["geometry"] = {"type": "LineString", "coordinates": [[2.0, 3.0], [4.0, 5.0]]}
+    body2 = {"version": 1, "feature_collection": {"type": "FeatureCollection", "features": [feat2]}}
+    resp2 = client.put(f"/api/w/labels/{site}/labels", json=body2, headers=auth)
+    assert resp2.status_code == 200, resp2.text
+    got = client.get(f"/api/r/labels/{site}/labels").json()
+    assert got["features"][0]["properties"]["id"] == "op-1"
+    assert got["features"][0]["geometry"]["coordinates"] == [[2.0, 3.0], [4.0, 5.0]]
 
 
 def test_labels_put_stale_version_409(store, access):
@@ -465,6 +480,18 @@ def test_latlon_endpoint_test_point(store, access):
 
 def test_serve_refuses_dev_auth_on_public_host(store, monkeypatch):
     monkeypatch.setenv("TWIN_DEV_NO_AUTH", "1")
+    import uvicorn
+    monkeypatch.setattr(uvicorn, "run", lambda *a, **k: None)
     from twin.api import serve_command
     rc = serve_command(store, "0.0.0.0", 8090)
     assert rc == 2
+    # positive arm: loopback is not refused
+    called = {"n": 0}
+
+    def _run(*a, **k):
+        called["n"] += 1
+
+    monkeypatch.setattr(uvicorn, "run", _run)
+    rc2 = serve_command(store, "127.0.0.1", 8090)
+    assert rc2 != 2
+    assert called["n"] == 1
