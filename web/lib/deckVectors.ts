@@ -113,14 +113,9 @@ export function vectorLayers(opts: VectorLayersOptions | VectorDeps, ...rest: un
         const st = overlayStyle(d.el, true, element === d.el, element !== null && element !== d.el, accuracyColor(d), tokens);
         return st.width;
       },
-       getDashArray: (d: any) => {
-         const st = overlayStyle(d.el, true, element === d.el, element !== null && element !== d.el, accuracyColor(d), tokens);
-         return st.dash ?? [1, 0];
-       },
-       lineWidthUnits: "pixels",
-       extensions: [ext],
-       pickable: false,
-       onClick: (info: any) => handlers?.pickElement?.(info?.object?.el ?? null),
+      lineWidthUnits: "pixels",
+      pickable: false,
+      onClick: (info: any) => handlers?.pickElement?.(info?.object?.el ?? null),
     }),
   );
 
@@ -194,9 +189,6 @@ export function vectorLayers(opts: VectorLayersOptions | VectorDeps, ...rest: un
       getLineColor: tokens.fac,
       getLineWidth: 1.4,
       lineWidthUnits: "pixels",
-      getLineDashArray: [5, 4] as any,
-      lineDashUnits: "pixels" as any,
-      extensions: [ext],
       pickable: state.facility === null,
       onClick: (info: any) => handlers?.onFacility?.(info?.object?.id ?? null),
       onHover: (info: any) => handlers?.onHover?.(info?.object ?? null),

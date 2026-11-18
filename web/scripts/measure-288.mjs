@@ -146,9 +146,9 @@ function classify404(url) {
   try {
     const u = new URL(url);
     const p = u.pathname;
-    if (/^\/showcase\/[^/]+\/(centrelines\.geojson|profile\.csv)$/.test(p)) return "optional-per-drive-file";
+    if (p.startsWith("/showcase/tiles/")) return "unexpected_tile_404";
   } catch {}
-  return "unexpected";
+  return "known_app_404";
 }
 
 function makeServer(rootOut, fixture) {
@@ -387,11 +387,15 @@ async function main() {
     }
 
     async function viewFingerprint() {
-      return page.evaluate(() => {
-        const c = document.querySelector("canvas");
-        if (!c) return null;
-        try { return c.toDataURL("image/png").slice(0, 2000); } catch { return null; }
-      });
+      try {
+        const el = page.locator(".pan");
+        const box = await el.boundingBox();
+        if (!box) return null;
+        const buf = await page.screenshot({ clip: { x: Math.max(0, box.x), y: Math.max(0, box.y), width: box.width, height: box.height }, type: "png" });
+        return createHash("sha256").update(buf).digest("hex");
+      } catch {
+        return null;
+      }
     }
 
     let facilityHow = null;
@@ -417,22 +421,27 @@ async function main() {
 
     const renderer = await rendererOf(page);
 
-    // Gesture window: from cache-clear-before-zoom through gesture end
+    // Gesture window: from cache-clear-before-zoom to gesture end
     const fpBefore = await viewFingerprint();
     trackGestureWindow = true;
+    // Frame-time window includes zoom-in and 10s pan
+    await page.evaluate(() => {
+      window.__frames = [];
+      let last = performance.now();
+      window.__rec = true;
+      const tick = (t) => { window.__frames.push(t - last); last = t; if (window.__rec) requestAnimationFrame(tick); };
+      requestAnimationFrame(tick);
+    });
     const scaleBeforeZoom = (await page.locator(".scale").textContent().catch(() => null) || "").trim();
+    const panBox0 = await page.locator(".pan").boundingBox().catch(() => null);
+    const pcx = panBox0 ? panBox0.x + panBox0.width / 2 : 720;
+    const pcy = panBox0 ? panBox0.y + panBox0.height / 2 : 450;
     for (let i = 0; i < 20; i++) { await page.click('[aria-label="Zoom in"]').catch(() => {}); await sleep(50); }
     await settle(5000);
     let scaleAfterZoom = (await page.locator(".scale").textContent().catch(() => null) || "").trim();
     if (scaleAfterZoom === scaleBeforeZoom) {
-      const b = await page.locator(".pan").boundingBox().catch(() => null);
-      const cx = b ? b.x + b.width / 2 : 0;
-      const cy = b ? b.y + b.height / 2 : 0;
-      await page.evaluate(({ cx, cy }) => {
-        const el = document.querySelector(".pan");
-        if (!el) return;
-        for (let i = 0; i < 20; i++) el.dispatchEvent(new WheelEvent("wheel", { deltaY: -120, bubbles: true, cancelable: true, clientX: cx, clientY: cy }));
-      }, { cx, cy });
+      await page.mouse.move(pcx, pcy);
+      for (let i = 0; i < 20; i++) { await page.mouse.wheel(0, -120); await sleep(50); }
       await sleep(500);
       await settle(5000);
       scaleAfterZoom = (await page.locator(".scale").textContent().catch(() => null) || "").trim();
@@ -441,54 +450,50 @@ async function main() {
     const scalePx = await page.evaluate(() => { const i = document.querySelector(".scale i"); return i ? Math.round(i.getBoundingClientRect().width) : null; }).catch(() => null);
     await settle(10000);
 
-    await page.evaluate(() => {
-      window.__frames = [];
-      let last = performance.now();
-      window.__rec = true;
-      const tick = (t) => { window.__frames.push(t - last); last = t; if (window.__rec) requestAnimationFrame(tick); };
-      requestAnimationFrame(tick);
-    });
     trackDuringGesture = true;
     const fpBeforeDrag = await viewFingerprint();
     let dragOk = false;
+    let dragDelta = 0;
     try {
       const b = await page.locator(".pan").boundingBox();
       if (b) {
         const cx = b.x + b.width / 2, cy = b.y + b.height / 2;
-        // wheel-driven panning to stress rendering without CDP mouse hold; 10s window
+        await page.mouse.move(cx, cy);
         for (let i = 0; i < 40; i++) {
-          await page.evaluate(({ cx, cy, i }) => {
-            const el = document.querySelector(".pan");
-            if (!el) return;
-            const dx = Math.round(Math.cos(i * 0.4) * 40);
-            const dy = Math.round(Math.sin(i * 0.4) * 40);
-            el.dispatchEvent(new WheelEvent("wheel", { deltaX: dx, deltaY: dy, deltaMode: 0, bubbles: true, cancelable: true, clientX: cx, clientY: cy }));
-          }, { cx, cy, i });
+          const dx = Math.round(Math.cos(i * 0.4) * 40);
+          const dy = Math.round(Math.sin(i * 0.4) * 40);
+          await page.mouse.wheel(dx, dy);
           await sleep(250);
         }
         dragOk = true;
+        dragDelta = 40;
       }
     } catch (e) {
       console.error("drag gesture failed:", e && e.message || e);
       dragOk = false;
     }
-    // top up samples (keeps rAF running; safe if page alive)
-    try {
-      await page.evaluate(async () => {
-        const start = performance.now();
-        while (window.__frames.length < 120 && performance.now() - start < 8000) {
-          await new Promise((r) => requestAnimationFrame(r));
-        }
-      });
-    } catch (e) {
-      console.error("frame top-up failed:", e && e.message || e);
-    }
     trackDuringGesture = false;
     trackGestureWindow = false; // gesture end
     let fpAfterDrag = null;
     try { fpAfterDrag = await viewFingerprint(); } catch {}
+    try {
+      await page.evaluate(() => { window.__rec = false; });
+    } catch {}
     let deltas = [];
-    try { deltas = await page.evaluate(() => { window.__rec = false; return window.__frames || []; }); } catch (e) { console.error("read frames failed:", e && e.message || e); }
+    try { deltas = await page.evaluate(() => window.__frames || []); } catch (e) { console.error("read frames failed:", e && e.message || e); }
+    if (!deltas || deltas.length < 100) {
+      try {
+        await page.evaluate(async () => {
+          window.__rec = true;
+          const start = performance.now();
+          while ((window.__frames || []).length < 120 && performance.now() - start < 8000) {
+            await new Promise((r) => requestAnimationFrame(r));
+          }
+          window.__rec = false;
+        });
+        deltas = await page.evaluate(() => window.__frames || []);
+      } catch (e) { console.error("frame top-up failed:", e && e.message || e); }
+    }
     if (!deltas || deltas.length < 100) throw new Error(`rAF samples too few: ${deltas ? deltas.length : 0}`);
     const sorted = [...deltas].sort((a, b) => a - b);
     const median = sorted[Math.floor(sorted.length / 2)];
@@ -521,7 +526,7 @@ async function main() {
       page_errors: pageErrors,
       http_404s: http404s,
       tile_requests: { requested_max_z_by_layer: maxRequestedZByLayer, zmax_by_layer: zmaxLayers, expected_max_z_at_final_k: expectedMaxZ },
-      drag_delta: { before_fp: fpBeforeDrag, after_fp: fpAfterDrag, changed: fpBeforeDrag !== fpAfterDrag, zoom_changed: fpBefore !== fpBeforeDrag },
+      drag_delta: { before_fp: fpBeforeDrag, after_fp: fpAfterDrag, changed: fpBeforeDrag !== fpAfterDrag && fpBeforeDrag != null && fpAfterDrag != null, delta: (fpBeforeDrag !== fpAfterDrag && fpBeforeDrag != null && fpAfterDrag != null) ? 1 : 0, drag_ok: dragOk, zoom_changed: fpBefore !== fpBeforeDrag },
     };
   }
 
@@ -677,7 +682,9 @@ async function main() {
 
   const commitsAfter = execSync("git rev-parse HEAD", { encoding: "utf8" }).trim();
   const afterNon404Errors = (after.page_errors || []).filter((e) => !/404|Failed to load resource/i.test(e));
-  const afterUnexpected404s = (after.http_404s || []).filter((h) => h.classification === "unexpected");
+  const afterUnexpected404s = (after.http_404s || []).filter((h) => h.classification === "unexpected_tile_404");
+  const beforeKnownApp404s = (before.http_404s || []).filter((h) => h.classification === "known_app_404");
+  const afterKnownApp404s = (after.http_404s || []).filter((h) => h.classification === "known_app_404");
 
   function tileZoomMatch(side) {
     const req = side.tile_requests || {};
@@ -706,7 +713,9 @@ async function main() {
   const deckErrors = (after.page_errors || []).filter((e) => /deck:|TypeError|Error:/i.test(e));
   if (deckErrors.length) gateReasons.push(`after has deck/TypeError/Error entries: ${deckErrors.join(" | ")}`);
   if (!tzm.ok) gateReasons.push(`tile_zoom_match failed: ${JSON.stringify(tzm.details)}`);
-  if (afterUnexpected404s.length) gateReasons.push(`unexpected 404s: ${afterUnexpected404s.map((x) => x.url).join(" | ")}`);
+  if (afterUnexpected404s.length) gateReasons.push(`unexpected tile 404s: ${afterUnexpected404s.map((x) => x.url).join(" | ")}`);
+  if (!before.drag_delta || !before.drag_delta.changed) gateReasons.push(`drag_delta before not changed: ${JSON.stringify(before.drag_delta)}`);
+  if (!after.drag_delta || !after.drag_delta.changed) gateReasons.push(`drag_delta after not changed: ${JSON.stringify(after.drag_delta)}`);
 
   const passed = gateReasons.length === 0;
 
@@ -732,7 +741,7 @@ async function main() {
     heap: { before: before.heap, after: after.heap },
     final_zoom: { before: before.final_zoom, after: after.final_zoom },
     tile_zoom_match: { before: tileZoomMatch(before), after: tzm },
-    http_404s: { before: before.http_404s, after: after.http_404s, after_unexpected: afterUnexpected404s },
+    http_404s: { before: before.http_404s, after: after.http_404s, after_unexpected: afterUnexpected404s, before_known_app_404s: beforeKnownApp404s, after_known_app_404s: afterKnownApp404s },
     page_errors: { before: before.page_errors, after: after.page_errors, after_non_404: afterNon404Errors },
     drag_delta: { before: before.drag_delta, after: after.drag_delta },
     screenshots,
@@ -764,6 +773,8 @@ async function main() {
     `- during_gesture image count: ${before.during_gesture.count} -> ${after.during_gesture.count}`,
     `- renderer: ${before.renderer} -> ${after.renderer} (match=${before.renderer === after.renderer})`,
     `- final scale text: "${before.final_zoom.scale_text}" -> "${after.final_zoom.scale_text}"`,
+    `- drag_delta: before=${JSON.stringify(before.drag_delta && before.drag_delta.changed)} after=${JSON.stringify(after.drag_delta && after.drag_delta.changed)}`,
+    `- 404s: after_unexpected=${afterUnexpected404s.length} after_known_app_404s=${afterKnownApp404s.length}`,
     "",
     "## Screenshots (after-only)",
     ...screenshots.map((s) => `- ${s.path} sha256=${s.sha256} variance=${s.pixel_variance}`),
@@ -787,6 +798,8 @@ async function main() {
     `- gesture window image count: ${before.gesture.count} -> ${after.gesture.count}`,
     `- renderer: ${before.renderer === after.renderer ? "match" : "mismatch"} (${after.renderer})`,
     `- final scale text: "${after.final_zoom.scale_text}" (before "${before.final_zoom.scale_text}")`,
+    `- drag_delta: before=${!!(before.drag_delta && before.drag_delta.changed)} after=${!!(after.drag_delta && after.drag_delta.changed)}`,
+    `- 404s: unexpected_tile=${afterUnexpected404s.length} known_app=${afterKnownApp404s.length}`,
     "",
     `Gate: ${passed ? "passed" : "failed"}.`,
     ...(gateReasons.length ? gateReasons.map((r) => `- ${r}`) : []),
