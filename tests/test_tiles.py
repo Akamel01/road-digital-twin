@@ -19,7 +19,7 @@ def store(tmp_path_factory):
     base = tmp_path_factory.mktemp("tiles")
     s = base / "store"
     runs = write_fake_runs(s, drives=2)
-    publish_runs([p.name for p in runs], s / "showcase", store=s, mosaic=True)
+    publish_runs([p.name for p in runs], s / "showcase", store=s)
     return s
 
 
