@@ -10,11 +10,14 @@ import {
 } from "@/lib/labels";
 import LabelsMapEditor from "@/components/dev/LabelsMapEditor";
 import { errorText } from "@/lib/devapi";
+import { loadArea, type AreaIndex } from "@/lib/showcase";
 
 export default function DevLabelsPage() {
   const [sites, setSites] = useState<string[]>([]);
   const [site, setSite] = useState("");
   const [meta, setMeta] = useState<SiteMeta | null>(null);
+  const [area, setArea] = useState<AreaIndex | null>(null);
+  const [run, setRun] = useState<string>(process.env.NEXT_PUBLIC_TWIN_RUN ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -61,6 +64,20 @@ export default function DevLabelsPage() {
       .catch((e) => {
         if (!cancelled) setError(errorText(e));
       });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadArea()
+      .then((a) => {
+        if (cancelled) return;
+        setArea(a);
+        setRun((prev) => (prev ? prev : a.drives[0]?.run_id ?? ""));
+      })
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
@@ -120,8 +137,17 @@ export default function DevLabelsPage() {
         <div className={styles.panelHead}>
           <h2 className={styles.h2}>Labels map</h2>
         </div>
+        <label className={styles.field}>
+          <span>Showcase run</span>
+          <input value={run} onChange={(e) => setRun(e.target.value)} disabled={busy} list="runs" />
+          <datalist id="runs">
+            {(area?.drives ?? []).map((d) => (
+              <option key={d.run_id} value={d.run_id} />
+            ))}
+          </datalist>
+        </label>
         {site && meta ? (
-          <LabelsMapEditor site={site} meta={meta} onMeta={setMeta} />
+          <LabelsMapEditor site={site} meta={meta} onMeta={setMeta} run={run} />
         ) : (
           <p className={styles.muted}>Select a site to edit labels.</p>
         )}

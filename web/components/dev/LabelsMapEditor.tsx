@@ -11,47 +11,29 @@ import {
   type LabelFeature,
   type SiteMeta,
 } from "@/lib/labels";
+import { loadArea } from "@/lib/showcase";
+import {
+  frameOf,
+  localRect,
+  tileLevel,
+  visibleTiles,
+  type Frame,
+  type Rect,
+  type Size,
+  type Tile,
+  type View,
+} from "@/lib/tiles";
+import { loadRasterMeta, RASTERS, type Raster, type RasterMeta } from "@/lib/mapdata";
+import { screenToUtm, utmToLocal } from "@/lib/labelcoords";
 
 interface Props {
   site: string;
   meta: SiteMeta | null;
   onMeta: (m: SiteMeta) => void;
+  run: string;
 }
 
 type Mode = "select" | "point" | "line" | "polygon";
-
-interface ViewBox {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
-
-function boundsOf(fc: GeoJsonFeatureCollection<LabelFeature> | null, meta: SiteMeta | null) {
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  function visit(c: unknown) {
-    if (!Array.isArray(c)) return;
-    if (c.length === 2 && typeof c[0] === "number" && typeof c[1] === "number") {
-      const [x, y] = c as [number, number];
-      minX = Math.min(minX, x);
-      minY = Math.min(minY, y);
-      maxX = Math.max(maxX, x);
-      maxY = Math.max(maxY, y);
-      return;
-    }
-    for (const v of c) visit(v);
-  }
-  if (meta?.polygon) visit((meta.polygon as { coordinates?: unknown }).coordinates ?? meta.polygon);
-  if (fc) for (const f of fc.features) visit(f.geometry?.coordinates);
-  if (!isFinite(minX)) {
-    minX = 0; minY = 0; maxX = 100; maxY = 100;
-  }
-  const pad = Math.max((maxX - minX) * 0.05, 1);
-  return { x: minX - pad, y: minY - pad, w: maxX - minX + pad * 2, h: maxY - minY + pad * 2 };
-}
 
 function emptyCollection(): GeoJsonFeatureCollection<LabelFeature> {
   return { type: "FeatureCollection", features: [] };
@@ -79,7 +61,24 @@ function makeFeature(mode: Mode, pts: [number, number][]): GeoJsonFeature<LabelF
   };
 }
 
-export default function LabelsMapEditor({ site, meta, onMeta }: Props) {
+function featureColor(f: LabelFeature): string {
+  if (f.element === "crosswalk") return "var(--feat-cross, #d97706)";
+  if (f.element === "curb" || f.element === "curb_ramp") return "var(--feat-curb, #16a34a)";
+  return "var(--feat-mark, #2563eb)";
+}
+
+function vertexList(f: GeoJsonFeature<LabelFeature>): [number, number][] {
+  const c = f.geometry?.coordinates;
+  if (!c) return [];
+  if (f.geometry?.type === "Point") return [c as [number, number]];
+  if (f.geometry?.type === "Polygon") return ((c as [number, number][][])[0] ?? []).slice(0, -1);
+  return (c as [number, number][]) ?? [];
+}
+
+const MAX_K = 50;
+const DEFAULT_LAYERS = { height: false, lidar: true, ortho: false };
+
+export default function LabelsMapEditor({ site, meta, onMeta, run }: Props) {
   const [labels, setLabels] = useState<GeoJsonFeatureCollection<LabelFeature>>(emptyCollection());
   const [mode, setMode] = useState<Mode>("select");
   const [draft, setDraft] = useState<[number, number][]>([]);
@@ -90,10 +89,81 @@ export default function LabelsMapEditor({ site, meta, onMeta }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [rawOpen, setRawOpen] = useState(false);
-  const [viewBox, setViewBox] = useState<ViewBox>({ x: 0, y: 0, w: 100, h: 100 });
+  const [frame, setFrame] = useState<Frame | null>(null);
+  const [metaMap, setMetaMap] = useState<Record<Raster, RasterMeta> | null>(null);
+  const [layers, setLayers] = useState({ ...DEFAULT_LAYERS });
+  const [size, setSize] = useState<Size>({ w: 0, h: 0 });
+  const [storedView, setStoredView] = useState<View | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
-  const panRef = useRef<{ startX: number; startY: number; vb: ViewBox } | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const dragVertexRef = useRef<{ feature: number; index: number } | null>(null);
+  const panState = useRef<{ x: number; y: number; view: View } | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    loadArea()
+      .then((a) => {
+        if (live) {
+          const f = frameOf(a.drives.flatMap((d) => (d.bbox ? [d.bbox] : [])));
+          setFrame(f);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!run) return;
+    let live = true;
+    Promise.all(RASTERS.map((r) => loadRasterMeta(run, r))).then(
+      (metas) => {
+        if (live) {
+          setMetaMap(Object.fromEntries(RASTERS.map((r, i) => [r, metas[i]])) as Record<Raster, RasterMeta>);
+        }
+      },
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [run]);
+
+  useEffect(() => {
+    if (!site) return;
+    let cancelled = false;
+    loadLabels(site)
+      .then((l) => {
+        if (!cancelled) setLabels(l);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(String(e));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [site]);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const measure = () => setSize({ w: el.clientWidth, h: el.clientHeight });
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const fitted: View | null =
+    frame && size.w && size.h
+      ? (() => {
+          const rect: Rect = { x0: 0, y0: 0, x1: frame.w, y1: frame.h };
+          const k = Math.min(MAX_K, size.w / (rect.x1 - rect.x0), size.h / (rect.y1 - rect.y0));
+          return { k, tx: size.w / 2 - k * (rect.x0 + rect.x1) / 2, ty: size.h / 2 - k * (rect.y0 + rect.y1) / 2 };
+        })()
+      : null;
+  const view: View | null = storedView ?? fitted;
 
   const finishDraft = useCallback(() => {
     if (draft.length === 0) return;
@@ -107,33 +177,19 @@ export default function LabelsMapEditor({ site, meta, onMeta }: Props) {
   }, [draft, labels, mode]);
 
   useEffect(() => {
-    if (!site) return;
-    let cancelled = false;
-    loadLabels(site)
-      .then((l) => {
-        if (!cancelled) {
-          setLabels(l);
-          setViewBox(boundsOf(l, meta));
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Enter") finishDraft();
+      if (e.key === "Delete" || e.key === "Backspace") {
+        if (selected !== null) {
+          setHistory((h) => [...h, labels]);
+          setLabels((prev) => ({ ...prev, features: prev.features.filter((_, i) => i !== selected) }));
+          setSelected(null);
         }
-      })
-      .catch((e) => {
-        if (!cancelled) setError(String(e));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [site, meta]);
-
-  const screenToData = useCallback(
-    (clientX: number, clientY: number): [number, number] => {
-      const rect = svgRef.current?.getBoundingClientRect();
-      if (!rect) return [0, 0];
-      const x = viewBox.x + ((clientX - rect.left) / rect.width) * viewBox.w;
-      const y = viewBox.y + ((clientY - rect.top) / rect.height) * viewBox.h;
-      return [x, y];
-    },
-    [viewBox],
-  );
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [finishDraft, labels, selected]);
 
   function pushHistory() {
     setHistory((h) => [...h, labels]);
@@ -160,10 +216,7 @@ export default function LabelsMapEditor({ site, meta, onMeta }: Props) {
   function deleteSelected() {
     if (selected === null) return;
     pushHistory();
-    setLabels((prev) => ({
-      ...prev,
-      features: prev.features.filter((_, i) => i !== selected),
-    }));
+    setLabels((prev) => ({ ...prev, features: prev.features.filter((_, i) => i !== selected) }));
     setSelected(null);
   }
 
@@ -218,7 +271,6 @@ export default function LabelsMapEditor({ site, meta, onMeta }: Props) {
       onMeta(m);
       const l = await loadLabels(site);
       setLabels(l);
-      setViewBox(boundsOf(l, meta));
       setInfo("New version created.");
     } catch (e) {
       setError(String(e));
@@ -227,35 +279,35 @@ export default function LabelsMapEditor({ site, meta, onMeta }: Props) {
     }
   }
 
-  function onSvgPointerDown(e: React.PointerEvent<SVGSVGElement>) {
+  function toUtmFromScreen(clientX: number, clientY: number): [number, number] {
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect || !view || !frame) return [0, 0];
+    return screenToUtm(view, frame, clientX - rect.left, clientY - rect.top);
+  }
+
+  function onContainerPointerDown(e: React.PointerEvent<HTMLDivElement>) {
     if (mode !== "select") {
-      const pt = screenToData(e.clientX, e.clientY);
+      const pt = toUtmFromScreen(e.clientX, e.clientY);
       setDraft((d) => [...d, pt]);
       return;
     }
-    if ((e.target as Element).tagName.toLowerCase() === "svg" || (e.target as SVGElement).dataset?.bg === "1") {
-      panRef.current = { startX: e.clientX, startY: e.clientY, vb: { ...viewBox } };
-    }
-  }
-
-  function onSvgPointerMove(e: React.PointerEvent<SVGSVGElement>) {
-    if (panRef.current) {
-      const dx = e.clientX - panRef.current.startX;
-      const dy = e.clientY - panRef.current.startY;
-      const rect = svgRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const scaleX = panRef.current.vb.w / rect.width;
-      const scaleY = panRef.current.vb.h / rect.height;
-      setViewBox({
-        ...panRef.current.vb,
-        x: panRef.current.vb.x - dx * scaleX,
-        y: panRef.current.vb.y - dy * scaleY,
-      });
+    // vertex drag handled separately
+    if ((e.target as Element).closest?.("[data-vertex]")) return;
+    // feature select
+    const hit = (e.target as Element).closest?.("[data-feature]");
+    if (hit) {
+      const idx = Number(hit.getAttribute("data-feature"));
+      if (!Number.isNaN(idx)) setSelected(idx);
       return;
     }
-    if (dragVertexRef.current) {
+    // pan
+    if (view) panState.current = { x: e.clientX, y: e.clientY, view };
+  }
+
+  function onContainerPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    if (dragVertexRef.current && view && frame) {
       const { feature, index } = dragVertexRef.current;
-      const pt = screenToData(e.clientX, e.clientY);
+      const pt = toUtmFromScreen(e.clientX, e.clientY);
       const f = labels.features[feature];
       if (!f?.geometry) return;
       const coords = f.geometry.coordinates;
@@ -273,37 +325,76 @@ export default function LabelsMapEditor({ site, meta, onMeta }: Props) {
           updateGeometry(feature, copy);
         }
       }
+      return;
+    }
+    if (panState.current && view) {
+      const dx = e.clientX - panState.current.x;
+      const dy = e.clientY - panState.current.y;
+      const v = panState.current.view;
+      setStoredView({ k: v.k, tx: v.tx + dx, ty: v.ty + dy });
     }
   }
 
-  function onSvgPointerUp() {
-    panRef.current = null;
+  function onContainerPointerUp() {
+    panState.current = null;
     dragVertexRef.current = null;
   }
 
-  function onWheel(e: React.WheelEvent<SVGSVGElement>) {
+  function onWheel(e: React.WheelEvent<HTMLDivElement>) {
+    if (!view) return;
     e.preventDefault();
-    const factor = e.deltaY > 0 ? 1.1 : 0.9;
-    setViewBox((vb) => {
-      const rect = svgRef.current?.getBoundingClientRect();
-      if (!rect) return vb;
-      const mx = vb.x + ((e.clientX - rect.left) / rect.width) * vb.w;
-      const my = vb.y + ((e.clientY - rect.top) / rect.height) * vb.h;
-      const nw = vb.w * factor;
-      const nh = vb.h * factor;
-      return { x: mx - (mx - vb.x) * (nw / vb.w), y: my - (my - vb.y) * (nh / vb.h), w: nw, h: nh };
-    });
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const k = Math.min(MAX_K, Math.max(0.5, view.k * Math.exp(-e.deltaY * 0.0015)));
+    setStoredView({ k, tx: mx - ((mx - view.tx) * k) / view.k, ty: my - ((my - view.ty) * k) / view.k });
+  }
+
+  function addVertexToFeature(i: number, pt: [number, number]) {
+    pushHistory();
+    const f = labels.features[i];
+    const coords = f.geometry?.coordinates;
+    if (f.geometry?.type === "LineString") {
+      const arr = [...(coords as [number, number][]) , pt];
+      updateGeometry(i, arr);
+    } else if (f.geometry?.type === "Polygon") {
+      const ring = [...((coords as [number, number][][])[0] ?? [])];
+      // insert before closing duplicate
+      ring.splice(ring.length - 1, 0, pt);
+      updateGeometry(i, [ring]);
+    }
+  }
+
+  function removeVertex(i: number, vi: number) {
+    pushHistory();
+    const f = labels.features[i];
+    const coords = f.geometry?.coordinates;
+    if (f.geometry?.type === "LineString") {
+      const arr = (coords as [number, number][]).filter((_, idx) => idx !== vi);
+      updateGeometry(i, arr);
+    } else if (f.geometry?.type === "Polygon") {
+      const ring = ((coords as [number, number][][])[0] ?? []).slice(0, -1).filter((_, idx) => idx !== vi);
+      updateGeometry(i, [ring.concat([ring[0]])]);
+    }
+  }
+
+  const tiles: Tile[] = [];
+  if (view && frame && metaMap && run) {
+    const rasters: Raster[] = [];
+    if (layers.height) rasters.push("height");
+    if (layers.ortho) rasters.push("ortho");
+    if (layers.lidar) rasters.push("lidar");
+    for (const r of rasters) {
+      const m = metaMap[r];
+      if (!m) continue;
+      const rect = localRect(m.bbox, frame);
+      const z = tileLevel(view.k, typeof window === "undefined" ? 1 : window.devicePixelRatio, rect.x1 - rect.x0, m.zmax);
+      for (const tile of visibleTiles(r, run, rect, z, view, size)) tiles.push(tile);
+    }
   }
 
   const selectedFeature = selected !== null ? labels.features[selected] : null;
-
-  function vertexList(f: GeoJsonFeature<LabelFeature>): [number, number][] {
-    const c = f.geometry?.coordinates;
-    if (!c) return [];
-    if (f.geometry?.type === "Point") return [c as [number, number]];
-    if (f.geometry?.type === "Polygon") return ((c as [number, number][][])[0] ?? []).slice(0, -1);
-    return (c as [number, number][]) ?? [];
-  }
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr 280px", gap: 12 }}>
@@ -320,95 +411,153 @@ export default function LabelsMapEditor({ site, meta, onMeta }: Props) {
           <button type="button" onClick={handleSave} disabled={busy || !meta || meta.frozen}>Save</button>
           <button type="button" onClick={handleApprove} disabled={busy || !meta || meta.frozen}>Approve</button>
           <button type="button" onClick={handleNewVersion} disabled={busy || !meta}>New version</button>
+          {(["height", "lidar", "ortho"] as const).map((l) => (
+            <button
+              key={l}
+              type="button"
+              onClick={() => setLayers(() => ({ height: l === "height", lidar: l === "lidar", ortho: l === "ortho" }))}
+              disabled={busy}
+            >
+              {l}{layers[l] ? " ✓" : ""}
+            </button>
+          ))}
         </div>
         {error ? <p role="alert">{error}</p> : null}
         {info ? <p role="status">{info}</p> : null}
-        <svg
-          ref={svgRef}
-          width="100%"
-          height="480"
-          viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`}
-          onPointerDown={onSvgPointerDown}
-          onPointerMove={onSvgPointerMove}
-          onPointerUp={onSvgPointerUp}
+        <div
+          ref={containerRef}
+          style={{ width: "100%", height: 480, border: "1px solid #ccc", background: "#f8f8f8", position: "relative", overflow: "hidden", touchAction: "none" }}
+          onPointerDown={onContainerPointerDown}
+          onPointerMove={onContainerPointerMove}
+          onPointerUp={onContainerPointerUp}
+          onPointerLeave={onContainerPointerUp}
           onWheel={onWheel}
-          style={{ border: "1px solid #ccc", background: "#f8f8f8", touchAction: "none" }}
         >
-          <rect data-bg="1" x={viewBox.x} y={viewBox.y} width={viewBox.w} height={viewBox.h} fill="transparent" />
-          {labels.features.map((f, i) => {
-            const sel = selected === i;
-            const stroke = sel ? "#d00" : "#333";
-            const coords = f.geometry?.coordinates;
-            if (f.geometry?.type === "Point") {
-              const [x, y] = coords as [number, number];
-              return (
-                <circle
-                  key={i}
-                  cx={x}
-                  cy={y}
-                  r={Math.max(viewBox.w / 200, 1)}
-                  fill={sel ? "#d00" : "#06c"}
-                  onClick={() => mode === "select" && setSelected(i)}
-                />
-              );
-            }
-            if (f.geometry?.type === "LineString") {
-              const pts = (coords as [number, number][]).map((p) => p.join(",")).join(" ");
-              return (
-                <polyline
-                  key={i}
-                  points={pts}
-                  fill="none"
-                  stroke={stroke}
-                  strokeWidth={Math.max(viewBox.w / 300, 0.5)}
-                  onClick={() => mode === "select" && setSelected(i)}
-                />
-              );
-            }
-            if (f.geometry?.type === "Polygon") {
-              const ring = (coords as [number, number][][])[0] ?? [];
-              const pts = ring.map((p) => p.join(",")).join(" ");
-              return (
-                <polygon
-                  key={i}
-                  points={pts}
-                  fill={sel ? "rgba(208,0,0,0.15)" : "rgba(0,102,204,0.15)"}
-                  stroke={stroke}
-                  onClick={() => mode === "select" && setSelected(i)}
-                />
-              );
-            }
-            return null;
-          })}
-          {draft.length > 0 && (
-            <polyline
-              points={draft.map((p) => p.join(",")).join(" ")}
-              fill="none"
-              stroke="#090"
-              strokeDasharray="4 2"
-            />
-          )}
-          {draft.map((p, i) => (
-            <circle key={`d${i}`} cx={p[0]} cy={p[1]} r={Math.max(viewBox.w / 200, 1)} fill="#090" />
-          ))}
-          {selected !== null &&
-            vertexList(labels.features[selected]).map((v, vi) => (
-              <circle
-                key={`v${vi}`}
-                cx={v[0]}
-                cy={v[1]}
-                r={Math.max(viewBox.w / 150, 1.5)}
-                fill="#fff"
-                stroke="#d00"
-                strokeWidth={1}
-                style={{ cursor: "grab" }}
-                onPointerDown={(e) => {
-                  e.stopPropagation();
-                  dragVertexRef.current = { feature: selected, index: vi };
-                }}
-              />
-            ))}
-        </svg>
+          <svg ref={svgRef} width={size.w} height={size.h} style={{ display: "block" }}>
+            {view && frame && (
+              <g transform={`translate(${view.tx},${view.ty}) scale(${view.k})`}>
+                {tiles.map((tile) => (
+                  <image key={tile.url} href={tile.url} x={tile.left} y={tile.top} width={tile.w} height={tile.h} preserveAspectRatio="none" />
+                ))}
+                {labels.features.map((f, i) => {
+                  const drafted = f.properties.origin === "drafted";
+                  const color = featureColor(f.properties);
+                  const stroke = drafted ? color : color;
+                  const opacity = drafted ? 0.55 : 1;
+                  const width = drafted ? 1 : 2;
+                  const dash = drafted ? "4 3" : undefined;
+                  const coords = f.geometry?.coordinates;
+                  if (f.geometry?.type === "Point") {
+                    const [x, y] = coords as [number, number];
+                    const [lx, ly] = utmToLocal(frame, [x, y]);
+                    return (
+                      <circle
+                        key={i}
+                        data-feature={i}
+                        cx={lx}
+                        cy={ly}
+                        r={3 / view.k}
+                        fill={color}
+                        opacity={opacity}
+                        onClick={() => mode === "select" && setSelected(i)}
+                      />
+                    );
+                  }
+                  if (f.geometry?.type === "LineString") {
+                    const pts = (coords as [number, number][]).map((p) => utmToLocal(frame, p).join(",")).join(" ");
+                    return (
+                      <polyline
+                        key={i}
+                        data-feature={i}
+                        points={pts}
+                        fill="none"
+                        stroke={stroke}
+                        strokeWidth={width}
+                        strokeDasharray={dash}
+                        opacity={opacity}
+                        vectorEffect="non-scaling-stroke"
+                        onClick={() => mode === "select" && setSelected(i)}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          const pt = toUtmFromScreen(e.clientX, e.clientY);
+                          addVertexToFeature(i, pt);
+                        }}
+                      />
+                    );
+                  }
+                  if (f.geometry?.type === "Polygon") {
+                    const ring = (coords as [number, number][][])[0] ?? [];
+                    const pts = ring.map((p) => utmToLocal(frame, p).join(",")).join(" ");
+                    return (
+                      <polygon
+                        key={i}
+                        data-feature={i}
+                        points={pts}
+                        fill={color}
+                        fillOpacity={drafted ? 0.12 : 0.2}
+                        stroke={stroke}
+                        strokeWidth={width}
+                        strokeDasharray={dash}
+                        opacity={opacity}
+                        vectorEffect="non-scaling-stroke"
+                        onClick={() => mode === "select" && setSelected(i)}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          const pt = toUtmFromScreen(e.clientX, e.clientY);
+                          addVertexToFeature(i, pt);
+                        }}
+                      />
+                    );
+                  }
+                  return null;
+                })}
+                {draft.length > 0 && frame && (
+                  <polyline
+                    points={draft.map((p) => utmToLocal(frame, p).join(",")).join(" ")}
+                    fill="none"
+                    stroke="#090"
+                    strokeDasharray="4 2"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                )}
+                {draft.map((p, i) => {
+                  const [lx, ly] = utmToLocal(frame!, p);
+                  return <circle key={`d${i}`} cx={lx} cy={ly} r={3 / (view?.k ?? 1)} fill="#090" />;
+                })}
+                {selected !== null &&
+                  vertexList(labels.features[selected]).map((v, vi) => {
+                    const [lx, ly] = utmToLocal(frame!, v);
+                    return (
+                      <circle
+                        key={`v${vi}`}
+                        data-vertex="1"
+                        cx={lx}
+                        cy={ly}
+                        r={5 / (view?.k ?? 1)}
+                        fill="#fff"
+                        stroke="#d00"
+                        strokeWidth={1}
+                        style={{ cursor: "grab" }}
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                          dragVertexRef.current = { feature: selected, index: vi };
+                        }}
+                        onClick={(e) => {
+                          if (e.shiftKey) {
+                            e.stopPropagation();
+                            removeVertex(selected, vi);
+                          }
+                        }}
+                      />
+                    );
+                  })}
+              </g>
+            )}
+          </svg>
+        </div>
+        <div style={{ marginTop: 8, fontSize: 12 }}>
+          <b>Legend:</b> drafted (dashed, faint) vs operator (solid); colours: marking=blue, crosswalk=amber, curb/curb_ramp=green.
+        </div>
       </div>
       <aside style={{ border: "1px solid #ccc", padding: 8 }}>
         <h3 style={{ marginTop: 0 }}>Attributes</h3>
