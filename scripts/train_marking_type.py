@@ -94,8 +94,6 @@ def _run_camera(args: argparse.Namespace, record: dict[str, Any]) -> int:
         except Exception as exc:  # noqa: BLE001
             print(f"grad checkpoint skipped: {exc}", file=sys.stderr)
     model.to(device)
-    if use_fp16:
-        model.half()
 
     processor = AutoImageProcessor.from_pretrained(args.model)
 
@@ -119,7 +117,7 @@ def _run_camera(args: argparse.Namespace, record: dict[str, Any]) -> int:
             else:
                 msk = Image.new("L", img.size, 0)
             # map mask ids to canonical classes using sample meta
-            id2kind = s.meta.get("id_to_kind") or s.meta.get("class_id_to_kind") or {}
+            id2kind = s.meta.get("class_id_to_kind") or {}
             arr = torch.from_numpy(__import__("numpy").array(msk)).long()
             out_mask = torch.zeros_like(arr)
             for k, v in id2kind.items():
@@ -199,8 +197,6 @@ def _run_camera(args: argparse.Namespace, record: dict[str, Any]) -> int:
                 batch = {k: (v.to(device) if torch.is_tensor(v) else v) for k, v in batch.items()}
                 # need labels for eval? processor gives mask_labels; model expects them optionally. For prediction, pass pixel_values only
                 pv = batch["pixel_values"]
-                if use_fp16:
-                    pv = pv.half()
                 outputs = model(pixel_values=pv)
                 # post-process
                 target_sizes = [(args.crop_size, args.crop_size)] * pv.shape[0]
@@ -228,15 +224,16 @@ def _run_camera(args: argparse.Namespace, record: dict[str, Any]) -> int:
                 model.train()
                 optimizer.zero_grad()
                 batch = {k: (v.to(device) if torch.is_tensor(v) else v) for k, v in batch.items()}
-                if "pixel_values" in batch and use_fp16:
-                    batch["pixel_values"] = batch["pixel_values"].half()
-                outputs = model(**batch)
-                loss = outputs.loss
-                if scaler is not None:
+                if use_fp16:
+                    with torch.autocast(device_type="cuda", dtype=torch.float16):
+                        outputs = model(**batch)
+                        loss = outputs.loss
                     scaler.scale(loss).backward()
                     scaler.step(optimizer)
                     scaler.update()
                 else:
+                    outputs = model(**batch)
+                    loss = outputs.loss
                     loss.backward()
                     optimizer.step()
 

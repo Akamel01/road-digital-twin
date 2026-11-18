@@ -143,7 +143,7 @@ def test_load_samples_holdout_raises_with_monkeypatch(monkeypatch):
 
     monkeypatch.setattr(mt, "_adapter", fake_adapter)
     with pytest.raises(mt.HoldoutViolation):
-        list(mt.load_samples("camera", "/tmp"))
+        list(mt.load_samples("bev", "/tmp"))
 
 
 # Synthetic-data smoke (CPU, optional torch).

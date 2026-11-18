@@ -421,14 +421,11 @@ def load_vistas_v2_samples(
             source="vistas_v2",
             scene_id=stem,
             bbox=None,
-            meta={
+             meta={
                 "split": split,
                 "image_path": str(img_path),
                 "label_path": str(label_path),
                 "class_id_to_kind": dict(id_to_kind),
-                "id_to_kind": dict(id_to_kind),
-                "canonical_kind_map": dict(id_to_kind),
-                "canonical_kind_mask": id_to_kind,
             },
         )
         if sample.bbox is not None and bbox_holdout is not None:
@@ -460,6 +457,9 @@ def load_samples(
     route = str(route).lower()
     if route not in ("camera", "bev"):
         raise ValueError(f"unknown route: {route}")
+    if route == "camera":
+        yield from load_vistas_v2_samples("training", root, holdout=holdout_bbox)
+        return
     # No datasets shipped; yield nothing. Adapters plug in here.
     for sample in _adapter(route, root):
         enforce_holdout(sample, holdout_bbox, buffer)
