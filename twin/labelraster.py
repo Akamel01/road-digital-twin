@@ -105,6 +105,8 @@ def _collect_drive(run, x0, y1, width=W_PX, height=H_PX, cell=G, nuscenes_root=N
     x = np.asarray(las.x)
     y = np.asarray(las.y)
     k = (x >= X0) & (x < X1) & (y > Y0) & (y <= Y1)
+    if k.sum() < 20000:
+        raise OSError(f"{rname}: sparse drive")
     ix = ((x[k] - X0) / Gc).astype(int)
     iy = ((Y1 - y[k]) / Gc).astype(int)
     ok = (ix < W) & (iy < H)
@@ -152,7 +154,7 @@ def _collect_drive(run, x0, y1, width=W_PX, height=H_PX, cell=G, nuscenes_root=N
         r0 = round(((pgw[5] + 0.025) - Y1) / Gc)
         full = np.zeros((H, W, 4), dtype=np.uint8)
         sx0, sy0 = max(c0, 0), max(r0, 0)
-        sx1, sy1 = min(c0 + W, im.size[0]), min(r0 + H, im.size[1])
+        sx1, sy1 = min(c0 + W, im.size[0],), min(r0 + H, im.size[1],)
         if sx1 > sx0 and sy1 > sy0:
             cr = np.asarray(im.crop((sx0, sy0, sx1, sy1)))
             full[sy0 - r0 : sy0 - r0 + cr.shape[0], sx0 - c0 : sx0 - c0 + cr.shape[1]] = cr
@@ -198,20 +200,17 @@ def _hp(a, m):
     return np.where(m, a - ab / (wb + 1e-6), 0).astype(np.float32)
 
 
-def _sh(a, dx, dy, shape):
-    import cv2
-
-    return cv2.warpAffine(
-        a.astype(np.float32),
-        np.float32([[1, 0, dx], [0, 1, dy]]),
-        (shape[1], shape[0]),
-        flags=cv2.INTER_LINEAR,
-    )
-
-
 def _fuse(drive, *, width=W_PX, height=H_PX, cell=G, **kw):
     import cv2
     import numpy as np
+
+    def sh(a, dx, dy, shape):
+        return cv2.warpAffine(
+            a.astype(np.float32),
+            np.float32([[1, 0, dx], [0, 1, dy]]),
+            (shape[1], shape[0]),
+            flags=cv2.INTER_LINEAR,
+        )
 
     W, H = width, height
     rname = drive["run_name"]
@@ -222,9 +221,8 @@ def _fuse(drive, *, width=W_PX, height=H_PX, cell=G, **kw):
     errors = _raster_errors()
     try:
         if obs is None or obs.sum() < 2000:
-            stats = {"used": False}
-            return stats, None
-        # hp
+            return {"used": False}, None
+
         A = _hp(np.where(mI, _pct(Ii, mI), 0), mI)
         Bm = _hp(np.where(obs, _pct(rgb.min(-1), obs), 0), obs)
         mask = obs & mI
@@ -243,8 +241,8 @@ def _fuse(drive, *, width=W_PX, height=H_PX, cell=G, **kw):
             best = (-2.0, 0, 0)
             for dy in range(-10, 11):
                 for dx in range(-10, 11):
-                    shb = _sh(B2, dx, dy, (H // 2, W // 2))
-                    mm = m2 & (_sh(m2.astype(np.float32), dx, dy, (H // 2, W // 2)) > 0.5)
+                    shb = sh(B2, dx, dy, (H // 2, W // 2))
+                    mm = m2 & (sh(m2.astype(np.float32), dx, dy, (H // 2, W // 2)) > 0.5)
                     v = ncc(A2, shb, mm)
                     if v > best[0]:
                         best = (v, dx * 2, dy * 2)
@@ -252,8 +250,8 @@ def _fuse(drive, *, width=W_PX, height=H_PX, cell=G, **kw):
             c = (-2.0, 0, 0)
             for dy in np.arange(best[2] - 2, best[2] + 2.01, 0.5):
                 for dx in np.arange(best[1] - 2, best[1] + 2.01, 0.5):
-                    shb = _sh(Bm, dx, dy, (H, W))
-                    mm = m & (_sh(m.astype(np.float32), dx, dy, (H, W)) > 0.5)
+                    shb = sh(Bm, dx, dy, (H, W))
+                    mm = m & (sh(m.astype(np.float32), dx, dy, (H, W)) > 0.5)
                     v = ncc(A, shb, mm)
                     if v > c[0]:
                         c = (v, float(dx), float(dy))
@@ -268,10 +266,10 @@ def _fuse(drive, *, width=W_PX, height=H_PX, cell=G, **kw):
             "used": bool(ok),
         }
         if ok:
-            mw = _sh(obs.astype(np.float32), dx, dy, (H, W)) > 0.99
+            mw = sh(obs.astype(np.float32), dx, dy, (H, W)) > 0.99
             reg_arr = np.where(
                 mw[:, :, None],
-                np.dstack([_sh(rgb[:, :, j], dx, dy, (H, W)) for j in range(3)]),
+                np.dstack([sh(rgb[:, :, j], dx, dy, (H, W)) for j in range(3)]),
                 np.nan,
             ).astype(np.float32)
         else:
@@ -296,14 +294,9 @@ def export_window(store, runs, *, site, x0, y1, width=1600, height=1500, cell=0.
         raw = []
         reg = []
         stats = {}
-        frames = []
         missing = []
-        run_names = []
-        cv2_available = True
-        try:
-            import cv2
-        except ImportError:
-            cv2_available = False
+        collected = []
+        cv2_ok = True
 
         for run in runs:
             rname = _run_name(run)
@@ -313,7 +306,7 @@ def export_window(store, runs, *, site, x0, y1, width=1600, height=1500, cell=0.
                 missing.append(f"{rname}: missing ground.laz")
                 continue
 
-            # accumulate lidar
+            collected.append(rname)
             sI += dd["si"]
             cI += dd["cnt"]
             sZ += dd["sz"]
@@ -321,35 +314,27 @@ def export_window(store, runs, *, site, x0, y1, width=1600, height=1500, cell=0.
             cR += dd["cR"]
 
             if dd["raw"] is not None:
-                if cv2_available:
-                    try:
-                        st, reg_arr = _fuse(dd, width=width, height=height, cell=cell)
-                    except RasterError:
-                        missing.append(f"{rname}: raster error")
-                        # ortho unused
-                        continue
-                    except ImportError:
-                        cv2_available = False
+                try:
+                    st, reg_arr = _fuse(dd, width=width, height=height, cell=cell)
+                except RasterError:
+                    missing.append(f"{rname}: raster error")
+                except ImportError:
+                    cv2_ok = False
+                    if "opencv unavailable: fused/ortho skipped" not in missing:
                         missing.append("opencv unavailable: fused/ortho skipped")
-                        continue
-                    stats[rname if False else _run_name(run)] = st
+                else:
+                    stats[rname] = st
                     raw.append(dd["raw"])
                     if reg_arr is not None:
                         reg.append(reg_arr)
-                else:
-                    # cv2 already known unavailable
-                    pass
 
-            run_names.append(rname)
-
-        # frames
+        frames = []
         cx = x0 + W * Gc / 2
         cy = y1 - H * Gc / 2
         for run in runs:
             rname = _run_name(run)
-            if rname not in run_names:
-                # drive skipped (no ground) -> skip frames too
-                pass
+            if rname not in collected:
+                continue
             base = _run_base(run)
             try:
                 with open(base / "3_align" / "poses.json") as _f:
@@ -396,10 +381,6 @@ def export_window(store, runs, *, site, x0, y1, width=1600, height=1500, cell=0.
             if len(frames) >= 15:
                 break
 
-        # fuse stats keys: use run names
-        # (already keyed by run_name above? fix: key by rname)
-        # Re-key: stats currently keyed by run_name from loop? We used _run_name(run) as key above (yes)
-
         hasI = cI > 0
         with np.errstate(all="ignore"):
             I = np.where(hasI, sI / np.maximum(cI, 1), np.nan)
@@ -415,18 +396,22 @@ def export_window(store, runs, *, site, x0, y1, width=1600, height=1500, cell=0.
         O_raw, _ = med(raw)
         O, hasO = med(reg)
 
-        if cv2_available:
-            import cv2
+        if cv2_ok and (reg or raw):
+            try:
+                import cv2
 
-            lab = cv2.cvtColor(O, cv2.COLOR_RGB2LAB).astype(np.float32)
-            Lo = np.where(hasO, _pct(lab[..., 0], hasO), 0) if hasO.any() else np.zeros((H, W))
-            L = np.where(hasI & hasO, 0.65 * In + 0.35 * Lo, np.where(hasI, In, Lo))
-            ab = np.where(hasO[:, :, None], (lab[..., 1:] - 128) * 1.4 + 128, 128)
-            fused = cv2.cvtColor(
-                np.dstack([L * 255, ab]).clip(0, 255).astype(np.uint8),
-                cv2.COLOR_LAB2RGB,
-            )
-            fused[~(hasI | hasO)] = 0
+                lab = cv2.cvtColor(O, cv2.COLOR_RGB2LAB).astype(np.float32)
+                Lo = np.where(hasO, _pct(lab[..., 0], hasO), 0) if hasO.any() else np.zeros((H, W))
+                L = np.where(hasI & hasO, 0.65 * In + 0.35 * Lo, np.where(hasI, In, Lo))
+                ab = np.where(hasO[:, :, None], (lab[..., 1:] - 128) * 1.4 + 128, 128)
+                fused = cv2.cvtColor(
+                    np.dstack([L * 255, ab]).clip(0, 255).astype(np.uint8),
+                    cv2.COLOR_LAB2RGB,
+                )
+                fused[~(hasI | hasO)] = 0
+            except ImportError:
+                cv2_ok = False
+                fused = np.zeros((H, W, 3), dtype=np.uint8)
         else:
             fused = np.zeros((H, W, 3), dtype=np.uint8)
 
@@ -440,12 +425,10 @@ def export_window(store, runs, *, site, x0, y1, width=1600, height=1500, cell=0.
         height = (height * 255).astype(np.uint8)
         height[cR == 0] = 0
 
-        if not cv2_available and "opencv unavailable: fused/ortho skipped" not in missing and run_names:
-            missing.append("opencv unavailable: fused/ortho skipped")
-        if not runs or not run_names:
+        if not runs or not collected:
             return blank_window(site, x0, y1, missing if missing else ["no drives"])
 
-        out = {
+        return {
             "name": site,
             "window": {"x0": x0, "y1": y1, "g": Gc, "w": W, "h": H},
             "intensity": _encode((In * 255).astype(np.uint8), ".png"),
@@ -457,6 +440,5 @@ def export_window(store, runs, *, site, x0, y1, width=1600, height=1500, cell=0.
             "missing": missing,
             "no_imagery": False,
         }
-        return out
     finally:
         Image.MAX_IMAGE_PIXELS = prev
