@@ -1,20 +1,11 @@
-# #288 measurement — needs human
+# Need human — #288 measurement gate failed
 
-## Status
-AC1 is **not** claimed. AC2 is **not** claimed.
+Venue: live-mirror: Seaport (15 drives)
 
-## What is committed
-- `scripts/mosaic_fixture.py` — measurement fixture (composites per-drive tiles into per-layer mosaics).
-- `web/scripts/measure-288.mjs` — harness scaffold (Chromium resolution, mirror, fixture build, serve, build). The CDP orchestration (screenshots, orbit, frame-time/heap measurement, gate) is **not implemented**; the script exits non-zero without a real measurement.
-- `web/eslint.config.mjs` — ignores `scripts/**`.
+Failing pairs:
+- frame p95 not improved: 0 -> 0
+- whole image count not reduced: 0 -> 0
+- page errors: before=7 after=75
 
-## Blocker
-The measurement harness requires a full CDP-based browser driver (screenshots, rAF sampling, heap profiling, orbit gesture, tile-settle detection) which was not implemented in this run. No measured before/after pairs exist; no numbers were invented.
-
-## Measured pairs
-None. (No `metrics.json` produced.)
-
-## Reproduction
-1. `npx playwright install chromium` (or set `CHROME_BIN`).
-2. Implement the CDP section of `web/scripts/measure-288.mjs` per `.autoforge/plans/plan.md` §5 M7.
-3. `node web/scripts/measure-288.mjs --before 1d3951c --out docs/evidence/288`.
+Before: frame p95 0 ms, images 0 (0 B), heap 50506940, renderer ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)
+After:  frame p95 0 ms, images 0 (0 B), heap 28728740, renderer ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)
