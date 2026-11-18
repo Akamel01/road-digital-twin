@@ -14,7 +14,7 @@ from pathlib import Path
 
 import numpy as np
 
-from twin import prgate, publish
+from twin import prgate, publish, score
 from twin.area import drive_tokens
 from twin.gates import GO, GateReport
 from twin.publish import PublishReport
@@ -143,19 +143,37 @@ def _published_report(store: Path, entry: dict) -> dict | None:
 TIE_MARGIN = 0.01
 
 
-def _improves(candidate: dict, published_entry: dict, store: Path) -> tuple[bool, str]:
+def _score_or_none(store, target_dir, baseline_doc):
+    try:
+        doc, reason = score.score_target(store, target_dir, sites="audit", baseline=baseline_doc)
+    except score.SCORE_ERRORS as exc:
+        print(f"publish: score failed ({exc}); comparing gate margins", file=sys.stderr)
+        return None
+    if doc is None:
+        print(f"publish: cannot score ({reason}); comparing gate margins", file=sys.stderr)
+    return doc
+
+
+def _improves(candidate: dict, published_entry: dict, score_doc) -> tuple[bool, str]:
     pub_gc = published_entry.get("go_count")
     pub_ms = published_entry.get("margin_sum")
     if pub_gc is None or pub_ms is None:
         return True, ""
-    cand_gc, cand_ms = GateReport(candidate).passed, GateReport(candidate).score()
-    if cand_gc > pub_gc:
-        return True, ""
+    cand_gc = GateReport(candidate).passed
     if cand_gc < pub_gc:
         return False, f"fewer gate checks pass ({cand_gc} vs {pub_gc})"
-    if cand_ms >= pub_ms - TIE_MARGIN:
-        return True, ""
-    return False, f"margin sum {cand_ms:g} is worse than published {pub_ms:g}"
+    base_doc = published_entry.get("score")
+    if score_doc is not None and base_doc is not None:
+        cmp = score_doc.get("compare") or {}
+        if cmp.get("comparable") is not False:
+            ok = cmp.get("publish") is True
+            return ok, "" if ok else str(cmp.get("reason") or "per-element score worse")
+        print("publish: baseline score not comparable (label sites changed): comparing gate margins", file=sys.stderr)
+    else:
+        print("publish: no per-element score for the candidate and the published run: comparing gate margins", file=sys.stderr)
+    cand_ms = GateReport(candidate).score()
+    return (True, "") if cand_ms >= pub_ms - TIE_MARGIN else (
+        False, f"margin sum {cand_ms:g} is worse than published {pub_ms:g}")
 
 
 def area_runs(store: Path, area) -> list[str]:
@@ -227,14 +245,22 @@ def publish_run(
         build_input = [str(run_id)]
         publish_id = str(run_id)
         build_id = publish_id
+    target_dir = area if area is not None else store / str(run_id)
     published = history(store)
+    baseline_doc = published[-1].get("score") if published else None
+    noop = published and not force and (
+        published[-1].get("build_id", published[-1].get("run_id")) == publish_id
+    )
+    score_doc = None
+    if not dry_run and not noop:
+        score_doc = _score_or_none(store, target_dir, baseline_doc)
     if published and not force:
         last = published[-1]
         if last.get("build_id", last.get("run_id")) == publish_id:
             if not dry_run:
                 return "skipped: already published"
         else:
-            improve, reason = _improves(report, published[-1], store)
+            improve, reason = _improves(report, published[-1], score_doc)
             if not improve and not dry_run:
                 return f"skipped: worse: {reason}"
     token = None if dry_run else read_token()
@@ -253,6 +279,7 @@ def publish_run(
             "margins": GateReport(report).rooms(),
             "go_count": GateReport(report).passed,
             "margin_sum": GateReport(report).score(),
+            "score": score_doc,
             # An area build is rebuilt in place, so keep its runs and report to rebuild / later (#222).
             "runs": build_input,
             "report": report,
