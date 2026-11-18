@@ -33,8 +33,8 @@
     if (!rawType || !surfaceMap || !surfaceMap[rawType]) return null;
     var mapping = surfaceMap[rawType];
     var element = mapping[0], type = mapping[1];
-    var props = surface.props || {};
-    if (props.origin !== "operator") return null;
+    var props = (surface.props && typeof surface.props === "object") ? surface.props : {};
+
     var xy = surface.xy;
     if (!Array.isArray(xy) || xy.length === 0) return null;
     var isPoly = surface.geom === "polygon" || surface.geom === "Polygon" || element === "crosswalk";
@@ -117,11 +117,11 @@
         if (f) features.push(f);
       }
     }
-    return { type: "FeatureCollection", version: version, features: features };
+    return { version: version, feature_collection: { type: "FeatureCollection", features: features } };
   }
 
   function metaBody(control, notes) {
-    return { control: control, notes: notes };
+    return { control: (control === "" ? null : control), notes: notes };
   }
 
   function changeSurfaceType(surface, rawType, surfaceMap) {

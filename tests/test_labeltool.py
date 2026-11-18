@@ -386,3 +386,116 @@ def test_prototype_ui_markers_present():
     for bg in ("intensity", "ortho", "fused", "height"):
         assert f'data-bg="{bg}"' in html, bg
 
+
+
+def _render_html():
+    from twin.labeltool import render
+
+    return render({"site": "s1", "window": {"x0": 0, "y1": 20, "g": 0.05}, "missing": "MISSING_IMG", "window_fallback": "WIN_FB", "no_imagery": False})
+
+
+def test_template_boot_fetches_site_and_labels():
+    html = _render_html()
+    assert "/api/r/labels/${encodeURIComponent(SITE)}" in html
+    assert "/api/r/labels/${SITE}/labels" in html
+    assert "state.loaded=true" in html or "state.loaded = true" in html
+    assert "state.meta=meta" in html or "state.meta = meta" in html
+
+
+def test_template_gates_tracing_until_loaded():
+    html = _render_html()
+    assert "requireEditable()" in html
+    assert "PURE.editsAllowed(state.meta,state.loaded)" in html or "PURE.editsAllowed(state.meta, state.loaded)" in html
+    # pointerdown, finish, delete, type select
+    assert "if(!requireEditable())return;cur.push" in html or "if(!requireEditable()) return;cur.push" in html
+
+
+def test_template_queue_put_status_handling():
+    html = _render_html()
+    for s in ("200", "409", "423", "401", "403"):
+        assert s in html
+    assert "reload: the file may have changed" in html
+    assert "run locally with TWIN_DEV_NO_AUTH=1" in html
+    assert "keepalive" in html
+    assert "stopped=true" in html
+
+
+def test_template_pagehide_keepalive():
+    html = _render_html()
+    assert "pagehide" in html
+    assert "beforeunload" in html
+    assert "keepalive" in html
+
+
+def test_template_download_json_is_legacy():
+    html = _render_html()
+    assert "Download JSON (legacy)" in html
+
+
+def test_template_fileof_uses_meta_version():
+    html = _render_html()
+    assert "state.meta.version" in html
+    assert "source:\"labels-store\"" in html or 'source:"labels-store"' in html
+    assert "surface_features" in html
+
+
+def test_template_has_google_buttons():
+    html = _render_html()
+    assert "Satellite" in html and "Street View" in html
+    assert "/api/r/geo/latlon" in html
+    assert "toW(...unscr(cv.clientWidth/2,cv.clientHeight/2))" in html
+    assert "maps/@?api=1&map_action=map" in html
+    assert "map_action=pano" in html
+
+
+def test_template_has_control_field():
+    html = _render_html()
+    for v in ("signalised", "stop_controlled", "uncontrolled", "mid_block"):
+        assert v in html
+    assert "/api/w/labels/" in html
+    assert "metaBody" in html
+
+
+def test_template_frozen_meta_display():
+    html = _render_html()
+    assert "meta.frozen" in html or "state.meta" in html
+    assert "approved_by" in html or "siteSummary" in html
+    assert "approved_at" in html or "siteSummary" in html
+    assert ".sha256" not in html
+
+
+def test_template_server_owned_buttons_disabled():
+    html = _render_html()
+    assert 'id="freeze" disabled' in html
+    assert 'id="newver" disabled' in html
+    assert 'id="reset" disabled' in html
+    assert "server-owned; use twin labels approve/new-version" in html
+
+
+def test_template_no_imagery_disables_snap():
+    with open("twin/templates/label_tool.html") as fh:
+        src = fh.read()
+    assert "DATA.no_imagery" in src
+    assert "snapPt" in src
+    assert "if(DATA.no_imagery)return p;" in src
+
+
+def test_template_has_banners():
+    html = _render_html()
+    assert "DATA.missing" in html
+    assert "DATA.window_fallback" in html
+    assert 'id="banner"' in html
+
+
+def test_template_dev_store_key():
+    html = _render_html()
+    assert "labeltool-devices-" in html
+    assert "DEV_STORE" in html
+    # only supports/devices persisted
+    assert "supports:state.supports,devices:state.devices" in html or 'supports:state.supports,devices:state.devices' in html
+
+
+def test_template_per_row_type_select():
+    html = _render_html()
+    assert "changeSurfaceType" in html
+    assert "<select" in html

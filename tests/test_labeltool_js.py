@@ -128,7 +128,7 @@ def test_js_put_body_includes_passthrough_and_version():
     out = _run_js("""
 const s = {id:"n",rawType:"curb",geom:"polyline",xy:[[0,0],[1,1]],px:[],evidence:"x",props:{id:"n",origin:"operator",source_marking_type:"curb",evidence:"x"}};
 const b = PURE.putBody(3,[{type:"Feature",geometry:{type:"LineString",coordinates:[[9,9],[10,10]]},properties:{id:"pass"}}],[s],{"curb":["curb","curb"]});
-console.log(JSON.stringify({version:b.version,count:b.features.length}));
+console.log(JSON.stringify({version:b.version,count:b.feature_collection.features.length}));
 """)
     d = json.loads(out)
     assert d == {"version": 3, "count": 2}
@@ -141,7 +141,7 @@ const arr=[];
 let editable=0,passthrough=0;
 for(const f of arr){const s=PURE.featureToSurface(f,{x0:0,y1:20,g:0.05},{"curb":["curb","curb"]},["id"]); if(s) editable++; else passthrough++;}
 const b=PURE.putBody(1,[],[],{"curb":["curb","curb"]});
-console.log(JSON.stringify({editable:editable,passthrough:passthrough,features:b.features.length}));
+console.log(JSON.stringify({editable:editable,passthrough:passthrough,features:b.feature_collection.features.length}));
 """)
     assert json.loads(out) == {"editable": 0, "passthrough": 0, "features": 0}
 

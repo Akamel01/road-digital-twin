@@ -50,7 +50,7 @@ pre{white-space:pre-wrap;word-break:break-all;font-size:11px;max-height:300px;ov
 <div id="t-set" hidden>
 <section><h3>Site metadata</h3><div class="row"><label>Control <select id="control"><option value=""></option><option value="signalised">signalised</option><option value="stop_controlled">stop_controlled</option><option value="uncontrolled">uncontrolled</option><option value="mid_block">mid_block</option></select></label></div><textarea id="notes" rows="4" style="width:100%"></textarea><div class="row"><button class="btn" id="savemeta">Save metadata</button><button class="btn" id="gsat">Satellite</button><button class="btn" id="gsv">Street View</button></div></section>
 <section><h3>Audit set</h3><div class="row"><span id="setid"></span></div>
-<div class="row"><button class="btn" id="freeze" disabled title="server-owned; use twin labels approve/new-version">Freeze this version</button><button class="btn" id="newver" disabled title="server-owned; use twin labels approve/new-version">Start next version</button><button class="btn" id="dl">Download JSON</button><button class="btn" id="reset" disabled title="server-owned; use twin labels approve/new-version">Clear all</button></div>
+<div class="row"><button class="btn" id="freeze" disabled title="server-owned; use twin labels approve/new-version">Freeze this version</button><button class="btn" id="newver" disabled title="server-owned; use twin labels approve/new-version">Start next version</button><button class="btn" id="dl">Download JSON (legacy)</button><button class="btn" id="reset" disabled title="server-owned; use twin labels approve/new-version">Clear all</button></div>
 <div class="mute" id="frz"></div></section>
 <section><h3>Labels store</h3><div class="mute">
 Surfaces persist through the labels API. Freeze/new-version are server-owned.</div></section>
@@ -74,9 +74,9 @@ const save=()=>{try{localStorage.setItem(DEV_STORE,JSON.stringify({supports:stat
 function showBanner(msg){const b=$("banner");if(!msg){b.hidden=true;b.textContent="";return;}b.hidden=false;b.textContent=msg;}
 function requireEditable(){if(!PURE.editsAllowed(state.meta,state.loaded)){showBanner("Not editable");return false;}return true;}
 let putTimer=null,dirty=false;
-async function flushPut(keepalive){if(state.stopped||!state.loaded||!PURE.editsAllowed(state.meta,state.loaded))return;dirty=false;const body=PURE.putBody(state.meta?state.meta.version:state.version,state.passthrough,state.surfaces,DATA.surface_map);try{const res=await fetch(`/api/w/labels/${SITE}/labels`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body),keepalive:!!keepalive});if(res.status===200){showBanner("");}else if(res.status===409){state.stopped=true;showBanner("reload: the file may have changed");}else if(res.status===423){showBanner("frozen");}else if(res.status===401||res.status===403){showBanner("run locally with TWIN_DEV_NO_AUTH=1");}}catch(e){showBanner("save failed");}}
+async function flushPut(keepalive){if(state.stopped||!state.loaded||!PURE.editsAllowed(state.meta,state.loaded))return;dirty=false;const body=PURE.putBody(state.meta?state.meta.version:state.version,state.passthrough,state.surfaces,DATA.surface_map);try{const res=await fetch(`/api/w/labels/${SITE}/labels`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body),keepalive:!!keepalive});if(res.status===200){dirty=false;showBanner("");}else if(res.status===409){state.stopped=true;dirty=false;showBanner("reload: the file may have changed");}else if(res.status===423){showBanner("frozen");}else if(res.status===401||res.status===403){showBanner("run locally with TWIN_DEV_NO_AUTH=1");}else if(res.status===422){showBanner("invalid payload");}}catch(e){showBanner("save failed");}}
 function queuePut(){if(state.stopped||!state.loaded||!PURE.editsAllowed(state.meta,state.loaded))return;dirty=true;if(putTimer)clearTimeout(putTimer);putTimer=setTimeout(()=>flushPut(false),400);}
-async function saveMeta(){if(!requireEditable())return;const body=PURE.metaBody($("control").value,$("notes").value);try{const res=await fetch(`/api/w/labels/${SITE}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});if(res.status===200){const j=await res.json();state.meta=j;state.version=j.version;state.frozen=!!j.frozen;if($("control"))$("control").value=j.control||"";if($("notes"))$("notes").value=j.notes||"";showBanner("");renderAll();}else if(res.status===409){state.stopped=true;showBanner("reload: the file may have changed");}else if(res.status===423){showBanner("frozen");}else if(res.status===401||res.status===403){showBanner("run locally with TWIN_DEV_NO_AUTH=1");}}catch(e){showBanner("save failed");}}
+async function saveMeta(){if(state.stopped){showBanner("reload: the file may have changed");return;}if(!requireEditable())return;const body=PURE.metaBody($("control").value,$("notes").value);try{const res=await fetch(`/api/w/labels/${SITE}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});if(res.status===200){const j=await res.json();state.meta=j;state.version=j.version;state.frozen=!!j.frozen;if($("control"))$("control").value=j.control||"";if($("notes"))$("notes").value=j.notes||"";showBanner("");renderAll();}else if(res.status===409){state.stopped=true;showBanner("reload: the file may have changed");}else if(res.status===423){showBanner("frozen");}else if(res.status===401||res.status===403){showBanner("run locally with TWIN_DEV_NO_AUTH=1");}else if(res.status===422){showBanner("invalid payload");}}catch(e){showBanner("save failed");}}
 async function boot(){try{const metaRes=await fetch(`/api/r/labels/${encodeURIComponent(SITE)}`);const labelsRes=await fetch(`/api/r/labels/${SITE}/labels`);if(!metaRes.ok||!labelsRes.ok)throw new Error("boot");const meta=await metaRes.json();const labels=await labelsRes.json();state.meta=meta;state.version=meta.version;state.frozen=!!meta.frozen;state.passthrough=[];state.surfaces=[];const feats=(labels.features||(labels.feature_collection&&labels.feature_collection.features)||[]);for(const f of feats){const s=PURE.featureToSurface(f,W,DATA.surface_map,DATA.schema_fields);if(s)state.surfaces.push(s);else state.passthrough.push(f);}state.loaded=true;if($("control"))$("control").value=meta.control||"";if($("notes"))$("notes").value=meta.notes||"";renderAll();if(DATA.missing)showBanner(DATA.missing);else if(DATA.window_fallback)showBanner(DATA.window_fallback);else showBanner("");}catch(e){state.loaded=false;showBanner("Failed to load labels");}}
 window.addEventListener("pagehide",()=>flushPut(true));
 window.addEventListener("beforeunload",()=>flushPut(true));
@@ -167,7 +167,23 @@ function renderAll(){ $("nsurf").textContent=state.surfaces.length;
    div.append(span,sel,x); slist.append(div);
  }
  if(!state.surfaces.length){const sp=document.createElement("span");sp.className="mute";sp.textContent="None yet.";slist.append(sp);}
- $("nsup").textContent=state.supports.length;$("slots").innerHTML=state.supports.map(s=>{const ds=state.devices.filter(d=>d.support===s.id).sort((a,b)=>b.z-a.z);return `<div class="stack"><b>${s.id}</b> <span class="mute">${s.kind} · ${ds.length} device(s)</span>${ds.map(d=>`<div class="sg ${d.plaque?"pl":""}"><span>${d.plaque?"↳ ":""}${d.code}${d.value?" · "+d.value:""}</span><span class="mute">h ${d.mount_h} m · ${d.facing_deg}° · gap ${d.ray_gap_m} m</span><span class="x" data-d="${d.id}">✕</span></div>`).join("")}</div>`}).join("")||'<span class="mute">No devices yet.</span>';
+ $("nsup").textContent=state.supports.length;
+ const slots=$("slots"); slots.textContent="";
+ for(const s of state.supports){
+   const ds=state.devices.filter(d=>d.support===s.id).sort((a,b)=>b.z-a.z);
+   const div=document.createElement("div"); div.className="stack";
+   const b=document.createElement("b"); b.textContent=s.id; div.append(b);
+   const mute=document.createElement("span"); mute.className="mute"; mute.textContent=` ${s.kind} · ${ds.length} device(s)`; div.append(mute);
+   for(const d of ds){
+     const sg=document.createElement("div"); sg.className="sg"+(d.plaque?" pl":"");
+     const sp=document.createElement("span"); sp.textContent=(d.plaque?"↳ ":"")+d.code+(d.value?" · "+d.value:""); sg.append(sp);
+     const m2=document.createElement("span"); m2.className="mute"; m2.textContent=`h ${d.mount_h} m · ${d.facing_deg}° · gap ${d.ray_gap_m} m`; sg.append(m2);
+     const x=document.createElement("span"); x.className="x"; x.dataset.d=d.id; x.textContent="✕"; sg.append(x);
+     div.append(sg);
+   }
+   slots.append(div);
+ }
+ if(!state.supports.length){const sp=document.createElement("span");sp.className="mute";sp.textContent="No devices yet.";slots.append(sp);}
  $("setid").textContent=`${SITE}@v${state.meta?state.meta.version:state.version} · ${state.surfaces.length} surface features · ${state.devices.length} devices on ${state.supports.length} supports`;
  $("frz").textContent=state.meta?PURE.siteSummary(state.meta):"Draft: editable.";
  $("json").textContent=JSON.stringify(fileOf(),null,1);draw()}
