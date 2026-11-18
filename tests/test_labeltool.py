@@ -379,7 +379,9 @@ def test_prototype_ui_markers_present():
                "function ray(", "function proj(", "function drawPane("):
         assert fn in html, fn
     for s in ("LiDAR intensity", "Orthoimage", "Combined", "Height", "Click to add vertices",
-              "Frames", "Mark the device face centre in both views", "Traced features", "Supports"):
+              "Frames", "Mark the device face centre in both views", "Traced features", "Supports",
+              "Snap", "Trace", "Device", "Enter", "Backspace", "Escape", "pointerdown", "dblclick",
+              "wheel", "data-t"):
         assert s in html, s
     for bg in ("intensity", "ortho", "fused", "height"):
         assert f'data-bg="{bg}"' in html, bg
