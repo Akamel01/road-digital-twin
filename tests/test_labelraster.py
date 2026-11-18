@@ -365,7 +365,7 @@ def test_blur_masked_matches_masked_normalisation(monkeypatch):
 def test_try_cv2_returns_none_for_partial_fake(monkeypatch):
     calls = []
     partial = _fake_cv2_module(calls)
-    del partial.warpAffine
+    del partial.INTER_NEAREST
     monkeypatch.setitem(sys.modules, "cv2", partial)
     monkeypatch.setattr(lr, "_cv2", None, raising=False)
     monkeypatch.setattr(lr, "_cv2_tried", False, raising=False)

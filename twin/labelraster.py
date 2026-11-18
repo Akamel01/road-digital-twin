@@ -40,6 +40,7 @@ _CV2_ATTRS = (
     "warpAffine",
     "INTER_AREA",
     "INTER_LINEAR",
+    "INTER_NEAREST",
     "error",
 )
 
