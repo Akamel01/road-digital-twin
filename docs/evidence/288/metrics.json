@@ -1,11 +1,11 @@
 {
   "venue": "live-mirror: Seaport (15 drives)",
-  "generated_at": "2026-11-18T12:51:15.892Z",
+  "generated_at": "2026-11-18T13:18:38.464Z",
   "base_ref": "1d3951c",
   "fixture_source": "live-mirror",
   "commits": {
     "before": "1d3951c7fbaba434250e8432aeb9acfa165ca5e9",
-    "after": "f82c69c0338885b097999ec720badfe5724db303"
+    "after": "396a00a56076c11286b1c3cb0d6627c71335dba6"
   },
   "publish_report": {
     "tile_version": "99b0085b341d"
@@ -45,49 +45,49 @@
   },
   "whole": {
     "before": {
-      "count": 325,
-      "bytes": 2353892
+      "count": 258,
+      "bytes": 1919162
     },
     "after": {
-      "count": 24,
-      "bytes": 523836
+      "count": 54,
+      "bytes": 826639
     }
   },
   "gesture": {
     "before": {
-      "count": 117,
-      "bytes": 695658
+      "count": 50,
+      "bytes": 260928
     },
     "after": {
-      "count": 12,
-      "bytes": 254240
+      "count": 34,
+      "bytes": 383291
     }
   },
   "during_gesture": {
     "before": {
-      "count": 117,
-      "bytes": 695658
+      "count": 50,
+      "bytes": 260928
     },
     "after": {
-      "count": 4,
-      "bytes": 80488
+      "count": 34,
+      "bytes": 383291
     }
   },
   "frame_ms": {
     "before": {
-      "median": 316.5,
-      "p95": 499.9,
-      "samples": 156
+      "median": 16.7,
+      "p95": 400,
+      "samples": 460
     },
     "after": {
-      "median": 383.4,
-      "p95": 500,
-      "samples": 144
+      "median": 16.7,
+      "p95": 983.3,
+      "samples": 318
     }
   },
   "heap": {
-    "before": 67727616,
-    "after": 19779188
+    "before": 44406844,
+    "after": 21403392
   },
   "final_zoom": {
     "before": {
@@ -160,76 +160,107 @@
   "http_404s": {
     "before": [
       {
-        "url": "http://127.0.0.1:33019/showcase/status.json",
-        "classification": "unexpected"
+        "url": "http://127.0.0.1:46047/showcase/status.json",
+        "classification": "known_app_404"
       },
       {
-        "url": "http://127.0.0.1:33019/favicon.ico",
-        "classification": "unexpected"
+        "url": "http://127.0.0.1:46047/favicon.ico",
+        "classification": "known_app_404"
       },
       {
-        "url": "http://127.0.0.1:33019/dev",
-        "classification": "unexpected"
+        "url": "http://127.0.0.1:46047/dev",
+        "classification": "known_app_404"
       },
       {
-        "url": "http://127.0.0.1:33019/latest",
-        "classification": "unexpected"
+        "url": "http://127.0.0.1:46047/latest",
+        "classification": "known_app_404"
       },
       {
-        "url": "http://127.0.0.1:33019/showcase/status.json",
-        "classification": "unexpected"
+        "url": "http://127.0.0.1:46047/showcase/status.json",
+        "classification": "known_app_404"
       },
       {
-        "url": "http://127.0.0.1:33019/dev",
-        "classification": "unexpected"
+        "url": "http://127.0.0.1:46047/dev",
+        "classification": "known_app_404"
       },
       {
-        "url": "http://127.0.0.1:33019/latest",
-        "classification": "unexpected"
+        "url": "http://127.0.0.1:46047/latest",
+        "classification": "known_app_404"
       }
     ],
     "after": [
       {
-        "url": "http://127.0.0.1:36077/showcase/status.json",
-        "classification": "unexpected"
+        "url": "http://127.0.0.1:40527/showcase/status.json",
+        "classification": "known_app_404"
       },
       {
-        "url": "http://127.0.0.1:36077/favicon.ico",
-        "classification": "unexpected"
+        "url": "http://127.0.0.1:40527/favicon.ico",
+        "classification": "known_app_404"
       },
       {
-        "url": "http://127.0.0.1:36077/showcase/status.json",
-        "classification": "unexpected"
+        "url": "http://127.0.0.1:40527/showcase/status.json",
+        "classification": "known_app_404"
       },
       {
-        "url": "http://127.0.0.1:36077/dev",
-        "classification": "unexpected"
+        "url": "http://127.0.0.1:40527/dev",
+        "classification": "known_app_404"
       },
       {
-        "url": "http://127.0.0.1:36077/latest",
-        "classification": "unexpected"
+        "url": "http://127.0.0.1:40527/latest",
+        "classification": "known_app_404"
       }
     ],
-    "after_unexpected": [
+    "after_unexpected": [],
+    "before_known_app_404s": [
       {
-        "url": "http://127.0.0.1:36077/showcase/status.json",
-        "classification": "unexpected"
+        "url": "http://127.0.0.1:46047/showcase/status.json",
+        "classification": "known_app_404"
       },
       {
-        "url": "http://127.0.0.1:36077/favicon.ico",
-        "classification": "unexpected"
+        "url": "http://127.0.0.1:46047/favicon.ico",
+        "classification": "known_app_404"
       },
       {
-        "url": "http://127.0.0.1:36077/showcase/status.json",
-        "classification": "unexpected"
+        "url": "http://127.0.0.1:46047/dev",
+        "classification": "known_app_404"
       },
       {
-        "url": "http://127.0.0.1:36077/dev",
-        "classification": "unexpected"
+        "url": "http://127.0.0.1:46047/latest",
+        "classification": "known_app_404"
       },
       {
-        "url": "http://127.0.0.1:36077/latest",
-        "classification": "unexpected"
+        "url": "http://127.0.0.1:46047/showcase/status.json",
+        "classification": "known_app_404"
+      },
+      {
+        "url": "http://127.0.0.1:46047/dev",
+        "classification": "known_app_404"
+      },
+      {
+        "url": "http://127.0.0.1:46047/latest",
+        "classification": "known_app_404"
+      }
+    ],
+    "after_known_app_404s": [
+      {
+        "url": "http://127.0.0.1:40527/showcase/status.json",
+        "classification": "known_app_404"
+      },
+      {
+        "url": "http://127.0.0.1:40527/favicon.ico",
+        "classification": "known_app_404"
+      },
+      {
+        "url": "http://127.0.0.1:40527/showcase/status.json",
+        "classification": "known_app_404"
+      },
+      {
+        "url": "http://127.0.0.1:40527/dev",
+        "classification": "known_app_404"
+      },
+      {
+        "url": "http://127.0.0.1:40527/latest",
+        "classification": "known_app_404"
       }
     ]
   },
@@ -248,24 +279,25 @@
       "Failed to load resource: the server responded with a status of 404 (Not Found)",
       "Failed to load resource: the server responded with a status of 404 (Not Found)",
       "Failed to load resource: the server responded with a status of 404 (Not Found)",
-      "Failed to load resource: the server responded with a status of 404 (Not Found)",
-      "deck: `getLineDashArray` has been removed. Use `PathStyleExtension` instead"
+      "Failed to load resource: the server responded with a status of 404 (Not Found)"
     ],
-    "after_non_404": [
-      "deck: `getLineDashArray` has been removed. Use `PathStyleExtension` instead"
-    ]
+    "after_non_404": []
   },
   "drag_delta": {
     "before": {
-      "before_fp": null,
-      "after_fp": null,
-      "changed": false,
-      "zoom_changed": false
+      "before_fp": "04e96839af15963dd4b8e1f2a06af1024a75b3324331cce11dc73e2f6e473366",
+      "after_fp": "7192aaae1fbc236b0ffb5e43c665cb5191cafb84658320891425796da167a749",
+      "changed": true,
+      "delta": 1,
+      "drag_ok": true,
+      "zoom_changed": true
     },
     "after": {
-      "before_fp": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAA/oAAALQCAYAAAAgpgtFAAAQAElEQVR4AXz9B6AfVdUvfu85J70nkBAgjR6poSMqNfSeKCjdhgULYiFiR1RAxQqi0kUUHglFRIRQlGJUQEB6S4DQWzrpv/f72WFyefzf+x5Zzszea6++1i4z56TrU5/6VOeTn/xk5/3vf/9D/fr1W6vkZ+211z5mr7326uy+++6dPfbYo7PFFlv8Ic31v6OOOur0K6+8sjN16tTON7/5zc7nPve5zgc+8IE70tk3UDbZZJMTjjvuuM7xxx/f2WCDDT6grYVtt932V4cddhj8Dhx8TzjhhM7Xv/71CjvvvPPXW9zQ/PPXvva1yuPUU0/tfPe73+1873vf63z+859/bOjQoWNavPb6nve856ef+MQnOh/60Ic67373uzuRoxN+nQ9/+MOV109+8pPOzTff3Lnxxhsr/PKXv6x6G7PRRhsd2dJprxk/+Rvf+EaV66tf/Wrn5JNP7nzpS19aOmrUqJ1bnLdf+/fvv/mWW275Mp5bb7115b3PPvt09t9//84hhxxSdW51j26d973vfbWNvOzAjgcffHBn11137UycOLFz6KGHdtZZZ52jx48ffyL8I444otIx7iMf+Ui932+//ToHHnhgB13t6LS25NePfvSjHQAf7Ljjjj99u8y57xUYDOLj88j6djjggAM6Bx10UI2B9ddf/7TgDQiUyHTtO9/5zirnZz7zmc4Xv/jFamNjjdl33307e++9d9VvxowZnfZn8eLFnW/EprHt19ABG2644dQddtjhTfhoxb983PngBz/4+LBhwzYODvn6jR49eq2H8rNixYrO3//+9yrXpEmTOmzGvuxz5JFHdlzZi03Ycty4cT8Jjfrf4Ycffsn3v//9zpQpU54ePnz4+vH7OewnFsXBxz72sc7HP/7xzoknnlhlYEPxE1k673rXuzqbbbZZ9dsbb7zRuf766zs/+9nPKpx11lkd8OUvf7mz5557dnbbbbcOO5z2vdM6y5Yu66xYsaLGHt+IIzF/zDHHVB3g7bzzzjVmySJOzz333M5f//rX1mydZcuWVZj9wO8682f9o/O788/s/Pv8Azs3/OSAGidsx+Znn312x1jwwx/+sMM+8hiP6N5hH7jveMc7pvbp02edMWPG3D958mT2qPrKZ8APbLfTTjuJwR+kHkz41re+9eoFP/lK59wzp3SmnnV85wc/+EHnpz/9aeeKX321M/OygzqP/O7Qej314zsuOfPEPTrB7/z85z/vkANNcMopp3ROOumkDlnFOHm0f+UrX6nxkrjoRLbOyJEjOyNGjKhx95vf/KajDnz2s5+tcT527NhO4k9Nqrb+emqHfjmKDvvKBfTlnxoml77wsYM7v/7yblVG8oI//WDvztc+/M7Km85i4NOf/nT136BBg5bFPnPizyViCcgvAE+c4MPGfIkv/vJMDNKVbmJCbpM/tDrbbbddpa8+ijN9aKK1yy671HpBJ3Z6y1cdfpBvfCIfyeIq/42jO34AP3yS69XO9Gl5kE2sqzliQp2EK77Furj8RvKT3O7l0bHHHisXaz3XDuiXeltjli2STzWGvvCFL6j5k5Jsg+PDnaPfbPKgL8blEHy2oBsfiXn+CawIzrzUz0XswKZ4iR/+lVOpEx3AhqmNHTZgO3mLx7XXXtu58sorl4TGnDPPPHPZZZdd1rn88ss7l/720s53vvOdDjuxhZhgU/qhzW/kpCu5xK18Viu+lzmHLdjRFaip6gJ74sue7Com9PHf6aefXues0047rebhNttsU/2IB5zoW2sKXdk+8tY4Z3+02Wq99darPjz66KM77IEX/nRgR7LLMzbg7+23377mxcYbb9yZMGFCzRNxw9fqgPosZtgcT3rjh8YvfvGLzre//e2OuCM/X4ptc5l8k5uxa/W5Nj7gC7QvueSSalu6iU06iQ8ywePnnXbaqfqOXvyFDx",
-      "after_fp": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAA/oAAALQCAYAAAAgpgtFAAAQAElEQVR4Aez9B9heVbUvfM+VhCT0hC41dFSQUARUuhEBlUSRqgiIIlZwC1hAAVG3DaTYC4IFDaBIEQQeBQERkCqISO/SEkIglLT7+/8GrLyRc3Y573X2954iVwZr3bOMPsYcc65138+w9uJ/iyyyyMvf/OY3P/j2t799sPXWW89daaWV5qy44ooFSy655BkZZuz8sMA222xz8S677DIn4y9P/8IB/V2u/T/32v5TsMwyy3x23XXXHYBVV1117iqrrDJnhRVWuCbIxgb6f2uOHj363kUXXXSw4IIL/qRvDP8nLLvssoOMH4SvuZFlzqRJk+buvffeg3322Wfwhje8YbDWWmsN1llnnbouvfTSJ2Zu8fXqjV/947dOeutgu+22uy9410p7Gzly5M4ZMwhPgz322GNw/PHHD4477rhZa6yxxtbpr3n9dcyYMf+y5pprDtI3CM+D6K3A/eqrrz545StfOdhss80Gm2+++WDLLbccbLXVVnRc9695zWsGm2yyyWDjjTceoBe6X1looYU2fsUrXvEEPbzqVa8ajB8/frDeeusNllhiiX3Dz16ve93rCt+hhx46+PznPz/YdtttC2fGzg0fczbccMM5aOMD/fXXX3/w8pe/fLDBBhvUOHzQgzErrbTSvaNGjVqbLNHnLnRo3vLLLz8AscPM6Hsr/bf/5M3b3TN54uCeyZOueeE6cXDBsTvMPP/YNw3e8aYNfmUM+PER2950yH7bDb7xqbcMrvvpvhlvzsTBzT9/9+Ad73jHIPwNNlh3jcGR79l0cNTH9hqc8PmPDD7+8Y8PDjvssMGnPvWpuv/EJz4x+NKXvjSIf5V+Nt100wG5t9hii7LlbrvtNth1110L3va2tw223377waSJkwabbrLpIP56ZfhYdIcddjjrgx/84OBDH/pQARuQ7TUbrDHY+Q2vGnzugNcNjv7w9oM/fG/3wblf2X4en0d/eMfBG9/4xsEBBxwwOPNr7xj84uitB2d+4fWDj+61+eCEQ3cYfP2Tbx4c8r63Dj7xgbcP9t1zp0FsNYieBnjcd999B+985zsHe+211+BNb3pT+cNqq61W9//yL/9CtjmRc86nP/3pOZ/5zGfmfvazny1abMwv9ttvv8HnP77vYP99di15yfyeXbYYfPWg1w9+87U3DX7+uR3n8dnb4JB3bTpYaqmlBmPHjh18dM9Xl1xfPnDbwclf2m9wwuc+PPjCJ/YdTJw4cZB4KD2EdunZNToarLzyyoNx48YNDj744MHXvvY1PA7Wj8/ghx4Av908/pvYKl1r45/0yY/ggEu8JY7EUtnJPP4v9mKXL8bHNtl5u1fNOPuLbxBb30jcviIx8MC73vWuwYEHHlj8vf/97x9MmDCh4iY+PXjta19bPr7RRhtdGLvOi72TTjpp25/85CeDU089dRC6xy+88MKvSiw98u53v3sgNg455JABP6LT9A8OOuigskPyVcnARh/Zf4/BeV/doXQ6YZNVKs723HPPAbuIra9FH1//+tcH3/jGNwYnn3zyIDQHP/jBDwbf/va3yzfJ/J73vKfaTjnllOKfj2pPDhroO+KIIwZHBPjzl7/85eJJvMsXayUnuWcf/kwH8Pz4xz8uXHw2clfsymF4ExORb+7nPve5uR/72McqF/BBsQ4nuju/befBvvvsOzc+xs+KJvuKM3DUUUcNvvKVrxS85S1vGdAJvHSPB7zga/fddx/w6Y9+9KODY489tvyDH5OPz5CVTwD+vtNOOw3AxPibvAnkXzEILzxyAJn4kHZ6xg+byw3ymbGRsfTHN771rW8NQOSpHPLWt751AN6z33vKVubT73HHHTc48cQTK3f867/+a9kcTnyIZ/mAH9ARP5U7yC2faBNvZHIFeKLjo48+egDfF7/4xQEbfuELXxjwL+slMJ9cYp+d+Cw8dE",
+      "before_fp": "8a31c4fb0b12057c46fccccdad45972ed6fadaf60cf21324a3ccc0e082d544bc",
+      "after_fp": "132f41964c2c767445ea593d77e98fda4317738c75c6368b8914cb5841995f9d",
       "changed": true,
+      "delta": 1,
+      "drag_ok": true,
       "zoom_changed": true
     }
   },
@@ -292,18 +324,18 @@
     },
     {
       "path": "docs/evidence/288/after-ortho-full.png",
-      "sha256": "7babf9656456d11959832adb2c32d9288997c7e23a3e797ae583b398165ede83",
-      "pixel_variance": 6552.065485056479
+      "sha256": "a571a871547a9a6eae2765ea59bc9070dfa69a9e5cea83c9c593dd77dfff1d39",
+      "pixel_variance": 5150.127486722946
     },
     {
       "path": "docs/evidence/288/after-height-full.png",
-      "sha256": "2b700be7a388284c4544e0cfa13f53bfc4a7b776f60408b6b2bf1b8ca1d45adb",
-      "pixel_variance": 6554.691951554735
+      "sha256": "3a3b0fda1ad929fafe8753ca7e8a940dcc8c73eeec3f9896eb70c0b6c049c473",
+      "pixel_variance": 6821.891216040995
     },
     {
       "path": "docs/evidence/288/after-lidar-phone.png",
-      "sha256": "9ef58952a1f4ae82ec9883fcf96720b92f17e508ef53530c57c72f0603a10982",
-      "pixel_variance": 5679.775694544446
+      "sha256": "00be23aea7d28516faf2eced9a40c941aa519714ebbca292e22f063a5dabf42c",
+      "pixel_variance": 5765.004502161924
     }
   ],
   "fixture": {
@@ -637,18 +669,16 @@
     }
   },
   "comparison": {
-    "frame_p95_before": 499.9,
-    "frame_p95_after": 500,
-    "whole_count_before": 325,
-    "whole_count_after": 24,
+    "frame_p95_before": 400,
+    "frame_p95_after": 983.3,
+    "whole_count_before": 258,
+    "whole_count_after": 54,
     "before_source": "measured"
   },
   "gate": {
     "passed": false,
     "reasons": [
-      "frame p95 not improved: 499.9 -> 500",
-      "after has deck/TypeError/Error entries: deck: `getLineDashArray` has been removed. Use `PathStyleExtension` instead",
-      "unexpected 404s: http://127.0.0.1:36077/showcase/status.json | http://127.0.0.1:36077/favicon.ico | http://127.0.0.1:36077/showcase/status.json | http://127.0.0.1:36077/dev | http://127.0.0.1:36077/latest"
+      "frame p95 not improved: 400 -> 983.3"
     ]
   }
 }
