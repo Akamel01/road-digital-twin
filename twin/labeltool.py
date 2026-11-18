@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import shapely
+from shapely.errors import GeometryTypeError
 from shapely.geometry import shape
 
 from twin import labels
@@ -230,7 +231,7 @@ def _polygon_bounds(polygon: Any) -> tuple[float, float, float, float] | None:
         return None
     try:
         g = shape(polygon)
-    except (TypeError, ValueError, AttributeError):
+    except (GeometryTypeError, KeyError, TypeError, ValueError, AttributeError):
         return None
     if g.is_empty or not g.is_valid:
         # try to make valid? avoid geometry ops changing meaning; skip invalid
@@ -240,8 +241,11 @@ def _polygon_bounds(polygon: Any) -> tuple[float, float, float, float] | None:
             return None
     if g.is_empty:
         return None
-    minx, miny, maxx, maxy = g.bounds
-    vals = (float(minx), float(miny), float(maxx), float(maxy))
+    try:
+        minx, miny, maxx, maxy = g.bounds
+        vals = (float(minx), float(miny), float(maxx), float(maxy))
+    except (TypeError, ValueError, AttributeError):
+        return None
     if not all(math.isfinite(v) for v in vals):
         return None
     return vals
@@ -295,7 +299,8 @@ def window_for(store, site):
         maxx = max(maxx, pb[2])
         maxy = max(maxy, pb[3])
 
-    for feat in fc.get("features", []) if isinstance(fc, dict) else []:
+    features = (fc.get("features") if isinstance(fc, dict) else None) or []
+    for feat in features:
         if not isinstance(feat, dict):
             continue
         for x, y in _iter_geometry_points(feat.get("geometry")):
@@ -312,8 +317,7 @@ def window_for(store, site):
             maxy = max(maxy, yf)
 
     if not (math.isfinite(minx) and math.isfinite(miny) and math.isfinite(maxx) and math.isfinite(maxy)):
-        bounds = None
-        return (0.0, float(H_M), {"fallback": True, "bounds": bounds})
+        raise DraftError(f"site {site!r} has no finite polygon or label geometry for window")
 
     bounds = [minx, miny, maxx, maxy]
     w = maxx - minx

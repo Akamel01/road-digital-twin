@@ -567,7 +567,7 @@ def _mk_run(store, run_id, scene, dataset_version, stages_status):
     return d
 
 
-def _mk_site_with_labels(store, site, polygon, features_xy=None):
+def _mk_site_with_labels(store, site, polygon, features_xy=None, *, features=None):
     from pathlib import Path as _Path
 
     store = _Path(store)
@@ -595,45 +595,49 @@ def _mk_site_with_labels(store, site, polygon, features_xy=None):
                 "properties": {"id": f"f{i}", "element": "marking", "type": "solid_line", "origin": "operator"},
             }
         )
-    (d / "labels.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": feats}))
+    (d / "labels.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": features if features is not None else feats})
+    )
 
 
 def test_window_for_fits_union(tmp_path):
     store = tmp_path / "store"
-    poly = {"type": "Polygon", "coordinates": [[[10, 10], [50, 10], [50, 40], [10, 40], [10, 10]]]}
-    _mk_site_with_labels(store, "s", poly, features_xy=[[[20, 20], [30, 30]]])
+    # polygon alone 30x20, label extends union beyond polygon on right/top but still within fit window
+    poly = {"type": "Polygon", "coordinates": [[[10, 10], [40, 10], [40, 30], [10, 30], [10, 10]]]}
+    _mk_site_with_labels(store, "s", poly, features_xy=[[[35, 25], [55, 45]]])
     x0, y1, info = window_for(store, "s")
     assert info["fallback"] is False
+    assert info["bounds"] == [10, 10, 55, 45]
     assert x0 == 10
-    assert y1 == 40
-    assert info["bounds"] == [10, 10, 50, 40]
+    assert y1 == 45
 
 
 def test_window_for_centres_when_union_too_large(tmp_path):
     store = tmp_path / "store"
-    poly = {"type": "Polygon", "coordinates": [[[0, 0], [200, 0], [200, 200], [0, 200], [0, 0]]]}
-    _mk_site_with_labels(store, "s", poly, features_xy=[])
+    poly = {"type": "Polygon", "coordinates": [[[0, 0], [40, 0], [40, 40], [0, 40], [0, 0]]]}
+    # label far outside polygon makes union exceed fit size -> fallback centered on union
+    _mk_site_with_labels(store, "s", poly, features_xy=[[[150, 150], [180, 180]]])
     x0, y1, info = window_for(store, "s")
     assert info["fallback"] is True
-    assert x0 == pytest.approx(100 - W_M / 2)
-    assert y1 == pytest.approx(100 + H_M / 2)
-    assert info["bounds"] == [0, 0, 200, 200]
+    assert info["bounds"] == [0, 0, 180, 180]
+    cx, cy = 90.0, 90.0
+    assert x0 == pytest.approx(cx - W_M / 2)
+    assert y1 == pytest.approx(cy + H_M / 2)
 
 
 def test_window_tolerance_accepts_80_05_m(tmp_path):
     store = tmp_path / "store"
-    # width 80.05m, height 75.05m -> within FIT_TOL_M
+    # polygon near limit, label nudges union to 80.05m x 75.05m (within tolerance)
     minx, miny = 0.0, 0.0
-    maxx, maxy = 80.05, 75.05
-    poly = {"type": "Polygon", "coordinates": [[[minx, miny], [maxx, miny], [maxx, maxy], [minx, maxy], [minx, miny]]]}
-    _mk_site_with_labels(store, "s", poly, features_xy=[])
+    poly = {"type": "Polygon", "coordinates": [[[minx, miny], [80.0, miny], [80.0, 75.0], [minx, 75.0], [minx, miny]]]}
+    _mk_site_with_labels(store, "s", poly, features_xy=[[[79.0, 74.0], [80.05, 75.05]]])
     x0, y1, info = window_for(store, "s")
     assert info["fallback"] is False
-    assert x0 == minx
-    assert y1 == maxy
-    # sanity: tolerance constant used
-    assert maxx - minx <= W_M + FIT_TOL_M
-    assert maxy - miny <= H_M + FIT_TOL_M
+    assert info["bounds"] == [0.0, 0.0, 80.05, 75.05]
+    assert x0 == 0.0
+    assert y1 == 75.05
+    assert info["bounds"][2] - info["bounds"][0] <= W_M + FIT_TOL_M
+    assert info["bounds"][3] - info["bounds"][1] <= H_M + FIT_TOL_M
 
 
 def test_runs_for_area_newest_per_token(tmp_path):
@@ -704,10 +708,11 @@ def test_runs_for_area_filters_dataset_version(tmp_path):
     }
     _mk_area_build(store, "a1", area_def, ["s1"])
     full = {"load": "ok", "align": "ok", "ground": "ok", "colour": "ok"}
-    _mk_run(store, "20261101-000000-aaaaaa", "t1", "v1.0-mini", full)
-    good = _mk_run(store, "20261102-000000-bbbbbb", "t1", "v1.0-trainval", full)
+    good = _mk_run(store, "20261101-000000-aaaaaa", "t1", "v1.0-trainval", full)
+    wrong_newest = _mk_run(store, "20261103-000000-cccccc", "t1", "v1.0-mini", full)
     paths = runs_for_area(store, "a1")
     assert paths == [good]
+    assert wrong_newest not in paths
 
 
 def test_window_covered_rejects_outside_area():
@@ -721,3 +726,66 @@ def test_window_covered_rejects_outside_area():
     msg = str(exc.value)
     assert "a1" in msg
     assert "--area/--areas" in msg or "--area" in msg
+
+
+def test_window_for_skips_malformed_polygon_and_uses_label_coords(tmp_path):
+    store = tmp_path / "store"
+    bad = {"type": "Nope"}
+    _mk_site_with_labels(store, "badtype", bad, features_xy=[[[5, 5], [25, 35]]])
+    x0, y1, info = window_for(store, "badtype")
+    assert info["fallback"] is False
+    assert info["bounds"] == [5, 5, 25, 35]
+    assert x0 == 5
+    assert y1 == 35
+
+    missing = {"type": "Polygon"}  # missing coordinates
+    _mk_site_with_labels(store, "missing", missing, features_xy=[[[1, 2], [11, 12]]])
+    x0, y1, info = window_for(store, "missing")
+    assert info["fallback"] is False
+    assert info["bounds"] == [1, 2, 11, 12]
+    assert x0 == 1
+    assert y1 == 12
+
+
+def test_window_for_handles_features_null(tmp_path):
+    store = tmp_path / "store"
+    poly = {"type": "Polygon", "coordinates": [[[0, 0], [20, 0], [20, 20], [0, 20], [0, 0]]]}
+    _mk_site_with_labels(store, "s", poly, features=None)
+    x0, y1, info = window_for(store, "s")
+    assert info["fallback"] is False
+    assert info["bounds"] == [0, 0, 20, 20]
+    assert x0 == 0
+    assert y1 == 20
+
+
+def test_window_for_raises_on_empty_union(tmp_path):
+    store = tmp_path / "store"
+    _mk_site_with_labels(store, "empty", {"type": "Nope"}, features=None)
+    with pytest.raises(DraftError) as exc:
+        window_for(store, "empty")
+    msg = str(exc.value)
+    assert "empty" in msg
+    assert "no finite polygon or label geometry" in msg
+
+
+def test_drive_tokens_uses_supplied_defined_not_sibling_json(tmp_path):
+    from twin.area import drive_tokens
+
+    build = tmp_path / "a1-twin"
+    build.mkdir()
+    (build / "drives.json").write_text(json.dumps([{"scene": "s1"}, {"scene": "s2"}]))
+    sibling = {
+        "drives": [
+            {"scene": "s1", "scene_token": "OLD1"},
+            {"scene": "s2", "scene_token": "OLD2"},
+        ]
+    }
+    (tmp_path / "a1.json").write_text(json.dumps(sibling))
+    defined = {
+        "drives": [
+            {"scene": "s1", "scene_token": "NEW1"},
+            {"scene": "s2", "scene_token": "NEW2"},
+        ]
+    }
+    assert drive_tokens(build, defined=defined) == ["NEW1", "NEW2"]
+    assert drive_tokens(build) == ["OLD1", "OLD2"]
