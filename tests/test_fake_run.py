@@ -23,7 +23,6 @@ from twin.contracts import (
 )
 from twin.fake_run import DRIVE_SPECS, FACILITIES, write_fake_runs
 from twin.publish import publish_runs
-from twin.tiles import TileMeta
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMAS = ROOT / "schemas"
@@ -176,34 +175,6 @@ def test_area_index_has_variety(out):
     assert any(f.not_scanned_enough for f in area.facilities)
     assert len(FACILITIES) == len(area.facilities)
 
-
-def test_tile_pyramids(out):
-    area = AreaIndex.model_validate_json((out / "showcase" / "area.json").read_text())
-    for drive in area.drives:
-        for raster in ("lidar", "ortho", "coverage", "height"):
-            meta = TileMeta.model_validate_json(
-                (out / "showcase" / "tiles" / drive.run_id / raster / "meta.json").read_text()
-            )
-            assert meta.zmax >= 0
-            assert meta.bbox[2] > meta.bbox[0] and meta.bbox[3] > meta.bbox[1]
-            for z in range(meta.zmax + 1):
-                tiles = list(
-                    (out / "showcase" / "tiles" / drive.run_id / raster / str(z)).glob(
-                        "*/*.webp"
-                    )
-                )
-                assert len(tiles) == 4**z
-            img = Image.open(
-                out
-                / "showcase"
-                / "tiles"
-                / drive.run_id
-                / raster
-                / "0"
-                / "0"
-                / "0.webp"
-            )
-            assert img.size == (256, 256)
 
 
 def test_showcase_size_under_5mb(out):

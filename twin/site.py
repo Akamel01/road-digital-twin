@@ -17,6 +17,7 @@ import numpy as np
 from twin import prgate, publish
 from twin.area import drive_tokens
 from twin.gates import GO, GateReport
+from twin.publish import PublishReport
 from twin.runner import default_store
 
 WEB = Path(__file__).resolve().parents[1] / "web"
@@ -90,8 +91,13 @@ def write_status(showcase: Path, report: dict, published_at: str) -> None:
     (showcase / "status.json").write_text(json.dumps(status, indent=2) + "\n")
 
 
-def build(run_ids: list[str], store: Path, report: dict, web: Path = WEB) -> None:
-    """Showcase bundle, status.json and the static export in web/out."""
+def build(run_ids: list[str], store: Path, report: dict, web: Path = WEB, mosaic: bool = False) -> PublishReport:
+    """Showcase bundle, status.json and the static export in web/out.
+
+    Returns the PublishReport captured from publish_runs (single source of truth).
+    """
+    from twin.publish import PublishReport
+
     label = ",".join(map(str, run_ids))
     if not shutil.which("npm", path=node_env()["PATH"]):
         raise SiteStop(
@@ -100,7 +106,7 @@ def build(run_ids: list[str], store: Path, report: dict, web: Path = WEB) -> Non
     showcase = web / "public" / "showcase"
     shutil.rmtree(showcase, ignore_errors=True)
     try:
-        publish.publish_runs(run_ids, showcase, store)
+        _area, pub_report = publish.publish_runs(run_ids, showcase, store, mosaic=mosaic)
     except (OSError, ValueError) as exc:
         raise SiteStop(f"cannot build the showcase from {label}: {exc}") from exc
     stage_latest_into(store, web)
@@ -108,6 +114,10 @@ def build(run_ids: list[str], store: Path, report: dict, web: Path = WEB) -> Non
     if not (web / "node_modules").exists():
         _run(["npm", "ci"], web)
     _run(["npm", "run", "build"], web)
+    return pub_report if pub_report is not None else PublishReport(
+        run_ids=run_ids, layers={}, total_bytes=0, total_files=0,
+        max_file_bytes=0, max_files=0,
+    )
 
 
 def deploy(token: str, web: Path = WEB) -> None:
@@ -185,6 +195,7 @@ def publish_run(
     dry_run: bool = False,
     force: bool = False,
     web: Path = WEB,
+    mosaic: bool = False,
 ) -> str:
     """Publish run_id (or an area name) if it improves on the published run. Returns a status line;
     a skip returns "skipped: reason". Raises SiteStop when it cannot go on."""
@@ -220,14 +231,17 @@ def publish_run(
     if published and not force:
         last = published[-1]
         if last.get("build_id", last.get("run_id")) == publish_id:
-            return "skipped: already published"
-        improve, reason = _improves(report, published[-1], store)
-        if not improve:
-            return f"skipped: worse: {reason}"
+            if not dry_run:
+                return "skipped: already published"
+        else:
+            improve, reason = _improves(report, published[-1], store)
+            if not improve and not dry_run:
+                return f"skipped: worse: {reason}"
     token = None if dry_run else read_token()
-    build(build_input, store, report, web)
+    pub_report = build(build_input, store, report, web, mosaic=mosaic)
     if dry_run:
-        return f"dry run: built {web / 'out'}, nothing deployed"
+        n = getattr(pub_report, "total_files", 0) if pub_report is not None else 0
+        return f"dry run: built {web / 'out'}, nothing deployed (files={n})"
     deploy(token, web)
     _record(
         store,
@@ -254,14 +268,14 @@ def entry_inputs(store: Path, entry: dict) -> tuple[list[str], dict]:
     return [entry["run_id"]], json.loads((Path(store) / entry["run_id"] / "gates.json").read_text())
 
 
-def _build_and_deploy(runs: list[str], store: Path, report: dict, web: Path, dry_run: bool) -> bool:
-    """Build the site from runs and report; deploy unless dry_run. True when deployed."""
+def _build_and_deploy(runs: list[str], store: Path, report: dict, web: Path, dry_run: bool, mosaic: bool = False) -> tuple[bool, object]:
+    """Build the site from runs and report; deploy unless dry_run. Returns (deployed, report)."""
     token = None if dry_run else read_token()
-    build(runs, store, report, web)
+    pub_report = build(runs, store, report, web, mosaic=mosaic)
     if dry_run:
-        return False
+        return False, pub_report
     deploy(token, web)
-    return True
+    return True, pub_report
 
 
 def rollback(store: Path, dry_run: bool = False, web: Path = WEB) -> str:
@@ -276,8 +290,10 @@ def rollback(store: Path, dry_run: bool = False, web: Path = WEB) -> str:
     if "runs" not in entry:  # published before #222: a single run id
         return publish_run(Path(store), entry["run_id"], dry_run, force=True, web=web)
     runs, report = entry_inputs(Path(store), entry)
-    if not _build_and_deploy(runs, Path(store), report, web, dry_run):
-        return f"dry run: built {web / 'out'}, nothing deployed"
+    deployed, pub_report = _build_and_deploy(runs, Path(store), report, web, dry_run)
+    if not deployed:
+        n = getattr(pub_report, "total_files", 0) if pub_report is not None else 0
+        return f"dry run: built {web / 'out'}, nothing deployed (files={n})"
     _record(Path(store), {**entry, "published_at": datetime.now(UTC).isoformat(timespec="seconds")})
     return f"rolled back to {entry['run_id']}"
 
@@ -291,8 +307,10 @@ def redeploy(store: Path, dry_run: bool = False, web: Path = WEB) -> str:
         raise SiteStop("nothing has been published")
     last = past[-1]
     runs, report = entry_inputs(store, last)
-    if not _build_and_deploy(runs, store, report, web, dry_run):
-        return f"dry run: built {web / 'out'}, nothing deployed"
+    deployed, pub_report = _build_and_deploy(runs, store, report, web, dry_run)
+    if not deployed:
+        n = getattr(pub_report, "total_files", 0) if pub_report is not None else 0
+        return f"dry run: built {web / 'out'}, nothing deployed (files={n})"
     past[-1] = {**last, "redeployed_at": datetime.now(UTC).isoformat(timespec="seconds")}
     _history_file(store).write_text(json.dumps(past, indent=2) + "\n")
     return f"redeployed {last['run_id']}"
@@ -304,6 +322,7 @@ def site_command(
     dry_run: bool,
     store: Path | None,
     latest: str | None = None,
+    mosaic: bool = False,
 ) -> int:
     store = store or default_store()
     try:
@@ -317,7 +336,7 @@ def site_command(
         elif action == "redeploy":
             print(redeploy(store, dry_run))
         elif run_id:
-            print(publish_run(store, run_id, dry_run))
+            print(publish_run(store, run_id, dry_run, mosaic=mosaic))
         else:
             print("twin site publish: needs a run id", file=sys.stderr)
             return 2
@@ -501,7 +520,7 @@ def build_latest(store: Path, web: Path = WEB) -> None:
     if past:
         runs, report = entry_inputs(store, past[-1])
         try:
-            publish.publish_runs(runs, showcase, store)
+            publish.publish_runs(runs, showcase, store)[1]
         except (OSError, ValueError) as exc:
             raise SiteStop(
                 f"cannot rebuild the published showcase from {','.join(runs)}: {exc}"

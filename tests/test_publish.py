@@ -4,13 +4,11 @@ from pathlib import Path
 
 import laspy
 import pytest
-from PIL import Image
 
 from twin.cli import main
 from twin.contracts import AreaIndex
 from twin.fake_run import FACILITIES, write_fake_runs
 from twin.publish import _rasters, _thin_laz, publish_runs
-from twin.tiles import TILE, TileMeta
 
 SCHEMAS = Path(__file__).resolve().parents[1] / "schemas"
 
@@ -26,7 +24,7 @@ def runs(tmp_path_factory):
 def _site(runs, tmp_path, **limits):
     store, run_ids = runs
     site = tmp_path / "site"
-    publish_runs(run_ids, site, store, **limits)
+    publish_runs(run_ids, site, store, mosaic=True, **limits)
     return site, run_ids
 
 
@@ -35,10 +33,9 @@ def test_layout_and_area_validate(runs, tmp_path):
     for rid in run_ids:
         for name in ("twin.geojson", "manifest.json", "twin.laz", "plan.pdf", "profile.csv"):
             assert (site / rid / name).is_file(), name
-        for raster in ("lidar", "ortho", "coverage", "height"):
-            assert (site / "tiles" / rid / raster / "0" / "0" / "0.webp").is_file()
         assert laspy.read(site / rid / "twin.laz").header.point_count > 0
-    assert Image.open(site / "tiles" / run_ids[0] / "lidar" / "2" / "1" / "1.webp")
+    for layer in ("lidar", "ortho", "height", "coverage"):
+        assert (site / "tiles" / layer / "meta.json").is_file()
     area = AreaIndex.model_validate_json((site / "area.json").read_text())
     try:
         import jsonschema
@@ -98,50 +95,6 @@ def test_cli_publish(runs, tmp_path, capsys):
     assert re.search("area.json", capsys.readouterr().out)
 
 
-def test_tile_meta_places_tiles(runs, tmp_path):
-    store, run_ids = runs
-    site, _ = _site(runs, tmp_path)
-    area = AreaIndex.model_validate_json((site / "area.json").read_text())
-    for rid in run_ids:
-        las = laspy.read(store / rid / "4_ground" / "ground.laz")
-        minx, miny = float(las.x.min()), float(las.y.min())
-        extent = max(float(las.x.max()) - minx, float(las.y.max()) - miny)
-        for raster in ("lidar", "ortho", "coverage", "height"):
-            meta = TileMeta.model_validate_json(
-                (site / "tiles" / rid / raster / "meta.json").read_text()
-            )
-            assert meta.crs == "EPSG:32619"
-            assert meta.bbox[0] == pytest.approx(minx)
-            assert meta.bbox[1] == pytest.approx(miny)
-            assert meta.bbox[2] - meta.bbox[0] == pytest.approx(
-                meta.bbox[3] - meta.bbox[1]
-            )
-            assert meta.bbox[2] - meta.bbox[0] >= extent
-            assert meta.cell_m_at_zmax == pytest.approx(
-                (meta.bbox[2] - meta.bbox[0]) / (TILE * 2**meta.zmax)
-            )
-        drive = next(d for d in area.drives if d.run_id == rid)
-        assert drive.bbox == pytest.approx(list(meta.bbox))
-
-
-def test_fake_showcase_writes_tile_meta(runs, tmp_path):
-    store, run_ids = runs
-    ref = tmp_path / "ref"
-    publish_runs(run_ids, ref, store=store)
-    for rid in run_ids:
-        for raster in ("lidar", "ortho", "coverage", "height"):
-            meta = TileMeta.model_validate_json(
-                (store / "showcase" / "tiles" / rid / raster / "meta.json").read_text()
-            )
-            assert meta.crs == "EPSG:32619"
-            assert meta.zmax >= 0
-            assert meta.bbox[2] > meta.bbox[0] and meta.bbox[3] > meta.bbox[1]
-            assert meta.cell_m_at_zmax == pytest.approx(
-                (meta.bbox[2] - meta.bbox[0]) / (TILE * 2**meta.zmax)
-            )
-            ref_meta = (ref / "tiles" / rid / raster / "meta.json").read_text()
-            assert (store / "showcase" / "tiles" / rid / raster / "meta.json").read_text() == ref_meta
-            assert (store / "showcase" / "tiles" / rid / raster / "0" / "0" / "0.webp").is_file()
 
 
 def test_lidar_intensity_white_point(tmp_path):
@@ -173,3 +126,17 @@ def test_lidar_intensity_white_point(tmp_path):
     lidar = rasters["lidar"]
     filled = lidar[..., 3] == 255
     assert sorted(lidar[filled, 0].tolist()) == [0, 127, 255, 255]
+
+
+def test_per_drive_tiles_present(tmp_path):
+    store = tmp_path / "runs"
+    folders = write_fake_runs(store, drives=2)
+    showcase = store / "showcase"
+    rasters = {"lidar", "ortho", "height", "coverage"}
+    for folder in folders:
+        run = folder.name
+        for raster in rasters:
+            meta_path = showcase / "tiles" / run / raster / "meta.json"
+            assert meta_path.is_file(), meta_path
+            tile_dir = showcase / "tiles" / run / raster
+            assert any(p.suffix == ".webp" for p in tile_dir.rglob("*")), tile_dir

@@ -37,7 +37,7 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(
         site,
         "build",
-        lambda run_ids, store, rep, web=None: calls.append(("build", run_ids)),
+        lambda run_ids, store, rep, web=None, mosaic=False: calls.append(("build", run_ids)),
     )
     monkeypatch.setattr(
         site, "deploy", lambda token, web=None: calls.append(("deploy", token))
@@ -229,7 +229,11 @@ def test_build_writes_parseable_status_with_check_counts(tmp_path, monkeypatch):
     web = tmp_path / "web"
     (web / "node_modules").mkdir(parents=True)
     monkeypatch.setattr(site.shutil, "which", lambda *a, **k: "/bin/npm")
-    monkeypatch.setattr(site.publish, "publish_runs", lambda ids, out, store: out.mkdir(parents=True, exist_ok=True))
+    monkeypatch.setattr(
+        site.publish,
+        "publish_runs",
+        lambda ids, out, store, mosaic=False: out.mkdir(parents=True, exist_ok=True) or (None, None),
+    )
     monkeypatch.setattr(site, "stage_latest_into", lambda store, web: False)
     monkeypatch.setattr(site, "_run", lambda cmd, cwd, env=None: None)
     rep = report("no-go")
