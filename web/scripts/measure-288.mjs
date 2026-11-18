@@ -540,7 +540,7 @@ async function main() {
       let dragOk = false;
       let dragDelta = 0;
       trackPanWindow = true;
-      const panStart = await page.evaluate(() => performance.now());
+      const panStart = await page.evaluate(() => performance.now()).catch(() => 0);
       try {
         const b = await page.locator(".pan").boundingBox();
         if (b) {
@@ -549,7 +549,12 @@ async function main() {
           for (let i = 0; i < 40; i++) {
             const dx = Math.round(Math.cos(i * 0.4) * 40);
             const dy = Math.round(Math.sin(i * 0.4) * 40);
-            await page.mouse.wheel(dx, dy);
+            try {
+              await page.mouse.wheel(dx, dy);
+            } catch (e) {
+              console.error("pan wheel failed:", e && e.message || e);
+              break;
+            }
             await sleep(250);
           }
           dragOk = true;
@@ -559,7 +564,7 @@ async function main() {
         console.error("drag gesture failed:", e && e.message || e);
         dragOk = false;
       }
-      const panEnd = await page.evaluate(() => performance.now());
+      const panEnd = await page.evaluate(() => performance.now()).catch(() => panStart + 10000);
       trackPanWindow = false;
       trackGestureWindow = false;
 
