@@ -50,6 +50,9 @@ export function fitView(r: Rect, size: Size, pad: number, maxK = Infinity): View
   const k = Math.min(maxK, size.w / rw, size.h / rh);
   const cx = (r.x0 + r.x1) / 2;
   const cy = (r.y0 + r.y1) / 2;
+  if (!Number.isFinite(cx) || !Number.isFinite(cy)) {
+    return { k: 1, tx: size.w ? size.w / 2 : 0, ty: size.h ? size.h / 2 : 0 };
+  }
   const kk = Number.isFinite(k) && k > 0 ? k : 1;
   return { k: kk, tx: size.w / 2 - kk * cx, ty: size.h / 2 - kk * cy };
 }
@@ -139,4 +142,41 @@ export function tileBounds(index: TileIndex, extent: number): BBox {
   const n = 2 ** index.z;
   const s = extent / n;
   return [[index.x * s, index.y * s], [(index.x + 1) * s, (index.y + 1) * s]];
+}
+
+export interface TileRangeResult {
+  z: number;
+  x0: number;
+  x1: number;
+  y0: number;
+  y1: number;
+  indices: TileIndex[];
+}
+
+export function tileRange(
+  k: number,
+  extent: number,
+  tilePx: number,
+  dpr: number,
+  bounds: [number, number, number, number],
+  zmin = 0,
+  zmax = Infinity,
+): TileRangeResult {
+  const rawZ = Math.ceil(Math.log2((k * extent * dpr) / tilePx));
+  const z = Math.max(zmin, Math.min(zmax, rawZ));
+  const n = 2 ** z;
+  const span = extent / n;
+  const [minX, minY, maxX, maxY] = bounds;
+  const x0 = Math.floor(minX / span);
+  const x1 = Math.floor(maxX / span);
+  const y0 = Math.floor(minY / span);
+  const y1 = Math.floor(maxY / span);
+  const indices: TileIndex[] = [];
+  for (let x = x0; x <= x1; x++) {
+    for (let y = y0; y <= y1; y++) {
+      if (x < 0 || y < 0 || x >= n || y >= n) continue;
+      indices.push({ x, y, z });
+    }
+  }
+  return { z, x0, x1, y0, y1, indices };
 }

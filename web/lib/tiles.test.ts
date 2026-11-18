@@ -9,6 +9,7 @@ import {
   bitmapBounds,
   normaliseTileBBox,
   tileBounds,
+  tileRange,
 } from "./tiles";
 
 describe("tiles bridge", () => {
@@ -54,6 +55,15 @@ describe("tiles bridge", () => {
   });
   it("normaliseTileBBox object", () => {
     expect(normaliseTileBBox({ west: 10, south: 20, east: 30, north: 40 })).toEqual([[10, 20], [30, 40]]);
+  });
+  it("normaliseTileBBox left/top/right/bottom", () => {
+    expect(normaliseTileBBox({ left: 10, top: 20, right: 30, bottom: 40 })).toEqual([[10, 20], [30, 40]]);
+  });
+  it("tileRange", () => {
+    const r = tileRange(1, 100, 256, 1, [0, 0, 100, 100], 0, 4);
+    expect(r.z).toBe(0);
+    expect(r.indices.length).toBe(1);
+    expect(r.indices[0]).toEqual({ x: 0, y: 0, z: 0 });
   });
   it("normaliseTileBBox null cases", () => {
     expect(normaliseTileBBox(null)).toBeNull();

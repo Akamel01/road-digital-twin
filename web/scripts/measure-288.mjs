@@ -362,6 +362,7 @@ async function main(){
   const before = await measureSide(`http://127.0.0.1:${beforePort}`);
   const after = await measureSide(`http://127.0.0.1:${afterPort}`);
   if (before.whole.count === 0) throw new Error('before side image count is 0; counter broken');
+  if (after.whole.count === 0) throw new Error('after side image count is 0; counter broken');
 
   // screenshots (after only)
   const shotCtx = await browser.newContext({viewport:{width:1440,height:900}, deviceScaleFactor:1});

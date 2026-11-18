@@ -1,11 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { TileLayer } from "@deck.gl/geo-layers";
+import { _Tileset2D as Tileset2D } from "@deck.gl/geo-layers";
 import { BitmapLayer } from "@deck.gl/layers";
 import { COORDINATE_SYSTEM } from "@deck.gl/core";
 import type { Raster } from "./mapdata";
 import type { MosaicMeta } from "./mosaic";
 import { tileUrl, tileKeys } from "./mosaic";
-import { bitmapBounds, normaliseTileBBox, tileBounds } from "./tiles";
+import { bitmapBounds, normaliseTileBBox, tileBounds, tileRange } from "./tiles";
 
 export interface TileLayersInput {
   metas: Record<Raster, MosaicMeta>;
@@ -14,29 +15,52 @@ export interface TileLayersInput {
   dpr: number;
 }
 
+export function createMosaicTileset(meta: MosaicMeta, dpr: number) {
+  const extent = meta.bbox[2] - meta.bbox[0];
+  return class MosaicTileset extends Tileset2D {
+    getTileIndices({ viewport }: any) {
+      let bounds: any;
+      try {
+        bounds = viewport.getBounds();
+      } catch {
+        return [];
+      }
+      if (!Array.isArray(bounds) || bounds.some((v: any) => !Number.isFinite(v))) {
+        return [];
+      }
+      const k = 2 ** viewport.zoom;
+      const { indices } = tileRange(k, extent, meta.tile_px, dpr, bounds as [number, number, number, number], meta.zmin, meta.zmax);
+      return indices;
+    }
+    getTileMetadata(index: any) {
+      return { bbox: tileBounds(index, extent) };
+    }
+    getTileZoom(index: any) {
+      return index.z;
+    }
+  };
+}
+
 export function tileLayers({ metas, rasters, version, dpr }: TileLayersInput) {
   const out: any[] = [];
   for (const layer of rasters) {
     const meta = metas[layer];
     if (!meta) continue;
     const extent = meta.bbox[2] - meta.bbox[0];
-    const tileSize = (512 * meta.tile_px) / (extent * dpr);
-    // minZoom/maxZoom are VIEW-zoom limits in deck.gl's TileLayer; do not set them
-    // from meta.zmin/zmax (tile-z limits) or a low zmax would cap the view zoom.
-    // Tile z is clamped inside getTileData/getTileUrl instead.
     out.push(
       new TileLayer({
         id: `tile-${layer}`,
         data: tileUrl(layer, version),
+        TilesetClass: createMosaicTileset(meta, dpr),
         extent: [0, 0, extent, extent],
-        tileSize,
+        tileSize: extent,
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
         getTileData: async (props: any) => {
           const keys = tileKeys(meta);
           const idx = props.index || {};
           let z = Number(idx.z);
           if (!Number.isFinite(z)) z = 0;
-          z = Math.max(0, Math.min(meta.zmax, z));
+          z = Math.max(meta.zmin, Math.min(meta.zmax, z));
           const { x, y } = idx;
           if (keys && !keys.has(`${z}/${x}/${y}`)) return null;
           const base = typeof props.url === "string" ? props.url : tileUrl(layer, version);

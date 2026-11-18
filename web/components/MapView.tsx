@@ -224,7 +224,8 @@ export default function MapView({ area, facility, element, line, onFacility, onE
   const target = facRect ?? (facility ? runRect(facility.best_run) : null) ?? areaRect;
   const fitKey = `${facility?.id ?? ""}|${size.w}x${size.h}`;
   const fitted = target && size.w && size.h ? fitState(target, size, facility ? 1.5 : 1.02, MAX_K) : null;
-  const cur = (view && view.key === fitKey ? view : fitted) as View | null;
+  const fittedView = fitted ? viewOf(fitted, size) : null;
+  const cur = (view && view.key === fitKey ? view : fittedView) as View | null;
   const minZoom = areaRect && size.w && size.h ? minZoomOf(areaRect, size) : 0;
 
   function zoomBy(m: number) {
@@ -445,7 +446,7 @@ export default function MapView({ area, facility, element, line, onFacility, onE
     <>
       <div ref={panRef} className="pan">
         <div className="gl" role="img" aria-label="Plan map">
-          {cur && deckViewState && (
+          {cur && deckViewState && size.w > 0 && size.h > 0 && Number.isFinite(cur.k) && Number.isFinite(cur.tx) && Number.isFinite(cur.ty) && (
             <MapCanvas
               viewState={deckViewState}
               layers={deckLayers}
