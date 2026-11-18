@@ -35,7 +35,7 @@ def _fake_cv2_module(calls):
     m.error = Exception
 
     def GaussianBlur(arr, ksize, sigma):
-        calls.append(("blur", tuple(np.asarray(arr).shape), float(sigma)))
+        calls.append(("blur", tuple(np.asarray(arr).shape), tuple(ksize), float(sigma)))
         return np.asarray(arr, dtype=np.float32)
 
     def resize(arr, dsize, interpolation=None):
@@ -65,10 +65,19 @@ def _fake_cv2_module(calls):
         calls.append(("cvtColor", tuple(np.asarray(arr).shape), code))
         return np.asarray(arr)
 
+    def warpAffine(arr, M, dsize, flags=None):
+        w, h = dsize
+        arr = np.asarray(arr)
+        calls.append(("warpAffine", tuple(arr.shape), (h, w), flags))
+        if arr.ndim == 2:
+            return np.zeros((h, w), dtype=arr.dtype)
+        return np.zeros((h, w, arr.shape[2]), dtype=arr.dtype)
+
     m.GaussianBlur = GaussianBlur
     m.resize = resize
     m.imencode = imencode
     m.cvtColor = cvtColor
+    m.warpAffine = warpAffine
     return m
 
 
@@ -290,14 +299,22 @@ def test_helpers_prefer_cv2_when_available(monkeypatch):
     a = np.ones((4, 6), dtype=np.float32)
     b = lr._blur(a, 2.0)
     r = lr._resize(a, (8, 12), interpolation="linear")
+    r_area = lr._resize(a, (8, 12), interpolation="area")
     enc = lr._encode(np.zeros((3, 5, 3), dtype=np.uint8), ".jpg")
     assert b.shape == a.shape
     assert r.shape == (8, 12)
+    assert r_area.shape == (8, 12)
     assert "data:" not in enc
     assert base64.b64decode(enc)
-    assert any(c[0] == "blur" for c in calls)
-    assert any(c[0] == "resize" for c in calls)
-    assert any(c[0] == "imencode" and c[1] == ".jpg" for c in calls)
+    blur = next(c for c in calls if c[0] == "blur")
+    assert blur[2] == (0, 0)
+    assert blur[3] == 2.0
+    area = [c for c in calls if c[0] == "resize" and c[3] == fake.INTER_AREA]
+    assert len(area) == 1
+    assert area[0][2] == (8, 12)
+    jpeg = next(c for c in calls if c[0] == "imencode" and c[1] == ".jpg")
+    assert jpeg[3] == (fake.IMWRITE_JPEG_QUALITY, 82)
+    assert ("cvtColor", (3, 5, 3), fake.COLOR_RGB2BGR) in calls
 
 
 def test_helpers_fallback_without_cv2_produce_valid_images(monkeypatch):
@@ -325,3 +342,33 @@ def test_encode_raw_base64_decodes_to_right_size(monkeypatch):
         raw = base64.b64decode(data)
         img = Image.open(io.BytesIO(raw))
         assert img.size == size
+
+
+def test_blur_masked_matches_masked_normalisation(monkeypatch):
+    _block_cv2(monkeypatch)
+    from scipy import ndimage
+
+    a = np.array(
+        [[1.0, 2.0, 0.0, 4.0], [0.0, 3.0, 5.0, 0.0], [2.0, 0.0, 1.0, 6.0], [0.0, 4.0, 0.0, 2.0]],
+        dtype=np.float32,
+    )
+    m = np.array([[1, 1, 0, 1], [0, 1, 1, 0], [1, 0, 1, 1], [0, 1, 0, 1]], dtype=np.float32)
+    sigma = 1.0
+    out = lr._blur_masked(a, m, sigma)
+    num = ndimage.gaussian_filter(a * m, sigma=sigma)
+    den = ndimage.gaussian_filter(m, sigma=sigma) + 1e-6
+    expected = (num / den).astype(np.float32)
+    assert out.shape == a.shape
+    np.testing.assert_allclose(out, expected, rtol=1e-6, atol=1e-6)
+
+
+def test_try_cv2_returns_none_for_partial_fake(monkeypatch):
+    calls = []
+    partial = _fake_cv2_module(calls)
+    del partial.warpAffine
+    monkeypatch.setitem(sys.modules, "cv2", partial)
+    monkeypatch.setattr(lr, "_cv2", None, raising=False)
+    monkeypatch.setattr(lr, "_cv2_tried", False, raising=False)
+    assert lr._try_cv2() is None
+    assert lr._try_cv2() is None
+    assert calls == []

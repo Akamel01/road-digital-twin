@@ -32,34 +32,45 @@ class RasterError(RuntimeError):
     pass
 
 
+_CV2_ATTRS = (
+    "GaussianBlur",
+    "resize",
+    "imencode",
+    "cvtColor",
+    "warpAffine",
+    "INTER_AREA",
+    "INTER_LINEAR",
+    "error",
+)
+
+
+def _cv2_usable(mod):
+    return mod is not None and all(hasattr(mod, name) for name in _CV2_ATTRS)
+
+
 def _try_cv2():
     """Return cv2 module or None. Cached; never imports cv2 at module import."""
     global _cv2, _cv2_tried
     if "cv2" in sys.modules:
         mod = sys.modules["cv2"]
-        if mod is None:
+        if mod is None or not _cv2_usable(mod):
             _cv2 = None
             _cv2_tried = True
             return None
         if mod is _cv2 and _cv2_tried:
             return _cv2
-        # sys.modules override/fake: use it if it looks usable
-        if hasattr(mod, "GaussianBlur") and hasattr(mod, "resize") and hasattr(mod, "imencode"):
-            _cv2 = mod
-            _cv2_tried = True
-            return _cv2
-        _cv2 = None
+        _cv2 = mod
         _cv2_tried = True
-        return None
+        return _cv2
     if _cv2_tried:
         return _cv2
     _cv2_tried = True
     try:
         import cv2 as mod  # type: ignore
-
-        _cv2 = mod
     except (ImportError, OSError):
         _cv2 = None
+        return None
+    _cv2 = mod if _cv2_usable(mod) else None
     return _cv2
 
 
