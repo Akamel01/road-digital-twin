@@ -91,7 +91,7 @@ export function tileLayers({ metas, rasters, version, dpr }: TileLayersInput) {
         refinementStrategy: "never",
         maxRequests: 8,
         debounceTime: 0,
-        maxCacheSize: 128,
+        maxCacheSize: 64,
         onTileUnload: (tile: any) => {
           const bmp = tile?.data ?? tile?.content;
           try { bmp?.close?.(); } catch {}
