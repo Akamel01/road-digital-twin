@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -287,7 +288,7 @@ def test_redeploy_needs_a_published_run(env):
         site.redeploy(store)
 
 
-def test_s2_smoke_already_published_does_not_score(env, monkeypatch):
+def test_no_score_on_already_published(env, monkeypatch):
     store, _calls, run, _ = env
     site.publish_run(store, run("r1"))
     import twin.score as score_mod
@@ -297,3 +298,210 @@ def test_s2_smoke_already_published_does_not_score(env, monkeypatch):
 
     monkeypatch.setattr(score_mod, "score_target", boom)
     assert site.publish_run(store, run("r1")) == "skipped: already published"
+
+
+def _labelled(store, run_id, offset_m, version=1):
+    store = Path(store)
+    (store / run_id).mkdir(parents=True, exist_ok=True)
+    (store / run_id / "gates.json").write_text(json.dumps(report()))
+    (store / run_id / "5_features").mkdir(exist_ok=True)
+    feat = {
+        "type": "Feature",
+        "properties": {"id": "r1", "kind": "marking", "reliability": "observed",
+                       "marking_type": "divider", "element": "marking", "type": "solid_line"},
+        "geometry": {"type": "LineString", "coordinates": [[0, offset_m], [40, offset_m]]},
+    }
+    (store / run_id / "5_features" / "markings.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [feat]})
+    )
+    site_dir = store / "labels" / "site-a"
+    site_dir.mkdir(parents=True, exist_ok=True)
+    (site_dir / "site.json").write_text(json.dumps({
+        "id": "site-a", "role": "audit",
+        "polygon": {"type": "Polygon", "coordinates": [[[0, -10], [50, -10], [50, 10], [0, 10], [0, -10]]]},
+        "version": version, "created_at": "2026-01-01T00:00:00", "source_area": "a",
+    }))
+    label = {
+        "type": "Feature",
+        "properties": {"id": "lab1", "element": "marking", "type": "solid_line",
+                       "origin": "operator", "source_marking_type": "divider"},
+        "geometry": {"type": "LineString", "coordinates": [[0, 0], [40, 0]]},
+    }
+    (site_dir / "labels.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [label]})
+    )
+
+
+def test_labelled_store_tie_publishes_and_records_score(tmp_path, monkeypatch):
+    store = tmp_path / "store"
+    _labelled(store, "r1", 0)
+    _labelled(store, "r2", 0)
+    token = tmp_path / "tok"
+    token.write_text("secret\n")
+    monkeypatch.setenv("TWIN_CF_TOKEN_FILE", str(token))
+    monkeypatch.setattr(site, "build", lambda run_ids, store, rep, web=None, mosaic=False: None)
+    monkeypatch.setattr(site, "deploy", lambda token, web=None: None)
+    assert site.publish_run(store, "r1") == "published r1"
+    assert site.publish_run(store, "r2") == "published r2"
+    assert site.history(store)[-1]["score"]["compare"]["publish"] is True
+    assert site.history(store)[-1]["score"]["compare"]["elements"]["marking"]["status"] == "tie"
+
+
+def test_labelled_store_regression_skips(tmp_path, monkeypatch):
+    store = tmp_path / "store"
+    _labelled(store, "r1", 0)
+    _labelled(store, "r2", 0.10)
+    token = tmp_path / "tok"
+    token.write_text("secret\n")
+    monkeypatch.setenv("TWIN_CF_TOKEN_FILE", str(token))
+    monkeypatch.setattr(site, "build", lambda run_ids, store, rep, web=None, mosaic=False: None)
+    monkeypatch.setattr(site, "deploy", lambda token, web=None: None)
+    assert site.publish_run(store, "r1") == "published r1"
+    out = site.publish_run(store, "r2")
+    assert out.startswith("skipped: worse:")
+    assert len(site.history(store)) == 1
+    assert json.loads((store / "r2" / "score.json").read_text())["compare"]["publish"] is False
+
+
+def test_old_history_entry_falls_back_with_note(tmp_path, monkeypatch, capsys):
+    store = tmp_path / "store"
+    _labelled(store, "r1", 0)
+    token = tmp_path / "tok"
+    token.write_text("secret\n")
+    monkeypatch.setenv("TWIN_CF_TOKEN_FILE", str(token))
+    monkeypatch.setattr(site, "build", lambda run_ids, store, rep, web=None, mosaic=False: None)
+    monkeypatch.setattr(site, "deploy", lambda token, web=None: None)
+    site._record(store, {"run_id": "old", "go_count": 0, "margin_sum": site.GateReport(report()).score(),
+                        "published_at": "t", "verdict": "go", "margins": {}, "runs": ["old"], "report": report()})
+    assert site.publish_run(store, "r1") == "published r1"
+    assert "no per-element score" in capsys.readouterr().err
+
+
+def test_more_gate_checks_do_not_override_score_regression(tmp_path, monkeypatch):
+    store = tmp_path / "store"
+    _labelled(store, "b1", 0)
+    _labelled(store, "r2", 0.10)
+    # make all checks "go"
+    for rid in ("b1", "r2"):
+        p = store / rid / "gates.json"
+        rep = json.loads(p.read_text())
+        for g in rep["gates"].values():
+            for c in g["checks"]:
+                c["status"] = "go"
+        p.write_text(json.dumps(rep))
+    token = tmp_path / "tok"
+    token.write_text("secret\n")
+    monkeypatch.setenv("TWIN_CF_TOKEN_FILE", str(token))
+    monkeypatch.setattr(site, "build", lambda run_ids, store, rep, web=None, mosaic=False: None)
+    monkeypatch.setattr(site, "deploy", lambda token, web=None: None)
+    assert site.publish_run(store, "b1") == "published b1"
+    out = site.publish_run(store, "r2")
+    assert out.startswith("skipped: worse")
+    doc = json.loads((store / "r2" / "score.json").read_text())
+    assert doc["compare"]["elements"]["marking"]["status"] == "worse"
+
+
+def test_label_version_bump_falls_back_with_note(tmp_path, monkeypatch, capsys):
+    store = tmp_path / "store"
+    _labelled(store, "r1", 0, version=1)
+    token = tmp_path / "tok"
+    token.write_text("secret\n")
+    monkeypatch.setenv("TWIN_CF_TOKEN_FILE", str(token))
+    monkeypatch.setattr(site, "build", lambda run_ids, store, rep, web=None, mosaic=False: None)
+    monkeypatch.setattr(site, "deploy", lambda token, web=None: None)
+    assert site.publish_run(store, "r1") == "published r1"
+    _labelled(store, "r2", 0.10, version=1)
+    meta = json.loads((store / "labels" / "site-a" / "site.json").read_text())
+    meta["version"] = 2
+    (store / "labels" / "site-a" / "site.json").write_text(json.dumps(meta))
+    assert site.publish_run(store, "r2") == "published r2"
+    assert "not comparable" in capsys.readouterr().err
+
+
+def test_run_after_area_falls_back_with_note(tmp_path, monkeypatch, capsys):
+    store = tmp_path / "store"
+    store.mkdir(parents=True, exist_ok=True)
+    site._record(store, {"run_id": "area-base", "go_count": 0, "margin_sum": 0.0,
+                        "published_at": "t", "verdict": "go", "margins": {}, "runs": ["area-base"],
+                        "report": report(),
+                        "score": {"target": "area-base", "target_kind": "area",
+                                  "sites": [{"id": "a", "version": 1, "label_hash": "a" * 12},
+                                            {"id": "b", "version": 1, "label_hash": "b" * 12}],
+                                  "elements": {}, "compare": {"comparable": True, "publish": True}}})
+    _labelled(store, "r1", 0)
+    token = tmp_path / "tok"
+    token.write_text("secret\n")
+    monkeypatch.setenv("TWIN_CF_TOKEN_FILE", str(token))
+    monkeypatch.setattr(site, "build", lambda run_ids, store, rep, web=None, mosaic=False: None)
+    monkeypatch.setattr(site, "deploy", lambda token, web=None: None)
+    assert site.publish_run(store, "r1") == "published r1"
+    assert "not comparable" in capsys.readouterr().err
+
+
+def test_area_publish_records_score(tmp_path, monkeypatch):
+    import numpy as np
+
+    store = tmp_path / "store"
+    area = store / "areas" / "seaport-1-twin"
+    area.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(area / "merged.npz", x=np.array([1.0]), y=np.array([2.0]), z=np.array([3.0]),
+                        intensity=np.array([0.5]), drive=np.array([0], dtype="u2"))
+    (area / "gates.json").write_text(json.dumps(report()))
+    (area / "5_features").mkdir(exist_ok=True)
+    feat = {"type": "Feature", "properties": {"id": "r1", "kind": "marking", "reliability": "observed",
+             "marking_type": "divider", "element": "marking", "type": "solid_line"},
+            "geometry": {"type": "LineString", "coordinates": [[0, 0], [40, 0]]}}
+    (area / "5_features" / "markings.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [feat]})
+    )
+    site_dir = store / "labels" / "site-a"
+    site_dir.mkdir(parents=True, exist_ok=True)
+    (site_dir / "site.json").write_text(json.dumps({
+        "id": "site-a", "role": "audit",
+        "polygon": {"type": "Polygon", "coordinates": [[[0, -10], [50, -10], [50, 10], [0, 10], [0, -10]]]},
+        "version": 1, "created_at": "2026-01-01T00:00:00", "source_area": "a",
+    }))
+    label = {"type": "Feature", "properties": {"id": "lab1", "element": "marking", "type": "solid_line",
+             "origin": "operator", "source_marking_type": "divider"},
+             "geometry": {"type": "LineString", "coordinates": [[0, 0], [40, 0]]}}
+    (site_dir / "labels.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [label]})
+    )
+    token = tmp_path / "tok"
+    token.write_text("secret\n")
+    monkeypatch.setenv("TWIN_CF_TOKEN_FILE", str(token))
+    monkeypatch.setattr(site, "area_runs", lambda store, area: ["r1"])
+    monkeypatch.setattr(site, "build", lambda run_ids, store, rep, web=None, mosaic=False: None)
+    monkeypatch.setattr(site, "deploy", lambda token, web=None: None)
+    out = site.publish_run(store, str(store / "areas" / "seaport-1-twin"))
+    assert out.startswith("published ")
+    assert site.history(store)[-1]["score"] is not None
+
+
+def test_corrupt_label_cannot_stop_publish(tmp_path, monkeypatch, capsys):
+    token = tmp_path / "tok"
+    token.write_text("secret\n")
+    monkeypatch.setenv("TWIN_CF_TOKEN_FILE", str(token))
+    monkeypatch.setattr(site, "build", lambda run_ids, store, rep, web=None, mosaic=False: None)
+    monkeypatch.setattr(site, "deploy", lambda token, web=None: None)
+
+    # case 1: corrupt JSON
+    store = tmp_path / "store1"
+    _labelled(store, "r1", 0)
+    (store / "labels" / "site-a" / "labels.geojson").write_text("{not json")
+    assert site.publish_run(store, "r1") == "published r1"
+    assert "score failed" in capsys.readouterr().err
+    assert site.history(store)[-1]["score"] is None
+
+    # case 2: invalid polygon
+    store = tmp_path / "store2"
+    _labelled(store, "r1", 0)
+    (store / "labels" / "site-a" / "labels.geojson").write_text(json.dumps({
+        "type": "FeatureCollection",
+        "features": [{"type": "Feature", "properties": {"id": "lab1", "element": "marking",
+                      "type": "solid_line", "origin": "operator", "source_marking_type": "divider"},
+                      "geometry": {"type": "Polygon", "coordinates": [[[0, 0], [1, 1]]]}}]
+    }))
+    assert site.publish_run(store, "r1") == "published r1"
+    assert "score failed" in capsys.readouterr().err
+    assert site.history(store)[-1]["score"] is None
