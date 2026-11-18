@@ -156,7 +156,7 @@ Geometry is accepted as any dict (2D or 3D) and is not flattened.
 ## Normalisation rules (draft import)
 
 - Geometry: `xy` is copied verbatim. A polygon uses an open ring: append the first point only when it is not already the last (idempotent closure). A line stays a LineString.
-- `by` maps to `origin`: only `"operator"` is accepted.
+- `by` maps to `origin` (`by→origin`): only `"operator"` is accepted.
 - `px` is not stored; it is recomputed from `xy` plus the window as `((x-x0)/g, (y1-y)/g)`.
 - `id` maps to `properties.id`; `evidence` maps to `properties.evidence`; raw tool type is kept in `source_marking_type`.
 - Supports/devices are not persisted; a non-empty draft is refused.

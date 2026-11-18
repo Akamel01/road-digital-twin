@@ -222,8 +222,12 @@ def test_label_schema_doc_lists_new_fields_and_types():
     for t in ("double_line", "ladder", "continental", "transverse"):
         assert t in text, t
     # mapping table / normalisation rules
-    assert "by" in text and "origin" in text
-    assert "open ring" in text or "open-ring" in text or "open_ring" in text
+    assert "by→origin" in text
+    assert "open ring" in text
+    for t in ("double_line", "ladder", "continental", "transverse"):
+        assert t in text
+    for f in ("control", "notes"):
+        assert f in text
 
 
 def test_decision_record_exists():
@@ -257,7 +261,9 @@ def test_docs_do_not_contain_draft_a_ids_or_ranges():
         text = p.read_text()
         for f in forbidden:
             assert f not in text, (p, f)
-    # draft coordinate range (specific numbers)
+    import re
+
     spec_text = (REPO / "docs" / "design" / "twin-v1-spec.md").read_text() + (REPO / "docs" / "design" / "label-schema.md").read_text()
-    for coord in ("332389.972", "4690014.994", "332470.022"):
-        assert coord not in spec_text, coord
+    # no real draft-A ids (smwi...) and no 6-digit UTM coordinate literals
+    assert re.search(r"smwi[0-9a-z]{6,}", spec_text) is None
+    assert re.search(r"\b\d{6}\.\d{3}\b", spec_text) is None

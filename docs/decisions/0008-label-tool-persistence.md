@@ -11,3 +11,4 @@ Status: accepted (ticket #324).
 - Page loads/saves surfaces through the labels API; only `origin="operator"` features with a mapped raw type and LineString/Polygon geometry are editable; everything else is carried through unchanged; localStorage only for supports/devices.
 - Window is two-branch: fits (with `FIT_TOL_M=0.1`) -> origin `(minx, maxy)`; else centre on the union. Fixed 1600x1500 @ 5 cm.
 - Areas root is explicit: `--areas PATH`, default `<store>/areas`; an area build path is also accepted; `resolve_area()` is the single resolver.
+- D16: an existing site that resolves zero runs is a hard error (exit 2); only a genuinely new site may render the blank-but-usable page.
