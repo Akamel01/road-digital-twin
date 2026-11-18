@@ -83,11 +83,38 @@ def _fake_cv2_module(calls):
 
 def test_import_labeltool_without_cv2(monkeypatch):
     _block_cv2(monkeypatch)
-    # remove cached
-    for m in ["twin.labeltool", "twin.labelraster"]:
+    import twin
+
+    # This test reloads labeltool/labelraster; restore both sys.modules and
+    # package attributes so later tests (CI order) keep using the original
+    # module objects that imported names like `generate` are bound to.
+    orig_mods = {
+        "twin.labeltool": sys.modules.get("twin.labeltool"),
+        "twin.labelraster": sys.modules.get("twin.labelraster"),
+    }
+    orig_attrs = {
+        "labeltool": getattr(twin, "labeltool", None),
+        "labelraster": getattr(twin, "labelraster", None),
+    }
+    for m in orig_mods:
         sys.modules.pop(m, None)
-    import twin.labeltool  # noqa: F401
-    assert "cv2" not in sys.modules or sys.modules.get("cv2") is None
+    try:
+        import twin.labeltool
+
+        assert twin.labeltool
+        assert "cv2" not in sys.modules or sys.modules.get("cv2") is None
+    finally:
+        for name, mod in orig_mods.items():
+            if mod is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = mod
+        for attr, mod in orig_attrs.items():
+            if mod is None:
+                if hasattr(twin, attr):
+                    delattr(twin, attr)
+            else:
+                setattr(twin, attr, mod)
 
 
 def test_import_labelraster_without_cv2(monkeypatch):

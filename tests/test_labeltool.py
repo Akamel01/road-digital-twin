@@ -1431,7 +1431,7 @@ def test_generate_reset_success_replaces_site_contents(tmp_path, monkeypatch):
 
 
 def test_generate_reset_import_failure_restores_bytes(tmp_path, monkeypatch):
-    from twin import labeltool
+    import sys
 
     store = tmp_path / "store"
     area_def = {
@@ -1468,7 +1468,8 @@ def test_generate_reset_import_failure_restores_bytes(tmp_path, monkeypatch):
     def boom(*args, **kwargs):
         raise RuntimeError("import boom")
 
-    monkeypatch.setattr(labeltool, "import_draft", boom)
+    mod = sys.modules[generate.__module__]
+    monkeypatch.setattr(mod, "import_draft", boom)
     with pytest.raises(RuntimeError, match="import boom"):
         generate(
             store,
