@@ -9,6 +9,7 @@ from twin.publish import (
     _bincount_intensity,
     _coverage_union,
     _ortho_first_wins,
+    publish_runs,
 )
 from twin.tiles import TILE, write_mosaic_tiles
 
@@ -17,7 +18,8 @@ from twin.tiles import TILE, write_mosaic_tiles
 def store(tmp_path_factory):
     base = tmp_path_factory.mktemp("tiles")
     s = base / "store"
-    write_fake_runs(s, drives=2)
+    runs = write_fake_runs(s, drives=2)
+    publish_runs([p.name for p in runs], s / "showcase", store=s, mosaic=True)
     return s
 
 

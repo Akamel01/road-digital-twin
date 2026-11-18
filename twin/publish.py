@@ -359,7 +359,7 @@ def publish_runs(
             "lidar": (lidar_mosaic, target_lidar),
             "ortho": (ortho_mosaic, target_lidar),
             "height": (height_mosaic, HEIGHT_MOSAIC_TARGET_M),
-            "coverage": (coverage_mosaic, target_lidar),
+            "coverage": (coverage_mosaic, HEIGHT_MOSAIC_TARGET_M),
         }
 
         for layer in LAYERS:
