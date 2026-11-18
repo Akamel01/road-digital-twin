@@ -63,6 +63,21 @@ function pixelVariance(p) {
   const code = `import json,sys; from PIL import Image; import numpy as np; im=Image.open(sys.argv[1]).convert('RGB'); a=np.asarray(im,dtype=np.float64); print(float(a.var()))`;
   return parseFloat(execSync(`uv run python -c ${JSON.stringify(code)} ${JSON.stringify(p)}`, { encoding: "utf8" }).trim());
 }
+function dirtyTreeGuard() {
+  const head = execSync("git rev-parse HEAD", { encoding: "utf8" }).trim();
+  const raw = execSync("git status --porcelain --untracked-files=no", { encoding: "utf8" });
+  const lines = raw.split("\n").filter(Boolean);
+  const offending = lines.filter((line) => {
+    const path = line.slice(3).replace(/^"|"$/g, "");
+    return !(path.startsWith("web/out/") || path === "web/out" || path.startsWith("web/.next/") || path === "web/.next");
+  });
+  if (offending.length) {
+    console.error("dirty-tree guard failed (tracked changes outside web/out, web/.next):");
+    for (const l of offending) console.error(l);
+    process.exit(1);
+  }
+  return { head, status_porcelain: raw };
+}
 
 const LIVE = "https://twin.papyrus-ai.net/showcase";
 
@@ -211,6 +226,7 @@ function mirrorReportFromCache(mirrorDir) {
 
 async function main() {
   const generatedAt = new Date().toISOString();
+  const dirtyTree = dirtyTreeGuard();
   const mirrorDir = join("/tmp", "288-mirror");
   const areaPath = join(mirrorDir, "area.json");
   const canReuseMirror = existsSync(areaPath) && statSync(areaPath).size > 0;
@@ -719,12 +735,23 @@ async function main() {
 
   const passed = gateReasons.length === 0;
 
+  const fullResByLayer = {};
+  for (const [layer, zmax] of Object.entries(tzm.details || {})) {
+    fullResByLayer[layer] = {
+      observed_z: zmax.requested_max_z,
+      expected_z_at_max_k: tzm.expected_max_z_at_final_k,
+      zmax: zmax.zmax,
+    };
+  }
+
   const metrics = {
     venue,
     generated_at: generatedAt,
     base_ref: BEFORE_REF,
     fixture_source: sourceLabel,
     commits: { before: beforeHash, after: commitsAfter },
+    git_head: dirtyTree.head,
+    git_status_porcelain: dirtyTree.status_porcelain,
     publish_report: { tile_version: publishReport.tile_version || null },
     scene: {
       extent: fixtureProvenance.extent,
@@ -739,6 +766,9 @@ async function main() {
     during_gesture: { before: before.during_gesture, after: after.during_gesture },
     frame_ms: { before: before.frame_ms, after: after.frame_ms },
     heap: { before: before.heap, after: after.heap },
+    gpu_memory_bytes: null,
+    gpu_memory_note: "not exposed by WEBGL_debug_renderer_info on SwiftShader",
+    limitations: { full_res_by_layer: fullResByLayer },
     final_zoom: { before: before.final_zoom, after: after.final_zoom },
     tile_zoom_match: { before: tileZoomMatch(before), after: tzm },
     http_404s: { before: before.http_404s, after: after.http_404s, after_unexpected: afterUnexpected404s, before_known_app_404s: beforeKnownApp404s, after_known_app_404s: afterKnownApp404s },
