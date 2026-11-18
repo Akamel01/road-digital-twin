@@ -91,7 +91,7 @@ def write_status(showcase: Path, report: dict, published_at: str) -> None:
     (showcase / "status.json").write_text(json.dumps(status, indent=2) + "\n")
 
 
-def build(run_ids: list[str], store: Path, report: dict, web: Path = WEB, mosaic: bool = False) -> PublishReport:
+def build(run_ids: list[str], store: Path, report: dict, web: Path = WEB) -> PublishReport:
     """Showcase bundle, status.json and the static export in web/out.
 
     Returns the PublishReport captured from publish_runs (single source of truth).
@@ -106,7 +106,7 @@ def build(run_ids: list[str], store: Path, report: dict, web: Path = WEB, mosaic
     showcase = web / "public" / "showcase"
     shutil.rmtree(showcase, ignore_errors=True)
     try:
-        _area, pub_report = publish.publish_runs(run_ids, showcase, store, mosaic=mosaic)
+        _area, pub_report = publish.publish_runs(run_ids, showcase, store)
     except (OSError, ValueError) as exc:
         raise SiteStop(f"cannot build the showcase from {label}: {exc}") from exc
     stage_latest_into(store, web)
@@ -213,7 +213,6 @@ def publish_run(
     dry_run: bool = False,
     force: bool = False,
     web: Path = WEB,
-    mosaic: bool = False,
 ) -> str:
     """Publish run_id (or an area name) if it improves on the published run. Returns a status line;
     a skip returns "skipped: reason". Raises SiteStop when it cannot go on."""
@@ -264,7 +263,7 @@ def publish_run(
             if not improve and not dry_run:
                 return f"skipped: worse: {reason}"
     token = None if dry_run else read_token()
-    pub_report = build(build_input, store, report, web, mosaic=mosaic)
+    pub_report = build(build_input, store, report, web)
     if dry_run:
         n = getattr(pub_report, "total_files", 0) if pub_report is not None else 0
         return f"dry run: built {web / 'out'}, nothing deployed (files={n})"
@@ -295,10 +294,10 @@ def entry_inputs(store: Path, entry: dict) -> tuple[list[str], dict]:
     return [entry["run_id"]], json.loads((Path(store) / entry["run_id"] / "gates.json").read_text())
 
 
-def _build_and_deploy(runs: list[str], store: Path, report: dict, web: Path, dry_run: bool, mosaic: bool = False) -> tuple[bool, object]:
+def _build_and_deploy(runs: list[str], store: Path, report: dict, web: Path, dry_run: bool) -> tuple[bool, object]:
     """Build the site from runs and report; deploy unless dry_run. Returns (deployed, report)."""
     token = None if dry_run else read_token()
-    pub_report = build(runs, store, report, web, mosaic=mosaic)
+    pub_report = build(runs, store, report, web)
     if dry_run:
         return False, pub_report
     deploy(token, web)
@@ -349,7 +348,6 @@ def site_command(
     dry_run: bool,
     store: Path | None,
     latest: str | None = None,
-    mosaic: bool = False,
 ) -> int:
     store = store or default_store()
     try:
@@ -363,7 +361,7 @@ def site_command(
         elif action == "redeploy":
             print(redeploy(store, dry_run))
         elif run_id:
-            print(publish_run(store, run_id, dry_run, mosaic=mosaic))
+            print(publish_run(store, run_id, dry_run))
         else:
             print("twin site publish: needs a run id", file=sys.stderr)
             return 2

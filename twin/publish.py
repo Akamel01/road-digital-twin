@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import io
+import hashlib
 import json
 import math
 import shutil
@@ -17,17 +17,14 @@ from pydantic import BaseModel
 from twin.contracts import AreaFacility, AreaIndex, Drive, Manifest, stage_dir
 from twin.height_raster import compute_height_above_road, render_height_rgba
 from twin.runner import default_store
-from twin.tiles import TILE, write_mosaic_tiles, write_tiles
+from twin.tiles import TILE, write_mosaic_tiles
 
 MAX_FILE_BYTES = 25 * 1024 * 1024  # Pages limit per file
 INTENSITY_WHITE = 60  # nuScenes ground LAZ intensity white point (P99.5 ~59, max 110, run 20261115-183951-13e4b7)
 MAX_FILES = 20_000  # Pages limit per build, exclusive
-HEIGHT_MIN_CELL_M = 0.12  # finest height tile pixel; the height raster is 25 cm
 HEIGHT_MOSAIC_TARGET_M = 0.125  # height mosaic target cell (half of 25 cm raster)
 FALLBACK_GSD_M = 0.1  # raster cell when the colour stage did not run
 MAX_ZOOM = 8  # mosaic pyramid upper cap
-MOSAIC_MAX_SIDE = 4096  # 64MB/layer bound on mosaic side in pixels
-RASTER_MAX_ZOOM = 4  # per-drive pyramid cap
 THIN_ROUNDS = 6  # ponytail: LAZ thinning doubles the voxel up to this many times
 PUBLIC_FILES = ("twin.geojson", "plan.pdf", "plan.dxf", "profile.pdf", "profile.dxf")
 # Coverage colours match the web legend: observed green, unobserved red (web/components/MapPanel.tsx).
@@ -51,6 +48,7 @@ class PublishReport(BaseModel):
     total_files: int
     max_file_bytes: int
     max_files: int
+    tile_version: str = ""
 
 
 def _stage(run_dir: Path, name: str) -> Path:
@@ -160,30 +158,6 @@ def _bincount_intensity(
     return lidar.reshape(side, side, 4)
 
 
-def _rasters(
-    run_dir: Path, manifest: Manifest
-) -> tuple[dict[str, np.ndarray], int, tuple[float, float, float, float], tuple[float, float, float, int]]:
-    las = laspy.read(_stage(run_dir, "ground") / "ground.laz")
-    x, y = np.asarray(las.x), np.asarray(las.y)
-    intensity = np.clip(np.asarray(las.intensity, dtype=np.float64) / INTENSITY_WHITE, 0.0, 1.0)
-    gsd = _gsd(manifest)
-    grid = _grid_from_points(x, y, max(gsd, 0.05))
-    x0, y0, cell, side = grid
-    zoom = min(RASTER_MAX_ZOOM, round(math.log2(side / TILE)) if side >= TILE else 0)
-    lidar = _bincount_intensity(x, y, intensity, grid)
-    rasters = {"lidar": lidar}
-    ortho = _resample_ortho(run_dir, grid)
-    observed = np.zeros((side, side), bool)
-    if ortho is not None:
-        rasters["ortho"] = ortho
-        observed = ortho[..., 3] > 0
-    coverage = np.zeros((side, side, 4), np.uint8)
-    coverage[lidar[..., 3] > 0] = UNOBSERVED
-    coverage[observed] = OBSERVED
-    rasters["coverage"] = coverage
-    bbox = (x0, y0, x0 + side * cell, y0 + side * cell)
-    return rasters, zoom, bbox, (x0, y0, cell, side)
-
 
 def _area(runs: list[tuple[Manifest, Path, tuple]]) -> AreaIndex:
     drives = [
@@ -223,22 +197,6 @@ def _area(runs: list[tuple[Manifest, Path, tuple]]) -> AreaIndex:
 
 
 
-def _tiles_by_zoom(base: np.ndarray, zmax: int) -> dict[int, dict[tuple[int, int], bytes]]:
-    img0 = Image.fromarray(base)
-    out: dict[int, dict[tuple[int, int], bytes]] = {}
-    for z in range(zmax + 1):
-        side = TILE * 2 ** z
-        img = img0.resize((side, side), Image.Resampling.NEAREST)
-        tiles: dict[tuple[int, int], bytes] = {}
-        for tx in range(2 ** z):
-            for ty in range(2 ** z):
-                tile = img.crop((tx * TILE, ty * TILE, (tx + 1) * TILE, (ty + 1) * TILE))
-                buf = io.BytesIO()
-                tile.save(buf, "WEBP", lossless=True)
-                tiles[(tx, ty)] = buf.getvalue()
-        out[z] = tiles
-    return out
-
 
 def _ortho_first_wins(drive_orthos: list[np.ndarray]) -> np.ndarray:
     """Mosaic ortho rasters: first drive (in run order) with alpha>0 wins per cell."""
@@ -271,15 +229,28 @@ def _coverage_union(drive_orthos: list[np.ndarray], has_points: np.ndarray) -> n
     return coverage
 
 
+def _tile_version(out: Path) -> str:
+    """Content digest over all published mosaic WebP tiles (first 12 hex of sha256)."""
+    h = hashlib.sha256()
+    entries = []
+    for p in out.glob("tiles/*/*/*/*.webp"):
+        data = p.read_bytes()
+        rel = p.relative_to(out).as_posix()
+        entries.append(f"{rel}:{len(data)}:{hashlib.sha256(data).hexdigest()}")
+    for line in sorted(entries):
+        h.update((line + "\n").encode())
+    return h.hexdigest()[:12]
+
+
 def publish_runs(
     run_ids: list[str],
     out: Path,
     store: Path,
     max_file_bytes: int = MAX_FILE_BYTES,
     max_files: int = MAX_FILES,
-    mosaic: bool = False,
 ) -> tuple[AreaIndex, PublishReport]:
     out.mkdir(parents=True, exist_ok=True)
+    shutil.rmtree(out / "tiles", ignore_errors=True)
     # Preload ground points for all drives to compute build-wide height above road.
     all_drive_pts: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
     manifests: list[Manifest] = []
@@ -316,87 +287,79 @@ def publish_runs(
             if (_stage(run_dir, "profile") / name).exists():
                 shutil.copy(_stage(run_dir, "profile") / name, dest / name)
         _thin_laz(outputs / "twin.laz", dest / "twin.laz", max_file_bytes)
-        rasters, zoom, bbox_drive, grid = _rasters(run_dir, manifest)
-        x0d, y0d, celld, sided = grid
-        write_tiles(out, manifest.run_id, rasters, bbox_drive, max_zoom=zoom)
-        width_m = bbox_drive[2] - bbox_drive[0]
-        hzoom = next(
-            z for z in range(zoom, -1, -1)
-            if z == 0 or width_m / (TILE * 2 ** z) >= HEIGHT_MIN_CELL_M
-        )
-        height_rgba = render_height_rgba(h_map_all, x0=x0d, y0=y0d, cell=celld, side=sided)
-        write_tiles(out, manifest.run_id, {"height": height_rgba}, bbox_drive, max_zoom=hzoom)
+        xd, yd, _ = all_drive_pts[i]
+        gx0, gy0, gcell, gside = _grid_from_points(xd, yd, max(_gsd(manifest), 0.05))
+        bbox_drive = (gx0, gy0, gx0 + gside * gcell, gy0 + gside * gcell)
         runs.append((manifest, run_dir, bbox_drive))
 
     area = _area(runs)
     (out / "area.json").write_text(area.model_dump_json(indent=2))
 
     layer_reports = {}
-    if mosaic:
-        # aggregate mosaics
-        all_xs = np.concatenate([p[0] for p in all_drive_pts])
-        all_ys = np.concatenate([p[1] for p in all_drive_pts])
-        all_int = np.concatenate([
-            np.clip(np.asarray(laspy.read(_stage(rd, "ground") / "ground.laz").intensity, dtype=np.float64) / INTENSITY_WHITE, 0.0, 1.0)
-            for rd in run_dirs
-        ])
-        lidar_mosaic = _bincount_intensity(all_xs, all_ys, all_int, grid)
+    # aggregate mosaics
+    all_xs = np.concatenate([p[0] for p in all_drive_pts])
+    all_ys = np.concatenate([p[1] for p in all_drive_pts])
+    all_int = np.concatenate([
+        np.clip(np.asarray(laspy.read(_stage(rd, "ground") / "ground.laz").intensity, dtype=np.float64) / INTENSITY_WHITE, 0.0, 1.0)
+        for rd in run_dirs
+    ])
+    lidar_mosaic = _bincount_intensity(all_xs, all_ys, all_int, grid)
 
-        drive_orthos = []
-        for rd in run_dirs:
-            o = _resample_ortho(rd, grid)
-            if o is not None:
-                drive_orthos.append(o)
-        ortho_mosaic = _ortho_first_wins(drive_orthos)
+    drive_orthos = []
+    for rd in run_dirs:
+        o = _resample_ortho(rd, grid)
+        if o is not None:
+            drive_orthos.append(o)
+    ortho_mosaic = _ortho_first_wins(drive_orthos)
 
-        height_mosaic = render_height_rgba(h_map_all, x0=x0, y0=y0, cell=cell, side=side)
+    height_mosaic = render_height_rgba(h_map_all, x0=x0, y0=y0, cell=cell, side=side)
 
-        coverage_mosaic = _coverage_union(drive_orthos, lidar_mosaic[..., 3] > 0)
+    coverage_mosaic = _coverage_union(drive_orthos, lidar_mosaic[..., 3] > 0)
 
-        bbox = (x0, y0, x0 + side * cell, y0 + side * cell)
+    bbox = (x0, y0, x0 + side * cell, y0 + side * cell)
 
-        layers_data = {
-            "lidar": (lidar_mosaic, target_lidar),
-            "ortho": (ortho_mosaic, target_lidar),
-            "height": (height_mosaic, HEIGHT_MOSAIC_TARGET_M),
-            "coverage": (coverage_mosaic, HEIGHT_MOSAIC_TARGET_M),
+    layers_data = {
+        "lidar": (lidar_mosaic, target_lidar),
+        "ortho": (ortho_mosaic, target_lidar),
+        "height": (height_mosaic, HEIGHT_MOSAIC_TARGET_M),
+        "coverage": (coverage_mosaic, HEIGHT_MOSAIC_TARGET_M),
+    }
+
+    for layer in LAYERS:
+        arr, target = layers_data[layer]
+        g = _grid_from_points(all_x, all_y, target)
+        _gx, _gy, gcell, gside = g
+        gextent = gside * gcell
+        # zmax = smallest z with cell <= target (computed below)
+        zmax = 0
+        ratio = gextent / (target * TILE)
+        if ratio > 1:
+            zmax = math.ceil(math.log2(ratio))
+        zmax = max(0, min(MAX_ZOOM, zmax))
+        meta = {
+            "crs": "EPSG:32619",
+            "bbox": [float(v) for v in bbox],
+            "tile_px": TILE,
+            "zmin": 0,
+            "zmax": zmax,
+            "cell_m_at_zmax": float(gextent / (TILE * 2**zmax)),
+            "origin": "top-left",
+            "layer": layer,
+            "run_ids": run_ids,
         }
-
-        for layer in LAYERS:
-            arr, target = layers_data[layer]
-            g = _grid_from_points(all_x, all_y, target)
-            _gx, _gy, gcell, gside = g
-            gextent = gside * gcell
-            # zmax = smallest z with cell <= target (computed below)
-            zmax = 0
-            ratio = gextent / (target * TILE)
-            if ratio > 1:
-                zmax = math.ceil(math.log2(ratio))
-            zmax = max(0, min(MAX_ZOOM, zmax))
-            meta = {
-                "crs": "EPSG:32619",
-                "bbox": [float(v) for v in bbox],
-                "tile_px": TILE,
-                "zmin": 0,
-                "zmax": zmax,
-                "cell_m_at_zmax": float(gextent / (TILE * 2**zmax)),
-                "origin": "top-left",
-                "layer": layer,
-                "run_ids": run_ids,
-            }
-            write_mosaic_tiles(out, layer, arr, zmax, bbox, meta)
-            # compute tile count
-            layer_dir = out / "tiles" / layer
-            tiles = [p for p in layer_dir.rglob("*.webp")]
-            # per layer bytes = sum of webp + meta
-            layer_bytes = sum(p.stat().st_size for p in layer_dir.rglob("*") if p.is_file())
-            layer_reports[layer] = LayerReport(
-                path=f"tiles/{layer}",
-                max_zoom=zmax,
-                bytes=layer_bytes,
-                tile_count=len(tiles),
-                cell_m_at_zmax=float(gextent / (TILE * 2**zmax)),
-            )
+        write_mosaic_tiles(out, layer, arr, zmax, bbox, meta)
+        # compute tile count
+        layer_dir = out / "tiles" / layer
+        tiles = [p for p in layer_dir.rglob("*.webp")]
+        # per layer bytes = sum of webp + meta
+        layer_bytes = sum(p.stat().st_size for p in layer_dir.rglob("*") if p.is_file())
+        layer_reports[layer] = LayerReport(
+            path=f"tiles/{layer}",
+            max_zoom=zmax,
+            bytes=layer_bytes,
+            tile_count=len(tiles),
+            cell_m_at_zmax=float(gextent / (TILE * 2**zmax)),
+        )
 
     files = [p for p in out.rglob("*") if p.is_file()]
     for path in files:
@@ -415,6 +378,7 @@ def publish_runs(
     report_path = out / "publish_report.json"
     other = [p for p in files if p != report_path]
     base = sum(p.stat().st_size for p in other)
+    report.tile_version = _tile_version(out)
     total = base
     for _ in range(10):
         report.total_bytes = total
@@ -427,9 +391,9 @@ def publish_runs(
     report_path.write_text(report.model_dump_json(indent=2))
     return area, report
 
-def publish_command(run_ids: list[str], out: Path, store: Path | None, mosaic: bool = False) -> int:
+def publish_command(run_ids: list[str], out: Path, store: Path | None) -> int:
     try:
-        _area, report = publish_runs(run_ids, out, store or default_store(), mosaic=mosaic)
+        _area, report = publish_runs(run_ids, out, store or default_store())
     except ValueError as err:
         print(f"twin publish: {err}", file=sys.stderr)
         return 1
