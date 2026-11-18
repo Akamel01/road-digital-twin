@@ -285,3 +285,15 @@ def test_redeploy_needs_a_published_run(env):
     store, _, _, _ = env
     with pytest.raises(site.SiteStop):
         site.redeploy(store)
+
+
+def test_s2_smoke_already_published_does_not_score(env, monkeypatch):
+    store, _calls, run, _ = env
+    site.publish_run(store, run("r1"))
+    import twin.score as score_mod
+
+    def boom(*a, **k):
+        raise RuntimeError("should not be called")
+
+    monkeypatch.setattr(score_mod, "score_target", boom)
+    assert site.publish_run(store, run("r1")) == "skipped: already published"
