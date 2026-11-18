@@ -3,27 +3,27 @@
 - Venue: live-mirror: Seaport (15 drives)
 - Command: `rm -rf web/out && bash web/scripts/fake-showcase.sh && npm --prefix web run build && node web/scripts/measure-288.mjs --before 1d3951c --out docs/evidence/288`
 - Base ref: 1d3951c (1d3951c7fbaba434250e8432aeb9acfa165ca5e9)
-- After commit (at run): ff20468bf8813a8b31ae16cce036727584a0340f
+- After commit (at run): a303e704365bb42202ee755babb5394df4ef2cb3
 
 ## Before/after pairs
-- frame p95 (ms): 283.4 -> 783.3
-- whole image count: 268 -> 54
-- gesture window image count: 60 -> 34
-- during_gesture image count: 60 -> 34
+- frame p95 (ms): 300 -> 733.4
+- whole image count: 246 -> 54
+- gesture window image count: 38 -> 34
+- during_gesture image count: 38 -> 34
 - renderer: ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver) -> ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver) (match=true)
 - final scale text: "5 m" -> "5 m"
 - drag_delta: before=true after=true
 - 404s: after_unexpected=0 after_known_app_404s=7
 
 ## Screenshots (after-only)
-- docs/evidence/288/after-lidar-area.png sha256=5924c7f5ac727e04547a1b4aae44932f8a3f3614e6d72d59220e54060ab5a7e4 variance=6931.145100549635
-- docs/evidence/288/after-ortho-area.png sha256=22f5c73fd4683189116c94f12d65a591b0e2cc95b6d47f503e072e093a87537c variance=6953.396598318908
-- docs/evidence/288/after-height-area.png sha256=64dbcfb6c600cc74d738109355cccef63ebf90cb0d06b5a451d24c8d37badcd5 variance=7133.695675565119
-- docs/evidence/288/after-lidar-full.png sha256=e4f09c94b021467ef8386f652d1765585aefb23602dbca02b9cc72affc93c1e4 variance=6394.841547407744
-- docs/evidence/288/after-ortho-full.png sha256=0c9a0afe9d5cb5a36dafbce12cf0fde70cf72b1cf93b4b93aedeac8d7d6dff3d variance=5162.254192599752
-- docs/evidence/288/after-height-full.png sha256=fdafbb2266a7ed080fc46d3a6bcd9ddab9deab41ca577cfa80aa5f91a0376ef1 variance=6819.6866668973225
-- docs/evidence/288/after-lidar-phone.png sha256=2351f163eada94430f087e98ef92085bf09dd12b3d59aa8c8217dc1cf67f6285 variance=5551.617985150361
+- docs/evidence/288/after-lidar-area.png sha256=2eba8e84a5e521ec34c36f4a0d116568e3089d4f1af3b5fb348d4cabbe9f7753 variance=6930.155819788962
+- docs/evidence/288/after-ortho-area.png sha256=381b9bbc53277b05344a2e878b77eeac0109e6e600d07f63886feea9f4f3dcd7 variance=6952.125249281232
+- docs/evidence/288/after-height-area.png sha256=f112d649b57e45002b0aaf551cfc4ac653e6285a3fb8512f710cae0d81292e7d variance=7131.897234463152
+- docs/evidence/288/after-lidar-full.png sha256=d5f0aec688652211539cd712fc40a63614fbcaf635ca5a12a536e8f18eb71f29 variance=6394.8309856856795
+- docs/evidence/288/after-ortho-full.png sha256=f9bbe4225ddda34b50b452fd90bbbaaa94798269d2e159f919a996784958ebfa variance=5162.252731512726
+- docs/evidence/288/after-height-full.png sha256=f375d89c48d1ff5b98e00f6c4077fbbc0ac2ffe2a686043dca3e27425552baf9 variance=6819.710120968813
+- docs/evidence/288/after-lidar-phone.png sha256=7d9b2f1fd245edfa7abfb4721a68accf463599e215e0c68b2c8b772065d02532 variance=5771.347222016384
 
 Gate: failed
 Reasons:
-- frame p95 not improved: 283.4 -> 783.3
+- frame p95 not improved: 300 -> 733.4
