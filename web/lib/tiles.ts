@@ -153,6 +153,11 @@ export interface TileRangeResult {
   indices: TileIndex[];
 }
 
+// Cart/ceil tile zoom; same formula as the tileset indexer.
+export function tileZoomFor(viewZoom: number, extent: number, tilePx: number, dpr: number): number {
+  return Math.ceil(viewZoom + Math.log2((extent * dpr) / tilePx));
+}
+
 export function tileRange(
   k: number,
   extent: number,
@@ -162,7 +167,7 @@ export function tileRange(
   zmin = 0,
   zmax = Infinity,
 ): TileRangeResult {
-  const rawZ = Math.ceil(Math.log2((k * extent * dpr) / tilePx));
+  const rawZ = tileZoomFor(Math.log2(k > 0 ? k : 1), extent, tilePx, dpr);
   const z = Math.max(zmin, Math.min(zmax, rawZ));
   const n = 2 ** z;
   const span = extent / n;

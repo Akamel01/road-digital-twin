@@ -71,7 +71,7 @@ export function mosaicFrame(metas: Record<Raster, MosaicMeta>): Frame | null {
 // Installed @deck.gl/geo-layers computes the tile level in getTileIndices:
 //   geospatial -> Math.round(viewport.zoom + Math.log2(512 / tileSize) + zoomOffset)
 //   cartesian  -> Math.ceil(viewport.zoom + zoomOffset)
-// Tileset2D.getTileZoom itself returns index.z. We use the round form with
+// Tileset2D.getTileZoom itself returns index.z. We use the cartesian/ceil form with
 // tileSize = 512 * tilePx / (extent * dpr), so 512 / tileSize = extent * dpr / tilePx.
 export function tileZoomFor(viewZoom: number, extent: number, tilePx: number, dpr: number): number {
   return Math.ceil(viewZoom + Math.log2((extent * dpr) / tilePx));

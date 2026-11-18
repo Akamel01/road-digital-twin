@@ -1,4 +1,13 @@
-/showcase/tiles/*.webp
+/showcase/tiles/lidar/*.webp
+  Cache-Control: public, max-age=31536000, immutable
+
+/showcase/tiles/ortho/*.webp
+  Cache-Control: public, max-age=31536000, immutable
+
+/showcase/tiles/height/*.webp
+  Cache-Control: public, max-age=31536000, immutable
+
+/showcase/tiles/coverage/*.webp
   Cache-Control: public, max-age=31536000, immutable
 
 /showcase/tiles/*/meta.json

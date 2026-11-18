@@ -66,11 +66,38 @@ function rectOf(pts: Point[]): Rect {
   return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
 }
 
+function clamp(n: number, lo: number, hi: number): number {
+  return Math.min(hi, Math.max(lo, n));
+}
 
+function labelAt(pts: Point[], r: Rect | null): Point {
+  if (!pts.length) return [0, 0];
+  if (!r) return pts[Math.floor(pts.length / 2)];
+  const cx = (r.x0 + r.x1) / 2;
+  const cy = (r.y0 + r.y1) / 2;
+  let best = pts[0];
+  let bestD = Infinity;
+  for (const p of pts) {
+    const px = clamp(p[0], r.x0, r.x1);
+    const py = clamp(p[1], r.y0, r.y1);
+    const dx = px - cx;
+    const dy = py - cy;
+    const d = dx * dx + dy * dy;
+    if (d < bestD) {
+      bestD = d;
+      best = [px, py];
+    }
+  }
+  return best;
+}
 
-function entryOf(pts: Point[], r: Rect | null): Point {
-  const inside = r && pts.find(([x, y]) => x >= r.x0 && x <= r.x1 && y >= r.y0 && y <= r.y1);
-  return inside || pts[Math.floor(pts.length / 2)];
+function openRing(pts: Point[]): Point[] {
+  if (pts.length > 1) {
+    const a = pts[0];
+    const b = pts[pts.length - 1];
+    if (a[0] === b[0] && a[1] === b[1]) return pts.slice(0, -1);
+  }
+  return pts;
 }
 
 interface Props {
@@ -96,6 +123,8 @@ export default function MapView({ area, facility, element, line, onFacility, onE
   const [view, setView] = useState<StoredView | null>(null);
   const panRef = useRef<HTMLDivElement>(null);
   const [centre, setCentre] = useState<{ key: string; lines: Centreline[] } | null>(null);
+  const pendingView = useRef<StoredView | null>(null);
+  const viewRaf = useRef<number | null>(null);
 
   const frame = mosaic?.frame ?? null;
 
@@ -134,10 +163,15 @@ export default function MapView({ area, facility, element, line, onFacility, onE
     return () => ro.disconnect();
   }, []);
 
-
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (typeof window !== "undefined") setTokens(readTokens());
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (viewRaf.current !== null) cancelAnimationFrame(viewRaf.current);
+    };
   }, []);
 
   const clRun = facility?.best_run ?? null;
@@ -233,8 +267,6 @@ export default function MapView({ area, facility, element, line, onFacility, onE
     }
   }
 
-
-
   function pickAnalysis(a: Analysis) {
     if (a === "safety") {
       setAnalysis((prev) => {
@@ -315,9 +347,13 @@ export default function MapView({ area, facility, element, line, onFacility, onE
     [sightsRaw, frame],
   );
 
-  const facilityRing = useMemo(
+  const facilityRingLocal = useMemo(
     () => (frame && facEntry ? facEntry.geo.ring.map((p) => toLocal(frame, p)) : null),
     [frame, facEntry],
+  );
+  const facilityOutline = useMemo(
+    () => (facilityRingLocal ? openRing(facilityRingLocal) : null),
+    [facilityRingLocal],
   );
 
   const clKey = `${clRun}|${clFid}`;
@@ -331,7 +367,7 @@ export default function MapView({ area, facility, element, line, onFacility, onE
       facility && frame
         ? lines.map((l) => {
             const pts = l.points.map((p) => toLocal(frame, p));
-            return { id: l.id, label: l.label, points: l.points, pts, at: entryOf(pts, facRect) };
+            return { id: l.id, label: l.label, points: l.points, pts, at: labelAt(pts, facRect) };
           })
         : [],
     [facility, frame, lines, facRect],
@@ -368,7 +404,7 @@ export default function MapView({ area, facility, element, line, onFacility, onE
           s: { eye: s.eye, end: s.end, status: s.status },
         })),
         linesView: linesView.map((l) => ({ id: l.id, path: l.pts, at: l.at, label: l.label })),
-        facilityRing: facilityRing ?? undefined,
+        facilityRing: facilityOutline ?? undefined,
       }),
     ];
   }, [
@@ -378,7 +414,7 @@ export default function MapView({ area, facility, element, line, onFacility, onE
     version,
     dpr,
     overlays,
-    facilityRing,
+    facilityOutline,
     linesView,
     selId,
     sights,
@@ -441,20 +477,29 @@ export default function MapView({ area, facility, element, line, onFacility, onE
 
   const scaleM = cur ? [5, 10, 20, 50, 100, 200].find((v) => v * cur.k >= 60) ?? 200 : 0;
 
-   const handleViewStateChange = useCallback(
-     (v: ViewState) => {
-       if (!v || !Number.isFinite(v.zoom) || !size.w || !size.h) return;
-       const z = Math.min(MAX_VIEW_ZOOM, Math.max(minZoom, v.zoom));
-       const t0 = v.target?.[0]; const t1 = v.target?.[1];
-       if (!Number.isFinite(t0) || !Number.isFinite(t1)) return;
-       const vv = viewOf({ target: [t0, t1, 0], zoom: z }, size);
-       if (!Number.isFinite(vv.k) || !Number.isFinite(vv.tx) || !Number.isFinite(vv.ty)) return;
-       setView({ k: vv.k, tx: vv.tx, ty: vv.ty, key: fitKey });
-     },
-     [minZoom, size, fitKey],
-   );
+  const handleViewStateChange = useCallback(
+    (v: ViewState) => {
+      if (!v || !Number.isFinite(v.zoom) || !size.w || !size.h) return;
+      const z = Math.min(MAX_VIEW_ZOOM, Math.max(minZoom, v.zoom));
+      const t0 = v.target?.[0];
+      const t1 = v.target?.[1];
+      if (!Number.isFinite(t0) || !Number.isFinite(t1)) return;
+      const vv = viewOf({ target: [t0, t1, 0], zoom: z }, size);
+      if (!Number.isFinite(vv.k) || !Number.isFinite(vv.tx) || !Number.isFinite(vv.ty)) return;
+      pendingView.current = { k: vv.k, tx: vv.tx, ty: vv.ty, key: fitKey };
+      if (viewRaf.current === null) {
+        viewRaf.current = requestAnimationFrame(() => {
+          viewRaf.current = null;
+          if (pendingView.current) setView(pendingView.current);
+        });
+      }
+    },
+    [minZoom, size, fitKey],
+  );
 
   const deckViewState: ViewState | null = cur ? viewStateOf(cur as unknown as View, size) : null;
+  const ready = !!mosaic && loaded !== null;
+  const noData = ready && (!frame || area.drives.length === 0);
 
   return (
     <>
@@ -515,8 +560,8 @@ export default function MapView({ area, facility, element, line, onFacility, onE
         </div>
       )}
       {error && <p className="msg" role="alert">{error}</p>}
-      {!error && !loaded && <p className="msg">Loading tiles…</p>}
-      {!frame && !error && <p className="msg">No drives in the showcase.</p>}
+      {!error && !ready && <p className="msg">Loading tiles…</p>}
+      {!error && noData && <p className="msg">No drives in the showcase.</p>}
     </>
   );
 }

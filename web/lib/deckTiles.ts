@@ -15,7 +15,17 @@ export interface TileLayersInput {
   dpr: number;
 }
 
-export function createMosaicTileset(meta: MosaicMeta, dpr: number) {
+const tileKeyCache = new WeakMap<MosaicMeta, Set<string> | null>();
+const tilesetCache = new WeakMap<MosaicMeta, Map<number, ReturnType<typeof makeMosaicTileset>>>();
+
+function memoTileKeys(meta: MosaicMeta): Set<string> | null {
+  if (tileKeyCache.has(meta)) return tileKeyCache.get(meta)!;
+  const keys = tileKeys(meta);
+  tileKeyCache.set(meta, keys);
+  return keys;
+}
+
+function makeMosaicTileset(meta: MosaicMeta, dpr: number) {
   const extent = meta.bbox[2] - meta.bbox[0];
   return class MosaicTileset extends Tileset2D {
     getTileIndices({ viewport }: any) {
@@ -42,6 +52,19 @@ export function createMosaicTileset(meta: MosaicMeta, dpr: number) {
   };
 }
 
+export function createMosaicTileset(meta: MosaicMeta, dpr: number) {
+  let byDpr = tilesetCache.get(meta);
+  if (!byDpr) {
+    byDpr = new Map();
+    tilesetCache.set(meta, byDpr);
+  }
+  const cached = byDpr.get(dpr);
+  if (cached) return cached;
+  const cls = makeMosaicTileset(meta, dpr);
+  byDpr.set(dpr, cls);
+  return cls;
+}
+
 export function tileLayers({ metas, rasters, version, dpr }: TileLayersInput) {
   const out: any[] = [];
   for (const layer of rasters) {
@@ -56,8 +79,10 @@ export function tileLayers({ metas, rasters, version, dpr }: TileLayersInput) {
         extent: [0, 0, extent, extent],
         tileSize: extent,
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+        refinementStrategy: "never",
+        maxRequests: 8,
         getTileData: async (props: any) => {
-          const keys = tileKeys(meta);
+          const keys = memoTileKeys(meta);
           const idx = props.index || {};
           let z = Number(idx.z);
           if (!Number.isFinite(z)) z = 0;
