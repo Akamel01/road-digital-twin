@@ -175,3 +175,44 @@ def test_stale_version_raises(tmp_path):
         write_labels(store, "s1", labels, expected_version=99)
     with pytest.raises(ValueError, match="stale version"):
         write_labels(store, "s1", labels, version=0)
+
+
+def _make_twin_layout(tmp_path):
+    build = tmp_path / "test-twin"
+    feats = build / "5_features"
+    feats.mkdir(parents=True)
+    _write_fc(
+        feats / "markings.geojson",
+        [
+            {
+                "type": "Feature",
+                "geometry": {"type": "LineString", "coordinates": [[0, 0], [100, 100]]},
+                "properties": {"id": "m1", "marking_type": "solid"},
+            }
+        ],
+    )
+    _write_fc(feats / "crosswalks.geojson", [])
+    _write_fc(feats / "curbs.geojson", [])
+    _write_fc(feats / "ramps.geojson", [])
+    area_def = {
+        "name": "test",
+        "polygon": {
+            "type": "Polygon",
+            "coordinates": [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]],
+        },
+    }
+    (tmp_path / "test-twin.json").write_text(json.dumps(area_def, indent=2) + "\n")
+    return build
+
+
+def test_draft_reads_twin_features_and_clips(tmp_path):
+    store = tmp_path / "store"
+    build = _make_twin_layout(tmp_path)
+    draft(store, "s1", str(build), created_at="2026-01-01T00:00:00+00:00")
+    labels = read_labels(store, "s1")
+    assert len(labels["features"]) == 1
+    geom = labels["features"][0]["geometry"]
+    # clipped to polygon: endpoint beyond 10 should be trimmed
+    coords = geom["coordinates"]
+    assert all(0 <= x <= 10 and 0 <= y <= 10 for x, y in coords)
+    assert coords != [[0, 0], [100, 100]]
