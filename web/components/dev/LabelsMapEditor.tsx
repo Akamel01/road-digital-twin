@@ -13,6 +13,7 @@ import {
   type SiteMeta,
 } from "@/lib/labels";
 import { loadArea } from "@/lib/showcase";
+import { MODE_BUTTONS, LAYER_BUTTONS } from "@/lib/labeltoolbar";
 import {
   frameOf,
   localRect,
@@ -410,9 +411,18 @@ export default function LabelsMapEditor({ site, meta, onMeta, runs }: Props) {
     <div style={{ display: "grid", gridTemplateColumns: "1fr 280px", gap: 12 }}>
       <div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-          {(["select", "point", "line", "polygon"] as Mode[]).map((m) => (
-            <button key={m} type="button" onClick={() => { setMode(m); setDraft([]); }} disabled={busy}>
-              {m}
+          {MODE_BUTTONS.map((b) => (
+            <button
+              key={b.id}
+              type="button"
+              className={styles.button}
+              aria-label={b.label}
+              aria-pressed={mode === b.id}
+              style={mode === b.id ? { outline: "2px solid #60a5fa", background: "var(--glass-clear-strong)" } : undefined}
+              onClick={() => { setMode(b.id as Mode); setDraft([]); }}
+              disabled={busy}
+            >
+              {b.label}
             </button>
           ))}
           <button type="button" className={styles.button} onClick={finishDraft} disabled={busy || draft.length === 0}>Finish</button>
@@ -421,16 +431,23 @@ export default function LabelsMapEditor({ site, meta, onMeta, runs }: Props) {
           <button type="button" className={styles.button} onClick={handleSave} disabled={busy || !meta || meta.frozen}>Save</button>
           <button type="button" className={styles.button} onClick={handleApprove} disabled={busy || !meta || meta.frozen}>Approve</button>
           <button type="button" className={styles.button} onClick={handleNewVersion} disabled={busy || !meta}>New version</button>
-          {(["height", "lidar", "ortho"] as const).map((l) => (
+          {LAYER_BUTTONS.map((b) => {
+            const l = b.id as "height" | "lidar" | "ortho";
+            return (
             <button
-              key={l}
+              key={b.id}
               type="button"
+              className={styles.button}
+              aria-label={b.label}
+              aria-pressed={layers[l]}
+              style={layers[l] ? { outline: "2px solid #60a5fa", background: "var(--glass-clear-strong)" } : undefined}
               onClick={() => setLayers(() => ({ height: l === "height", lidar: l === "lidar", ortho: l === "ortho" }))}
               disabled={busy}
             >
-              {l}{layers[l] ? " ✓" : ""}
+              {b.label}{layers[l] ? " ✓" : ""}
             </button>
-          ))}
+            );
+          })}
         </div>
         {error ? <p role="alert">{error}</p> : null}
         {info ? <p role="status">{info}</p> : null}
