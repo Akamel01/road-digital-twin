@@ -516,3 +516,208 @@ def test_template_fileof_guards_failed_boot():
         src = fh.read()
     assert 'if(!state.loaded||!state.meta)return{set:SITE,version:1,source:"labels-store",surface_features:[]}' in src
     assert 'if($("dl"))$("dl").disabled=!state.loaded' in src
+
+# --- M6b1: resolution/window/coverage ---
+
+from twin.labeltool import (
+    FIT_TOL_M,
+    H_M,
+    W_M,
+    _window_covered,
+    runs_for_area,
+    window_for,
+)
+
+
+def _mk_area_build(store, area_name, drives_def, used_scenes):
+    areas = store / "areas"
+    areas.mkdir(parents=True, exist_ok=True)
+    build = areas / f"{area_name}-twin"
+    (build / "5_features").mkdir(parents=True, exist_ok=True)
+    (areas / f"{area_name}.json").write_text(
+        json.dumps(
+            {
+                "name": area_name,
+                "dataset_version": drives_def.get("dataset_version", "v1.0-trainval"),
+                "polygon": drives_def.get(
+                    "polygon",
+                    {
+                        "type": "Polygon",
+                        "coordinates": [[[0, 0], [100, 0], [100, 100], [0, 100], [0, 0]]],
+                    },
+                ),
+                "drives": drives_def["drives"],
+            }
+        )
+    )
+    (build / "drives.json").write_text(
+        json.dumps([{"scene": s} for s in used_scenes])
+    )
+    return build
+
+
+def _mk_run(store, run_id, scene, dataset_version, stages_status):
+    d = store / run_id
+    d.mkdir(parents=True, exist_ok=True)
+    manifest = {
+        "data": {"scene_token": scene, "nuscenes_version": dataset_version},
+        "stages": [{"name": n, "status": st} for n, st in stages_status.items()],
+    }
+    (d / "manifest.json").write_text(json.dumps(manifest))
+    return d
+
+
+def _mk_site_with_labels(store, site, polygon, features_xy=None):
+    from pathlib import Path as _Path
+
+    store = _Path(store)
+    d = store / "labels" / site
+    d.mkdir(parents=True, exist_ok=True)
+    meta = {
+        "id": site,
+        "role": "dev",
+        "polygon": polygon,
+        "version": 1,
+        "approved_by": None,
+        "approved_at": None,
+        "crs": "EPSG:32619",
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "source_area": "a",
+        "frozen": False,
+    }
+    (d / "site.json").write_text(json.dumps(meta))
+    feats = []
+    for i, xy in enumerate(features_xy or []):
+        feats.append(
+            {
+                "type": "Feature",
+                "geometry": {"type": "LineString", "coordinates": xy},
+                "properties": {"id": f"f{i}", "element": "marking", "type": "solid_line", "origin": "operator"},
+            }
+        )
+    (d / "labels.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": feats}))
+
+
+def test_window_for_fits_union(tmp_path):
+    store = tmp_path / "store"
+    poly = {"type": "Polygon", "coordinates": [[[10, 10], [50, 10], [50, 40], [10, 40], [10, 10]]]}
+    _mk_site_with_labels(store, "s", poly, features_xy=[[[20, 20], [30, 30]]])
+    x0, y1, info = window_for(store, "s")
+    assert info["fallback"] is False
+    assert x0 == 10
+    assert y1 == 40
+    assert info["bounds"] == [10, 10, 50, 40]
+
+
+def test_window_for_centres_when_union_too_large(tmp_path):
+    store = tmp_path / "store"
+    poly = {"type": "Polygon", "coordinates": [[[0, 0], [200, 0], [200, 200], [0, 200], [0, 0]]]}
+    _mk_site_with_labels(store, "s", poly, features_xy=[])
+    x0, y1, info = window_for(store, "s")
+    assert info["fallback"] is True
+    assert x0 == pytest.approx(100 - W_M / 2)
+    assert y1 == pytest.approx(100 + H_M / 2)
+    assert info["bounds"] == [0, 0, 200, 200]
+
+
+def test_window_tolerance_accepts_80_05_m(tmp_path):
+    store = tmp_path / "store"
+    # width 80.05m, height 75.05m -> within FIT_TOL_M
+    minx, miny = 0.0, 0.0
+    maxx, maxy = 80.05, 75.05
+    poly = {"type": "Polygon", "coordinates": [[[minx, miny], [maxx, miny], [maxx, maxy], [minx, maxy], [minx, miny]]]}
+    _mk_site_with_labels(store, "s", poly, features_xy=[])
+    x0, y1, info = window_for(store, "s")
+    assert info["fallback"] is False
+    assert x0 == minx
+    assert y1 == maxy
+    # sanity: tolerance constant used
+    assert maxx - minx <= W_M + FIT_TOL_M
+    assert maxy - miny <= H_M + FIT_TOL_M
+
+
+def test_runs_for_area_newest_per_token(tmp_path):
+    store = tmp_path / "store"
+    area_def = {
+        "dataset_version": "v1.0-trainval",
+        "polygon": {"type": "Polygon", "coordinates": [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]]},
+        "drives": [{"scene": "s1", "scene_token": "t1"}, {"scene": "s2", "scene_token": "t2"}],
+    }
+    _mk_area_build(store, "a1", area_def, ["s1", "s2"])
+    full = {"load": "ok", "align": "ok", "ground": "ok", "colour": "ok"}
+    _mk_run(store, "20261101-000000-aaaaaa", "t1", "v1.0-trainval", full)
+    newer = _mk_run(store, "20261102-000000-bbbbbb", "t1", "v1.0-trainval", full)
+    r2 = _mk_run(store, "20261103-000000-cccccc", "t2", "v1.0-trainval", full)
+    paths = runs_for_area(store, "a1")
+    assert paths == [newer, r2]
+
+
+def test_runs_for_area_falls_back_to_ground_only(tmp_path):
+    store = tmp_path / "store"
+    area_def = {
+        "dataset_version": "v1.0-trainval",
+        "polygon": {"type": "Polygon", "coordinates": [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]]},
+        "drives": [{"scene": "s1", "scene_token": "t1"}],
+    }
+    _mk_area_build(store, "a1", area_def, ["s1"])
+    ground_only = {"load": "ok", "align": "ok", "ground": "ok"}
+    r = _mk_run(store, "20261101-000000-aaaaaa", "t1", "v1.0-trainval", ground_only)
+    paths = runs_for_area(store, "a1")
+    assert paths == [r]
+
+
+def test_runs_for_area_skips_failed_load(tmp_path):
+    store = tmp_path / "store"
+    area_def = {
+        "dataset_version": "v1.0-trainval",
+        "polygon": {"type": "Polygon", "coordinates": [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]]},
+        "drives": [{"scene": "s1", "scene_token": "t1"}],
+    }
+    _mk_area_build(store, "a1", area_def, ["s1"])
+    failed_load = {"load": "failed", "align": "ok", "ground": "ok", "colour": "ok"}
+    _mk_run(store, "20261101-000000-aaaaaa", "t1", "v1.0-trainval", failed_load)
+    paths = runs_for_area(store, "a1")
+    assert paths == []
+
+
+def test_runs_for_area_missing_token(tmp_path):
+    store = tmp_path / "store"
+    area_def = {
+        "dataset_version": "v1.0-trainval",
+        "polygon": {"type": "Polygon", "coordinates": [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]]},
+        "drives": [{"scene": "s1", "scene_token": "t1"}, {"scene": "s2", "scene_token": "t2"}],
+    }
+    _mk_area_build(store, "a1", area_def, ["s1", "s2"])
+    full = {"load": "ok", "align": "ok", "ground": "ok", "colour": "ok"}
+    r1 = _mk_run(store, "20261101-000000-aaaaaa", "t1", "v1.0-trainval", full)
+    # no run for t2
+    paths = runs_for_area(store, "a1")
+    assert paths == [r1]
+
+
+def test_runs_for_area_filters_dataset_version(tmp_path):
+    store = tmp_path / "store"
+    area_def = {
+        "dataset_version": "v1.0-trainval",
+        "polygon": {"type": "Polygon", "coordinates": [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]]},
+        "drives": [{"scene": "s1", "scene_token": "t1"}],
+    }
+    _mk_area_build(store, "a1", area_def, ["s1"])
+    full = {"load": "ok", "align": "ok", "ground": "ok", "colour": "ok"}
+    _mk_run(store, "20261101-000000-aaaaaa", "t1", "v1.0-mini", full)
+    good = _mk_run(store, "20261102-000000-bbbbbb", "t1", "v1.0-trainval", full)
+    paths = runs_for_area(store, "a1")
+    assert paths == [good]
+
+
+def test_window_covered_rejects_outside_area():
+    area_def = {
+        "name": "a1",
+        "polygon": {"type": "Polygon", "coordinates": [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]]},
+    }
+    # window far outside
+    with pytest.raises(DraftError) as exc:
+        _window_covered(area_def, 1000, 1000)
+    msg = str(exc.value)
+    assert "a1" in msg
+    assert "--area/--areas" in msg or "--area" in msg

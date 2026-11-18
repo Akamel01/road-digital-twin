@@ -150,19 +150,27 @@ def area_define_command(
     return 0
 
 
-def drive_tokens(build: Path) -> list[str]:
+def drive_tokens(build: Path, defined: dict | None = None) -> list[str]:
     """Scene tokens of the drives an area build used (its drives.json lists scene names), in that order.
     The tokens come from the area definition <store>/areas/<area>.json, where the build folder is
-    <area>-twin or <area>-merged. [] when either file is missing."""
+    <area>-twin or <area>-merged. When ``defined`` is passed, its ``drives`` list is used instead of
+    reading the sibling ``<name>.json``. [] when required data is missing or unreadable."""
     build = Path(build)
     name = build.name.removesuffix("-twin").removesuffix("-merged")
     try:
-        defined = json.loads((build.parent / f"{name}.json").read_text())["drives"]
+        if defined is None:
+            defined_drives = json.loads((build.parent / f"{name}.json").read_text())["drives"]
+        else:
+            defined_drives = defined.get("drives") or []
         used = json.loads((build / "drives.json").read_text())
     except (OSError, ValueError, KeyError):
         return []
-    token = {d["scene"]: d["scene_token"] for d in defined}
-    return [token[d["scene"]] for d in used if d.get("scene") in token]
+    token = {
+        d["scene"]: d["scene_token"]
+        for d in defined_drives
+        if isinstance(d, dict) and d.get("scene") and d.get("scene_token")
+    }
+    return [token[d["scene"]] for d in used if isinstance(d, dict) and d.get("scene") in token]
 
 
 VERSION = "v1.0-trainval"

@@ -7,12 +7,29 @@ Importing this module must not touch cv2 or FastAPI (P8); raster work lives in
 from __future__ import annotations
 
 import json
+import math
 from importlib import resources
 from pathlib import Path
 from typing import Any
 
+import shapely
+from shapely.geometry import shape
+
+from twin import labels
+from twin.area import drive_tokens as area_drive_tokens
 from twin.contracts import LabelFeature
 from twin.labels import read_labels, read_site, valid_site, write_labels
+from twin.runstore import DONE, RunStore
+
+W_M = 80.0
+H_M = 75.0
+CELL = 0.05
+W_PX = 1600
+H_PX = 1500
+FIT_TOL_M = 0.1
+
+_FULL_STAGES = ("load", "align", "ground", "colour")
+_FALLBACK_STAGES = ("load", "align", "ground")
 
 SURFACE_MAP: dict[str, tuple[str, str]] = {
     "lane line, solid white": ("marking", "solid_line"),
@@ -150,6 +167,203 @@ def import_draft(store: Path, site: str, draft_path, *, replace: bool = False) -
         expected_version=meta.version,
     )
     return len(surfaces)
+
+
+def _iter_geometry_points(geom: Any):
+    if not isinstance(geom, dict):
+        return
+    typ = geom.get("type")
+    coords = geom.get("coordinates")
+    if typ == "Point" and isinstance(coords, (list, tuple)) and len(coords) >= 2:
+        yield coords[0], coords[1]
+        return
+    if typ == "LineString" and isinstance(coords, list):
+        for p in coords:
+            if isinstance(p, (list, tuple)) and len(p) >= 2:
+                yield p[0], p[1]
+        return
+    if typ == "Polygon" and isinstance(coords, list):
+        for ring in coords:
+            if not isinstance(ring, list):
+                continue
+            for p in ring:
+                if isinstance(p, (list, tuple)) and len(p) >= 2:
+                    yield p[0], p[1]
+        return
+    if typ == "MultiPoint" and isinstance(coords, list):
+        for p in coords:
+            if isinstance(p, (list, tuple)) and len(p) >= 2:
+                yield p[0], p[1]
+        return
+    if typ == "MultiLineString" and isinstance(coords, list):
+        for line in coords:
+            if not isinstance(line, list):
+                continue
+            for p in line:
+                if isinstance(p, (list, tuple)) and len(p) >= 2:
+                    yield p[0], p[1]
+        return
+    if typ == "MultiPolygon" and isinstance(coords, list):
+        for poly in coords:
+            if not isinstance(poly, list):
+                continue
+            for ring in poly:
+                if not isinstance(ring, list):
+                    continue
+                for p in ring:
+                    if isinstance(p, (list, tuple)) and len(p) >= 2:
+                        yield p[0], p[1]
+        return
+    # best effort flatten
+    def _walk(obj):
+        if isinstance(obj, (list, tuple)):
+            if len(obj) == 2 and not any(isinstance(x, (list, tuple, dict)) for x in obj):
+                yield obj[0], obj[1]
+            else:
+                for item in obj:
+                    yield from _walk(item)
+    yield from _walk(coords)
+
+
+def _polygon_bounds(polygon: Any) -> tuple[float, float, float, float] | None:
+    if not isinstance(polygon, dict):
+        return None
+    try:
+        g = shape(polygon)
+    except (TypeError, ValueError, AttributeError):
+        return None
+    if g.is_empty or not g.is_valid:
+        # try to make valid? avoid geometry ops changing meaning; skip invalid
+        try:
+            g = g.buffer(0)
+        except Exception:  # noqa: BLE001
+            return None
+    if g.is_empty:
+        return None
+    minx, miny, maxx, maxy = g.bounds
+    vals = (float(minx), float(miny), float(maxx), float(maxy))
+    if not all(math.isfinite(v) for v in vals):
+        return None
+    return vals
+
+
+def _stages_done(run, required: tuple[str, ...]) -> bool:
+    by = {s.get("name"): s for s in run.stages if isinstance(s, dict)}
+    for name in required:
+        stage = by.get(name)
+        if not stage or stage.get("status") not in DONE:
+            return False
+    return True
+
+
+def runs_for_area(store, area, *, areas_root=None):
+    store = Path(store)
+    build_dir, area_def = labels.resolve_area(store, area, areas_root=areas_root)
+    tokens = area_drive_tokens(build_dir, defined=area_def)
+    rs = RunStore(store)
+    dataset_version = None
+    if isinstance(area_def, dict):
+        dataset_version = area_def.get("dataset_version")
+    out = []
+    seen = set()
+    for token in tokens:
+        candidates = rs.runs(scene=token, dataset_version=dataset_version)
+        chosen = None
+        for required in (_FULL_STAGES, _FALLBACK_STAGES):
+            for run in candidates:
+                if _stages_done(run, required):
+                    chosen = run
+                    break
+            if chosen is not None:
+                break
+        if chosen is not None and chosen.path not in seen:
+            out.append(chosen.path)
+            seen.add(chosen.path)
+    return out
+
+
+def window_for(store, site):
+    meta = read_site(store, site)
+    fc = read_labels(store, site)
+    minx = miny = math.inf
+    maxx = maxy = -math.inf
+
+    pb = _polygon_bounds(getattr(meta, "polygon", None))
+    if pb is not None:
+        minx = min(minx, pb[0])
+        miny = min(miny, pb[1])
+        maxx = max(maxx, pb[2])
+        maxy = max(maxy, pb[3])
+
+    for feat in fc.get("features", []) if isinstance(fc, dict) else []:
+        if not isinstance(feat, dict):
+            continue
+        for x, y in _iter_geometry_points(feat.get("geometry")):
+            try:
+                xf = float(x)
+                yf = float(y)
+            except (TypeError, ValueError):
+                continue
+            if not (math.isfinite(xf) and math.isfinite(yf)):
+                continue
+            minx = min(minx, xf)
+            miny = min(miny, yf)
+            maxx = max(maxx, xf)
+            maxy = max(maxy, yf)
+
+    if not (math.isfinite(minx) and math.isfinite(miny) and math.isfinite(maxx) and math.isfinite(maxy)):
+        bounds = None
+        return (0.0, float(H_M), {"fallback": True, "bounds": bounds})
+
+    bounds = [minx, miny, maxx, maxy]
+    w = maxx - minx
+    h = maxy - miny
+    if w <= W_M + FIT_TOL_M and h <= H_M + FIT_TOL_M:
+        return (float(minx), float(maxy), {"fallback": False, "bounds": bounds})
+
+    cx = (minx + maxx) / 2.0
+    cy = (miny + maxy) / 2.0
+    return (float(cx - W_M / 2.0), float(cy + H_M / 2.0), {"fallback": True, "bounds": bounds})
+
+
+def _window_covered(area_def, x0, y1):
+    if not isinstance(area_def, dict):
+        raise DraftError("area def missing or invalid polygon for window coverage")
+    polygon = area_def.get("polygon")
+    if not isinstance(polygon, dict):
+        raise DraftError(
+            f"area {area_def.get('name', '<unknown>')!r} has no polygon; "
+            f"cannot validate window ({x0}, {y1}) — check --area/--areas"
+        )
+    try:
+        poly = shape(polygon)
+    except Exception as exc:
+        raise DraftError(
+            f"area {area_def.get('name', '<unknown>')!r} has invalid polygon for "
+            f"window ({x0}, {y1}); check --area/--areas"
+        ) from exc
+    if poly.is_empty:
+        raise DraftError(
+            f"area {area_def.get('name', '<unknown>')!r} has empty polygon for "
+            f"window ({x0}, {y1}); check --area/--areas"
+        )
+    box = shapely.box(float(x0), float(y1) - H_M, float(x0) + W_M, float(y1))
+    try:
+        inter = poly.intersection(box)
+    except Exception as exc:
+        raise DraftError(
+            f"area {area_def.get('name', '<unknown>')!r} polygon could not be checked "
+            f"against window ({x0}, {y1}); check --area/--areas"
+        ) from exc
+    box_area = box.area
+    covered = (inter.area / box_area) if box_area else 0.0
+    if covered < 0.95:
+        name = area_def.get("name", "<unknown>")
+        raise DraftError(
+            f"window ({x0}, {y1}, {W_M}x{H_M} m) is not covered by area {name!r} "
+            f"({covered:.1%} < 95%); choose a window inside the area or pass --area/--areas"
+        )
+    return True
 
 
 def render(data: dict) -> str:
