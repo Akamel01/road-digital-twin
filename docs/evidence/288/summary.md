@@ -1,11 +1,15 @@
-# #288 measured before/after
+# #288 measured before/after (fresh after)
 
 Venue: live-mirror: Seaport (15 drives)
+Before source: measured (fresh this run)
+After source: measured (fresh this run)
 
-Pairs (before -> after):
-- frame p95: 199.9 ms -> 16.8 ms (samples 242 -> 660)
-- whole image count: 318 -> 0
-- renderer: ANGLE SwiftShader -> ANGLE SwiftShader (match)
-- final zoom: 200 m -> 200 m (match)
+Pairs:
+- frame p95: 166.6 ms -> 16.8 ms
+- whole image count: 320 -> 20
+- gesture image count: (see metrics)
+- heap: 50144536 -> 26452316
+- renderer: SwiftShader match
+- final scale text: "5 m" (both sides)
 
 Gate: passed.
