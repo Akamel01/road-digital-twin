@@ -750,7 +750,11 @@ def test_window_for_skips_malformed_polygon_and_uses_label_coords(tmp_path):
 def test_window_for_handles_features_null(tmp_path):
     store = tmp_path / "store"
     poly = {"type": "Polygon", "coordinates": [[[0, 0], [20, 0], [20, 20], [0, 20], [0, 0]]]}
-    _mk_site_with_labels(store, "s", poly, features=None)
+    _mk_site_with_labels(store, "s", poly, features=[])
+    # explicit null in labels.geojson (regression guard: reverting `or []` would break)
+    (store / "labels" / "s" / "labels.geojson").write_text(
+        '{"type":"FeatureCollection","features":null}'
+    )
     x0, y1, info = window_for(store, "s")
     assert info["fallback"] is False
     assert info["bounds"] == [0, 0, 20, 20]
