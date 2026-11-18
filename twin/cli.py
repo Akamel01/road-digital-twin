@@ -160,11 +160,14 @@ def build_parser() -> argparse.ArgumentParser:
     ev.add_argument(
         "--store", type=Path, help="run store (default: $TWIN_RUNS or /data/twin-runs)"
     )
+    sc = sub.add_parser("score", help="score a run against the labelled audit (or dev) sites")
+    sc.add_argument("run", help="run id (or run/area folder or area name)")
+    sc.add_argument("--sites", required=True, choices=("dev", "audit"), help="label sites by role")
+    sc.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS or /data/twin-runs)")
     publish = sub.add_parser("publish", help="copy runs into a showcase folder")
     publish.add_argument("run_ids", nargs="+", metavar="run-id")
     publish.add_argument("--out", type=Path, required=True, help="showcase folder")
-    publish.add_argument(
-        "--store", type=Path, help="run store (default: $TWIN_RUNS or /data/twin-runs)"
+    publish.add_argument(        "--store", type=Path, help="run store (default: $TWIN_RUNS or /data/twin-runs)"
     )
     publish.add_argument("--mosaic", action="store_true", help="also write area mosaics (sparse XYZ)")
     site = sub.add_parser("site", help="publish a run to the public site, or roll back")
@@ -314,9 +317,12 @@ def main(argv: list[str] | None = None) -> int:
         from twin.gates import eval_command
 
         return eval_command(args.run, args.baseline, args.rerun, args.store)
+    if args.command == "score":
+        from twin.score import score_command
+
+        return score_command(args.run, args.sites, args.store)
     if args.command == "publish":
         from twin.publish import publish_command
-
         return publish_command(args.run_ids, args.out, args.store, getattr(args, "mosaic", False))
     if args.command == "site":
         from twin.site import site_command
