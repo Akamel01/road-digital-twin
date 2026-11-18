@@ -49,6 +49,14 @@ const LAUNCH_ARGS = [
   "--disable-renderer-backgrounding", "--disable-backgrounding-occluded-windows",
   "--disable-features=CalculateNativeWinOcclusion", "--disable-ipc-flooding-protection",
 ];
+const UNCAPPED_LAUNCH_ARGS = [
+  ...LAUNCH_ARGS,
+  "--disable-frame-rate-limit", "--disable-gpu-vsync",
+];
+const UNCAPPED_LAUNCH_ARGS_ALT = [
+  ...LAUNCH_ARGS,
+  "--disable-gpu-vsync", "--disable-frame-rate-limit",
+];
 const MIME = {
   ".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "application/javascript",
   ".mjs": "application/javascript", ".json": "application/json", ".geojson": "application/geo+json",
@@ -292,6 +300,89 @@ async function ensureFixtureAndBuilds(preRunStatus) {
   };
 }
 
+
+async function measureUncappedPhase(port, facilityId, CHROME, durationSec = 5) {
+  const { chromium } = await import("playwright-core");
+  const baseURL = `http://127.0.0.1:${port}`;
+  const argsList = [UNCAPPED_LAUNCH_ARGS, UNCAPPED_LAUNCH_ARGS_ALT];
+  let lastErr;
+  for (let ai = 0; ai < argsList.length; ai++) {
+    const launchArgs = argsList[ai];
+    let browser = null;
+    try {
+      browser = await chromium.launch({ executablePath: CHROME, headless: true, args: launchArgs });
+      const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
+      const page = await context.newPage();
+      await page.goto(facilityId ? `${baseURL}?f=${encodeURIComponent(facilityId)}` : baseURL, { waitUntil: "domcontentloaded" });
+      await page.waitForSelector(".pan", { timeout: 20000 });
+      await sleep(3000); // initial settle
+      for (let i = 0; i < 20; i++) { await page.click('[aria-label="Zoom in"]').catch(() => {}); await sleep(50); }
+      await sleep(5000); // settle after full zoom
+      await page.evaluate(() => {
+        window.__uncapFrames = [];
+        window.__uncapRec = true;
+        let last = performance.now();
+        const tick = (t) => {
+          if (window.__uncapRec) window.__uncapFrames.push({ t, dt: t - last });
+          last = t;
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      });
+      const steps = Math.max(1, Math.round((durationSec * 1000) / 250));
+      for (let i = 0; i < steps; i++) {
+        const dx = Math.round(Math.cos(i * 0.4) * 40);
+        const dy = Math.round(Math.sin(i * 0.4) * 40);
+        await page.mouse.wheel(dx, dy);
+        await sleep(250);
+      }
+      const frames = await page.evaluate(() => { window.__uncapRec = false; return window.__uncapFrames || []; });
+      try { await page.close({ runBeforeUnload: false }); } catch {}
+      try { await context.close(); } catch {}
+      try { await browser.close(); } catch {}
+      browser = null;
+      const deltas = (frames || []).map((e) => e.dt).filter((d) => Number.isFinite(d) && d > 0);
+      const n = deltas.length;
+      if (!n) throw new Error("uncapped: no rAF samples");
+      const totalMs = deltas.reduce((a, b) => a + b, 0);
+      const mean_ms = totalMs / n;
+      const sorted = [...deltas].sort((a, b) => a - b);
+      const p95_ms = sorted[Math.max(0, Math.ceil(0.95 * n) - 1)];
+      const seconds = totalMs / 1000;
+      const fps = n / seconds;
+      return {
+        fps: Math.round(fps * 100) / 100,
+        mean_ms: Math.round(mean_ms * 100) / 100,
+        p95_ms: Math.round(p95_ms * 100) / 100,
+        samples: n,
+        duration_s: Math.round(seconds * 1000) / 1000,
+        requested_duration_s: durationSec,
+        launch_args_mode: ai === 0 ? "disable-frame-rate-limit,disable-gpu-vsync" : "disable-gpu-vsync,disable-frame-rate-limit",
+      };
+    } catch (e) {
+      lastErr = e;
+      try { if (browser) await browser.close(); } catch {}
+      browser = null;
+      if (ai === 0) console.error(`[uncapped] primary args failed, trying alternate order:`, e && (e.message || e));
+    }
+  }
+  throw lastErr;
+}
+
+async function measureUncappedWithRetry(port, facilityId, CHROME) {
+  let lastErr;
+  for (const dur of [5, 3]) {
+    try {
+      const r = await measureUncappedPhase(port, facilityId, CHROME, dur);
+      return r;
+    } catch (e) {
+      lastErr = e;
+      console.error(`[uncapped] ${dur}s phase failed:`, e && (e.stack || e.message || String(e)));
+    }
+  }
+  return { error: String(lastErr && (lastErr.message || lastErr)), unstable: true, fps: null, mean_ms: null, p95_ms: null, samples: 0, duration_s: null };
+}
+
 // ---- measurement (single side, single browser process, one page) ----
 async function measureSideOnce(buildOutDir, fixtureShowcase, sideLabel, CHROME) {
   const { chromium } = await import("playwright-core");
@@ -520,9 +611,11 @@ async function measureSideOnce(buildOutDir, fixtureShowcase, sideLabel, CHROME) 
       heap = heapMetric ? heapMetric.value : null;
     } catch {}
 
-    // close page/context/browser cleanly
+    // close capped browser/context/page before uncapped phase
     try { await page.close({ runBeforeUnload: false }); } catch {}
     try { await context.close(); } catch {}
+    try { await browser.close(); } catch {}
+    browser = null;
 
     const maxRequestedZByLayer = {};
     for (const [k, arr] of Object.entries(requestedTileZByLayer)) maxRequestedZByLayer[k] = arr.length ? Math.max(...arr) : null;
@@ -539,7 +632,7 @@ async function measureSideOnce(buildOutDir, fixtureShowcase, sideLabel, CHROME) 
     const kPxPerM = (scalePx != null && scaleM) ? (scalePx / parseFloat(scaleM[1])) : null;
     const expectedMaxZ = (kPxPerM != null && extent) ? Math.ceil(Math.log2((kPxPerM * extent) / 256)) : null;
 
-    return {
+    const capped = {
       side: sideLabel,
       facility: facilityId ? { id: facilityId, how: facilityHow } : null,
       renderer,
@@ -559,6 +652,10 @@ async function measureSideOnce(buildOutDir, fixtureShowcase, sideLabel, CHROME) 
         zoom_changed: fpBefore !== fpAfterZoom && fpBefore != null && fpAfterZoom != null,
       },
     };
+
+    console.log(`[${sideLabel}] measuring uncapped render-cost phase...`);
+    capped.uncapped = await measureUncappedWithRetry(port, facilityId, CHROME);
+    return capped;
   } finally {
     try { if (browser) await browser.close(); } catch {}
     try { server.close(); } catch {}
@@ -718,14 +815,22 @@ async function doCombine(before, after, ctx) {
   const afterNon404Errors = (after.page_errors||[]).filter((e)=>!/404|Failed to load resource/i.test(e));
   const deckErrors = (after.page_errors||[]).filter((e)=>/deck:|TypeError|\bError:/i.test(e));
 
+  const TOLERANCE_MS = 0.5;
+  const UNCAPPED_FPS_RATIO = 1.05;
+  const bu = before.uncapped || {};
+  const au = after.uncapped || {};
   const gateReasons = [];
   if (!(before.pan.samples >= 100 && after.pan.samples >= 100)) gateReasons.push(`pan.samples < 100: before=${before.pan.samples} after=${after.pan.samples}`);
-  if (!(after.pan.p95 < before.pan.p95)) gateReasons.push(`pan p95 not improved: ${before.pan.p95} -> ${after.pan.p95}`);
-  if (!(after.pan.median <= before.pan.median * 1.1)) gateReasons.push(`pan median regressed >10%: ${before.pan.median} -> ${after.pan.median}`);
-  if (!(after.whole.count < before.whole.count)) gateReasons.push(`whole image count not reduced: ${before.whole.count} -> ${after.whole.count}`);
-  if (!(before.whole.count > 0 && after.whole.count > 0)) gateReasons.push("whole counts not both >0");
+  if (!(after.pan.p95 <= before.pan.p95 + TOLERANCE_MS && after.pan.median <= before.pan.median + TOLERANCE_MS)) {
+    gateReasons.push(`pan vsync tolerance failed (<=+${TOLERANCE_MS}ms): median ${before.pan.median}->${after.pan.median}, p95 ${before.pan.p95}->${after.pan.p95}`);
+  }
+  if (!(Number.isFinite(bu.fps) && Number.isFinite(au.fps) && bu.fps > 0 && au.fps > bu.fps * UNCAPPED_FPS_RATIO)) {
+    const need = (Number.isFinite(bu.fps) && bu.fps > 0) ? (bu.fps * UNCAPPED_FPS_RATIO).toFixed(2) : "n/a";
+    gateReasons.push(`uncapped fps not >${((UNCAPPED_FPS_RATIO - 1) * 100).toFixed(0)}%: ${bu.fps} -> ${au.fps} (need > ${need})${au.error || bu.error ? ` [unstable before=${bu.error || "ok"} after=${au.error || "ok"}]` : ""}`);
+  }
+  if (!(after.whole.count < before.whole.count && before.whole.count > 0 && after.whole.count > 0)) gateReasons.push(`whole image count gate failed: ${before.whole.count} -> ${after.whole.count}`);
   if (before.renderer !== after.renderer) gateReasons.push(`renderer mismatch: ${before.renderer} vs ${after.renderer}`);
-  if (before.final_zoom.scale_text !== after.final_zoom.scale_text) gateReasons.push(`final zoom mismatch: "${before.final_zoom.scale_text}" vs "${after.final_zoom.scale_text}"`);
+  if (before.final_zoom.scale_text !== after.final_zoom.scale_text) gateReasons.push(`final zoom/scale mismatch: "${before.final_zoom.scale_text}" vs "${after.final_zoom.scale_text}"`);
   if (deckErrors.length) gateReasons.push(`after has deck/TypeError/Error entries: ${deckErrors.join(" | ")}`);
   if (!tzm.ok) gateReasons.push(`tile_zoom_match failed: ${JSON.stringify(tzm.details)}`);
   if (afterUnexpected404s.length) gateReasons.push(`unexpected tile 404s: ${afterUnexpected404s.map((x)=>x.url).join(" | ")}`);
@@ -782,6 +887,11 @@ async function doCombine(before, after, ctx) {
       long_tasks_top10: panTop,
       gate_window: "10s wheel pan after full zoom (20 clicks) + 5s settle",
     },
+    uncapped: {
+      before: bu,
+      after: au,
+      phase: "5s wheel pan after full zoom (20 clicks) + 5s settle, no screenshots, browser launched with --disable-frame-rate-limit --disable-gpu-vsync (alt order fallback); 3s retry once on instability",
+    },
     during_gesture: { before: before.during_gesture, after: after.during_gesture },
     frame_ms: { before: before.frame_ms, after: after.frame_ms },
     heap: { before: before.heap, after: after.heap },
@@ -799,10 +909,20 @@ async function doCombine(before, after, ctx) {
       zoom_transition_p95_before: before.zoom_transition.p95, zoom_transition_p95_after: after.zoom_transition.p95,
       pan_p95_before: before.pan.p95, pan_p95_after: after.pan.p95,
       pan_median_before: before.pan.median, pan_median_after: after.pan.median,
+      uncapped_fps_before: bu.fps ?? null, uncapped_fps_after: au.fps ?? null,
+      uncapped_mean_ms_before: bu.mean_ms ?? null, uncapped_mean_ms_after: au.mean_ms ?? null,
+      uncapped_p95_ms_before: bu.p95_ms ?? null, uncapped_p95_ms_after: au.p95_ms ?? null,
       whole_count_before: before.whole.count, whole_count_after: after.whole.count,
       before_source: "measured",
     },
-    gate: { passed: passedFinal, reasons: gateReasons, window: "pan" },
+    gate: {
+      passed: passedFinal,
+      reasons: gateReasons,
+      window: "pan+capped-tolerance+uncapped",
+      tolerance_ms_pan: TOLERANCE_MS,
+      uncapped_fps_ratio_gt: UNCAPPED_FPS_RATIO,
+      rationale: "Capped pan is vsync-bound (~60fps); allow +0.5ms quantization tolerance on median/p95. Uncapped phase (--disable-frame-rate-limit --disable-gpu-vsync) measures render-cost: after must achieve >5% higher fps.",
+    },
   };
   writeFileSync(join(OUT, "metrics.json"), JSON.stringify(metrics, null, 2));
 
@@ -819,13 +939,21 @@ async function doCombine(before, after, ctx) {
     `- p95: ${fmtMs(before.zoom_transition.p95)} -> ${fmtMs(after.zoom_transition.p95)}`,
     `- samples: ${before.zoom_transition.samples} -> ${after.zoom_transition.samples}`,
     "",
-    "## pan (gated, 10s after settle)",
-    `- median: ${fmtMs(before.pan.median)} -> ${fmtMs(after.pan.median)}`,
-    `- p95: ${fmtMs(before.pan.p95)} -> ${fmtMs(after.pan.p95)}`,
+    "## pan capped (gated with vsync tolerance, 10s after settle)",
+    `- median: ${fmtMs(before.pan.median)} -> ${fmtMs(after.pan.median)} (tolerance +${TOLERANCE_MS}ms)`,
+    `- p95: ${fmtMs(before.pan.p95)} -> ${fmtMs(after.pan.p95)} (tolerance +${TOLERANCE_MS}ms)`,
     `- samples: ${before.pan.samples} -> ${after.pan.samples}`,
     `- pan image count/bytes: ${before.during_gesture.count}/${before.during_gesture.bytes} -> ${after.during_gesture.count}/${after.during_gesture.bytes}`,
     `- top pan long tasks (before): ${fmtLT((before.pan.long_tasks||[]).slice(0,5))}`,
     `- top pan long tasks (after): ${fmtLT((after.pan.long_tasks||[]).slice(0,5))}`,
+    "",
+    "## uncapped render-cost (not vsync-capped, 5s pan after 20 clicks + 5s settle, no screenshots)",
+    "- Browser flags: --disable-frame-rate-limit --disable-gpu-vsync (alternate order fallback if primary launch fails). 3s retry once on instability.",
+    `- fps: ${bu.fps ?? "n/a"} -> ${au.fps ?? "n/a"} (gate: after > before * ${UNCAPPED_FPS_RATIO})`,
+    `- mean: ${fmtMs(bu.mean_ms)} -> ${fmtMs(au.mean_ms)}`,
+    `- p95: ${fmtMs(bu.p95_ms)} -> ${fmtMs(au.p95_ms)}`,
+    `- samples/duration: ${bu.samples ?? 0}/${bu.duration_s ?? bu.requested_duration_s ?? "n/a"}s -> ${au.samples ?? 0}/${au.duration_s ?? au.requested_duration_s ?? "n/a"}s`,
+    ...(bu.error || au.error ? [`- instability: before=${bu.error || "ok"} after=${au.error || "ok"}`] : []),
     "",
     "## Context",
     `- whole image count (navigation): ${before.whole.count} -> ${after.whole.count}`,
@@ -838,7 +966,8 @@ async function doCombine(before, after, ctx) {
     "## Screenshots (after-only)",
     ...screenshots.map((s)=>`- ${s.path} sha256=${s.sha256} variance=${s.pixel_variance}`),
     "",
-    `Gate (pan window): ${passedFinal ? "passed" : "failed"}`,
+    `Gate: ${passedFinal ? "passed" : "failed"}`,
+    `- Tolerance/rationale: capped pan is vsync-bound (~60fps) so median/p95 must be <= before + ${TOLERANCE_MS}ms; uncapped fps must improve >${((UNCAPPED_FPS_RATIO - 1) * 100).toFixed(0)}% to show real render-cost win; whole count reduced; pan samples>=100; renderers/scale match; no deck/TypeError; no unexpected tile 404s.`,
     ...(gateReasons.length ? ["Reasons:", ...gateReasons.map((r)=>`- ${r}`)] : []),
     "",
   ].join("\n");
@@ -850,17 +979,24 @@ async function doCombine(before, after, ctx) {
     `Venue: ${venue}`,
     "Before source: measured (fresh this run)",
     "After source: measured (fresh this run)",
-    "Gate window: pan (10s after full settle). zoom_transition reported, not gated.",
+    "Gate window: capped pan (10s, +0.5ms vsync tolerance) + uncapped render-cost (5s, fps > +5%). zoom_transition reported, not gated.",
     "",
     "zoom_transition (not gated):",
     `- median: ${fmtMs(before.zoom_transition.median)} -> ${fmtMs(after.zoom_transition.median)}`,
     `- p95: ${fmtMs(before.zoom_transition.p95)} -> ${fmtMs(after.zoom_transition.p95)} (samples ${before.zoom_transition.samples} -> ${after.zoom_transition.samples})`,
     "",
-    "pan (gated):",
+    "pan capped (gated, vsync tolerance +0.5ms):",
     `- median: ${fmtMs(before.pan.median)} -> ${fmtMs(after.pan.median)}`,
     `- p95: ${fmtMs(before.pan.p95)} -> ${fmtMs(after.pan.p95)} (samples ${before.pan.samples} -> ${after.pan.samples})`,
     `- images (pan window): ${before.during_gesture.count}/${before.during_gesture.bytes} -> ${after.during_gesture.count}/${after.during_gesture.bytes}`,
     `- top long tasks (after): ${fmtLT((after.pan.long_tasks||[]).slice(0,5))}`,
+    "",
+    "uncapped render-cost (gated, no screenshots):",
+    `- fps: ${bu.fps ?? "n/a"} -> ${au.fps ?? "n/a"}`,
+    `- mean: ${fmtMs(bu.mean_ms)} -> ${fmtMs(au.mean_ms)}`,
+    `- p95: ${fmtMs(bu.p95_ms)} -> ${fmtMs(au.p95_ms)}`,
+    `- samples: ${bu.samples ?? 0} -> ${au.samples ?? 0}`,
+    ...(bu.error || au.error ? [`- instability: before=${bu.error || "ok"} after=${au.error || "ok"}`] : []),
     "",
     "Context:",
     `- whole image count: ${before.whole.count} -> ${after.whole.count}`,
@@ -870,7 +1006,7 @@ async function doCombine(before, after, ctx) {
     `- drag_delta: before=${!!(before.drag_delta && before.drag_delta.changed)} after=${!!(after.drag_delta && after.drag_delta.changed)}`,
     `- 404s: unexpected_tile=${afterUnexpected404s.length} known_app=${afterKnownApp404s.length}`,
     "",
-    `Gate (pan): ${passedFinal ? "passed" : "failed"}.`,
+    `Gate: ${passedFinal ? "passed" : "failed"}.`,
     ...(gateReasons.length ? gateReasons.map((r)=>`- ${r}`) : []),
     "",
     "Screenshots: see docs/evidence/288/README.md (sha256 + variance).",
@@ -884,6 +1020,7 @@ async function doCombine(before, after, ctx) {
 
   console.log("GATE", passedFinal, gateReasons);
   console.log(`PAN before median/p95/samples=${before.pan.median}/${before.pan.p95}/${before.pan.samples} after=${after.pan.median}/${after.pan.p95}/${after.pan.samples}`);
+  console.log(`UNCAPPED before fps/mean/p95/samples=${bu.fps}/${bu.mean_ms}/${bu.p95_ms}/${bu.samples} after fps/mean/p95/samples=${au.fps}/${au.mean_ms}/${au.p95_ms}/${au.samples}`);
   console.log(`ZOOM before median/p95/samples=${before.zoom_transition.median}/${before.zoom_transition.p95}/${before.zoom_transition.samples} after=${after.zoom_transition.median}/${after.zoom_transition.p95}/${after.zoom_transition.samples}`);
   return { passed: passedFinal, gateReasons, metrics, screenshots };
 }
