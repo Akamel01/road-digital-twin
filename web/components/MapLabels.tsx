@@ -19,7 +19,7 @@ export default function MapLabels({
   if (!Number.isFinite(k) || !Number.isFinite(tx) || !Number.isFinite(ty)) return null;
   return (
     <svg className="labels" aria-hidden="true">
-      <g transform={`translate(${tx}px,${ty}px) scale(${k})`}>
+      <g transform={`translate(${tx},${ty}) scale(${k})`}>
         {items.map((it) => (
           <text
             key={it.id}

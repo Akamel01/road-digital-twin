@@ -544,6 +544,8 @@ async function main(){
   if(!rendererMatch){ passed=false; gateReasons.push(`renderer mismatch: ${beforeRenderer} vs ${afterRenderer}`); }
   const zoomMatch = before.final_zoom.scale_text === after.final_zoom.scale_text;
   if(!zoomMatch){ passed=false; gateReasons.push(`final zoom mismatch: "${before.final_zoom.scale_text}" vs "${after.final_zoom.scale_text}"`); }
+  const deckErrors = (after.page_errors||[]).filter(e => /deck:|Error:|TypeError/i.test(e));
+  if(deckErrors.length){ passed=false; gateReasons.push(`after page errors contain deck/Error/TypeError: ${deckErrors.join(' | ')}`); }
 
   metrics.gate = { passed, reasons: gateReasons };
   writeFileSync(join(OUT,"metrics.json"), JSON.stringify(metrics,null,2));

@@ -109,13 +109,14 @@ export function vectorLayers(opts: VectorLayersOptions | VectorDeps, ...rest: un
         const st = overlayStyle(d.el, true, element === d.el, element !== null && element !== d.el, accuracyColor(d), tokens);
         return st.width;
       },
-      getDashArray: (d: any) => {
-        const st = overlayStyle(d.el, true, element === d.el, element !== null && element !== d.el, accuracyColor(d), tokens);
-        return st.dash ?? [1, 0];
-      },
-      extensions: [ext],
-      pickable: false,
-      onClick: (info: any) => handlers?.pickElement?.(info?.object?.el ?? null),
+       getDashArray: (d: any) => {
+         const st = overlayStyle(d.el, true, element === d.el, element !== null && element !== d.el, accuracyColor(d), tokens);
+         return st.dash ?? [1, 0];
+       },
+       lineWidthUnits: "pixels",
+       extensions: [ext],
+       pickable: false,
+       onClick: (info: any) => handlers?.pickElement?.(info?.object?.el ?? null),
     }),
   );
 
@@ -130,12 +131,12 @@ export function vectorLayers(opts: VectorLayersOptions | VectorDeps, ...rest: un
         const st = overlayStyle(d.el, false, element === d.el, element !== null && element !== d.el, accuracyColor(d), tokens);
         return st.color;
       },
-      getWidth: (d: any) => {
-        const st = overlayStyle(d.el, false, element === d.el, element !== null && element !== d.el, accuracyColor(d), tokens);
-        return st.width;
-      },
-      getDashArray: undefined,
-      extensions: [ext],
+       getWidth: (d: any) => {
+         const st = overlayStyle(d.el, false, element === d.el, element !== null && element !== d.el, accuracyColor(d), tokens);
+         return st.width;
+       },
+       widthUnits: "pixels",
+       extensions: [ext],
       updateTriggers: { getColor: [element, deps.analysis], getWidth: [element, deps.analysis] },
       pickable: false,
     }),
@@ -148,14 +149,15 @@ export function vectorLayers(opts: VectorLayersOptions | VectorDeps, ...rest: un
       data: hitEnabled ? closedData : [],
       coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
       getPolygon: (d: any) => d.points,
-      getFillColor: [0, 0, 0, 0],
-      pickable: true,
-      onClick: (info: any) => handlers?.pickElement?.(info?.object?.el ?? null),
-      onHover: (info: any) => handlers?.onHover?.(info?.object ?? null),
-    }),
-  );
+       getFillColor: [0, 0, 0, 0],
+       lineWidthUnits: "pixels",
+       pickable: true,
+       onClick: (info: any) => handlers?.pickElement?.(info?.object?.el ?? null),
+       onHover: (info: any) => handlers?.onHover?.(info?.object ?? null),
+     }),
+   );
 
-  // 4 overlay-open-hit
+   // 4 overlay-open-hit
   layers.push(
     new PathLayer({
       id: "overlay-open-hit",
@@ -181,9 +183,10 @@ export function vectorLayers(opts: VectorLayersOptions | VectorDeps, ...rest: un
       getPolygon: (d: any) => d.ring,
       getFillColor: withAlpha(tokens.fac, 18) as any,
       getLineColor: tokens.fac,
-      getLineWidth: 1.4,
-      getDashArray: [5, 4] as any,
-      extensions: [ext],
+       getLineWidth: 1.4,
+       lineWidthUnits: "pixels",
+       getDashArray: [5, 4] as any,
+       extensions: [ext],
       pickable: state.facility === null,
       onClick: (info: any) => handlers?.onFacility?.(info?.object?.id ?? null),
       onHover: (info: any) => handlers?.onHover?.(info?.object ?? null),
@@ -198,9 +201,10 @@ export function vectorLayers(opts: VectorLayersOptions | VectorDeps, ...rest: un
       coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
       getPath: (d: any) => d.ring,
       getColor: withAlpha(tokens.fac, 0.6 * 255),
-      getWidth: 1,
-      getDashArray: [3, 4],
-      extensions: [ext],
+       getWidth: 1,
+       widthUnits: "pixels",
+       getDashArray: [3, 4],
+       extensions: [ext],
       // outline dash [3,4]
       updateTriggers: {},
       pickable: false,
@@ -250,9 +254,10 @@ export function vectorLayers(opts: VectorLayersOptions | VectorDeps, ...rest: un
       coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
       getPath: (d: any) => d.path,
       getColor: withAlpha(tokens.white, 179),
-      getWidth: 1.4,
-      getDashArray: [2, 4],
-      extensions: [ext],
+       getWidth: 1.4,
+       widthUnits: "pixels",
+       getDashArray: [2, 4],
+       extensions: [ext],
       pickable: false,
     }),
   );
@@ -282,10 +287,11 @@ export function vectorLayers(opts: VectorLayersOptions | VectorDeps, ...rest: un
       coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
       getPath: (d: any) => d.path ?? [],
       getColor: (d: any) => (selectedLine === d.id ? tokens.fac : withAlpha(tokens.white, 153)),
-      getWidth: (d: any) => (selectedLine === d.id ? 2.4 : 1.2),
-      pickable: false,
-    }),
-  );
+       getWidth: (d: any) => (selectedLine === d.id ? 2.4 : 1.2),
+       widthUnits: "pixels",
+       pickable: false,
+     }),
+   );
 
   // 11 centreline-hits (LAST)
   layers.push(

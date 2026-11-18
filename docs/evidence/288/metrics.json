@@ -10,7 +10,7 @@
   },
   "commits": {
     "before": "1d3951c",
-    "after": "0a07cfd313356190d80b0f996ab7b328dfad90f2"
+    "after": "90ba0b5e88d60bf499dcf962991bc1acbc00483b"
   },
   "renderer": {
     "before": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
@@ -24,7 +24,7 @@
   "whole": {
     "before": {
       "count": 320,
-      "bytes": 2327520
+      "bytes": 2314081
     },
     "after": {
       "count": 20,
@@ -34,7 +34,7 @@
   "gesture": {
     "before": {
       "count": 112,
-      "bytes": 669286
+      "bytes": 655847
     },
     "after": {
       "count": 0,
@@ -42,19 +42,19 @@
     }
   },
   "heap": {
-    "before": 50144536,
-    "after": 26452316
+    "before": 24867588,
+    "after": 28521160
   },
   "frame_ms": {
     "before": {
-      "median": 16.7,
-      "p95": 166.6,
-      "samples": 318
+      "median": 199.9,
+      "p95": 433.4,
+      "samples": 109
     },
     "after": {
       "median": 16.7,
       "p95": 16.8,
-      "samples": 675
+      "samples": 673
     }
   },
   "final_zoom": {
@@ -86,14 +86,9 @@
       "Failed to load resource: the server responded with a status of 404 (Not Found)",
       "Failed to load resource: the server responded with a status of 404 (Not Found)",
       "Failed to load resource: the server responded with a status of 404 (Not Found)",
-      "Error: <g> attribute transform: Expected ')', \"\u2026520.144269429793px,-10932.490909\u2026\".",
       "Failed to load resource: the server responded with a status of 404 (Not Found)",
       "Failed to load resource: the server responded with a status of 404 (Not Found)",
-      "Failed to load resource: the server responded with a status of 404 (Not Found)",
-      "Error: <g> attribute transform: Expected ')', \"\u2026520.144269429793px,-10932.490909\u2026\".",
-      "Error: <g> attribute transform: Expected ')', \"\u2026412.898974920623px,-15579.771568\u2026\".",
-      "Error: <g> attribute transform: Expected ')', \"\u2026412.898974920623px,-15579.771568\u2026\".",
-      "Error: <g> attribute transform: Expected ')', \"\u2026412.898974920625px,-15579.771568\u2026\"."
+      "Failed to load resource: the server responded with a status of 404 (Not Found)"
     ],
     "after_stacks": [],
     "after_404s": [
@@ -107,11 +102,10 @@
     ]
   },
   "limitations": {
-    "full_res_by_layer": "displayed level vs published zmax at MAX_K (see docs)",
-    "before_source": "measured"
+    "full_res_by_layer": "displayed level vs published zmax at MAX_K (see docs)"
   },
   "comparison": {
-    "frame_p95_before": 166.6,
+    "frame_p95_before": 433.4,
     "frame_p95_after": 16.8,
     "whole_count_before": 320,
     "whole_count_after": 20,
