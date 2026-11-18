@@ -415,14 +415,18 @@ export default function MapView({ area, facility, element, line, onFacility, onE
 
   const scaleM = cur ? [5, 10, 20, 50, 100, 200].find((v) => v * cur.k >= 60) ?? 200 : 0;
 
-  const handleViewStateChange = useCallback(
-    (v: ViewState) => {
-      const z = Math.min(MAX_VIEW_ZOOM, Math.max(minZoom, v.zoom));
-      const vv = viewOf({ target: [v.target?.[0] ?? 0, v.target?.[1] ?? 0, 0], zoom: z }, size);
-      setView({ k: vv.k, tx: vv.tx, ty: vv.ty, key: fitKey });
-    },
-    [minZoom, size, fitKey],
-  );
+   const handleViewStateChange = useCallback(
+     (v: ViewState) => {
+       if (!v || !Number.isFinite(v.zoom) || !size.w || !size.h) return;
+       const z = Math.min(MAX_VIEW_ZOOM, Math.max(minZoom, v.zoom));
+       const t0 = v.target?.[0]; const t1 = v.target?.[1];
+       if (!Number.isFinite(t0) || !Number.isFinite(t1)) return;
+       const vv = viewOf({ target: [t0, t1, 0], zoom: z }, size);
+       if (!Number.isFinite(vv.k) || !Number.isFinite(vv.tx) || !Number.isFinite(vv.ty)) return;
+       setView({ k: vv.k, tx: vv.tx, ty: vv.ty, key: fitKey });
+     },
+     [minZoom, size, fitKey],
+   );
 
   const deckViewState: ViewState | null = cur ? viewStateOf(cur as unknown as View, size) : null;
 
@@ -439,7 +443,7 @@ export default function MapView({ area, facility, element, line, onFacility, onE
             />
           )}
         </div>
-        {cur && <MapLabels items={labelItems} k={sv!.k} tx={sv!.tx} ty={sv!.ty} />}
+        {cur && sv && Number.isFinite(sv.k) && Number.isFinite(sv.tx) && Number.isFinite(sv.ty) && <MapLabels items={labelItems} k={sv.k} tx={sv.tx} ty={sv.ty} />}
       </div>
 
       {frame && (

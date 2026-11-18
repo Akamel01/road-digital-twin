@@ -16,6 +16,7 @@ export default function MapLabels({
   tx: number;
   ty: number;
 }) {
+  if (!Number.isFinite(k) || !Number.isFinite(tx) || !Number.isFinite(ty)) return null;
   return (
     <svg className="labels" aria-hidden="true">
       <g transform={`translate(${tx}px,${ty}px) scale(${k})`}>
