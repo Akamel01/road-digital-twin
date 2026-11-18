@@ -198,7 +198,7 @@ async function main(){
   const afterPort = afterServer.address().port;
   console.log("ports", beforePort, afterPort);
 
-  const LAUNCH_ARGS = ["--use-gl=angle","--use-angle=swiftshader","--enable-unsafe-swiftshader","--disable-dev-shm-usage"];
+  const LAUNCH_ARGS = ["--use-gl=angle","--use-angle=swiftshader","--enable-unsafe-swiftshader","--disable-dev-shm-usage","--disable-background-timer-throttling","--disable-renderer-backgrounding","--disable-backgrounding-occluded-windows"];
   const browser = await chromium.launch({executablePath: CHROME, headless:true, args: LAUNCH_ARGS});
 
   async function rendererOf(page){
@@ -246,7 +246,7 @@ async function main(){
     const inflightRef = {n:0};
     cdp.on('Network.responseReceived', p => {
       const ct = ((p.response.headers||{})['content-type']||'').toLowerCase();
-      const isImg = ct.includes('image');
+      const isImg = p.type === 'Image' || ct.includes('image');
       imgReq.set(p.requestId, isImg);
       if(isImg){ whole.count++; inflightRef.n++; if(current===gesture) gesture.count++; }
     });
