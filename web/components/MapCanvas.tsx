@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import dynamic from "next/dynamic";
 import { DeckGL } from "@deck.gl/react";
 import { OrthographicView } from "@deck.gl/core";
 import type { Layer } from "@deck.gl/core";
@@ -40,10 +39,9 @@ export default function MapCanvas(p: {
         isDragging ? "grabbing" : isHovering ? "pointer" : "grab"
       }
       layers={p.layers}
-       onViewStateChange={({ viewState: v, interactionState }) => {
-         if (interactionState?.isDragging) return;
-         p.onViewStateChange(v as ViewState);
-       }}
+       onViewStateChange={({ viewState: v }) => {
+          p.onViewStateChange(v as ViewState);
+        }}
       onError={(e) => p.onError?.(e)}
     />
   );

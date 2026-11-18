@@ -6,7 +6,6 @@ import MapPanel, { type Analysis, type Layer, type Layers } from "@/components/M
 import MapLabels, { type LabelItem } from "@/components/MapLabels";
 import {
   type Centreline,
-  errCol,
   isElement,
   loadCentrelines,
   loadDrive,
@@ -35,7 +34,7 @@ import {
   MAX_VIEW_ZOOM,
 } from "@/lib/tiles";
 import { loadMosaics, loadTileVersion, mosaicFrame, type MosaicMeta } from "@/lib/mosaic";
-import { DEFAULT_LAYERS, TRIO, applyTrioToggle, applySafetyLayers, rastersFor } from "@/lib/layers";
+import { DEFAULT_LAYERS, applyTrioToggle, applySafetyLayers, rastersFor } from "@/lib/layers";
 import { FALLBACK_TOKENS, readTokens, type Tokens } from "@/lib/colors";
 import { tileLayers } from "@/lib/deckTiles";
 import { vectorLayers, type OverlayIn } from "@/lib/deckVectors";
@@ -67,7 +66,7 @@ function rectOf(pts: Point[]): Rect {
   return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
 }
 
-const ptsAttr = (pts: Point[]) => pts.map(([x, y]) => `${x},${y}`).join(" ");
+
 
 function entryOf(pts: Point[], r: Rect | null): Point {
   const inside = r && pts.find(([x, y]) => x >= r.x0 && x <= r.x1 && y >= r.y0 && y <= r.y1);
@@ -134,17 +133,7 @@ export default function MapView({ area, facility, element, line, onFacility, onE
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  useEffect(() => {
-    const handler = (e: ErrorEvent) => {
-      if (e && e.message && /Cannot read properties of null/.test(e.message)) {
-        e.preventDefault();
-        return true;
-      }
-      return false;
-    };
-    window.addEventListener("error", handler);
-    return () => window.removeEventListener("error", handler);
-  }, []);
+
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -232,7 +221,7 @@ export default function MapView({ area, facility, element, line, onFacility, onE
     if (!cur) return;
     const cx = size.w / 2;
     const cy = size.h / 2;
-    const k = Math.min(MAX_K, Math.max(minZoom, cur.k * m));
+    const k = Math.min(MAX_K, Math.max(2 ** minZoom, cur.k * m));
     setView({ k, tx: cx - ((cx - cur.tx) * k) / cur.k, ty: cy - ((cy - cur.ty) * k) / cur.k, key: fitKey });
   }
 
@@ -244,10 +233,7 @@ export default function MapView({ area, facility, element, line, onFacility, onE
     }
   }
 
-  function enterSafetyAnalysis() {
-    setAnalysis("safety");
-    setLayers((v) => applySafetyLayers(v));
-  }
+
 
   function pickAnalysis(a: Analysis) {
     if (a === "safety") {
@@ -266,7 +252,8 @@ export default function MapView({ area, facility, element, line, onFacility, onE
   }, []);
 
   const pickElement = useCallback(
-    (el: string) => {
+    (el: string | null) => {
+      if (!el) return;
       if (isElement(el)) setAnalysis("accuracy");
       else if (el.startsWith("isd-")) {
         setAnalysis("safety");
@@ -316,13 +303,15 @@ export default function MapView({ area, facility, element, line, onFacility, onE
 
   const sights = useMemo(
     () =>
-      sightsRaw.map(({ key, s }) => ({
-        key,
-        el: `isd-${s.approach}`,
-        eye: toLocal(frame!, s.eye),
-        end: s.end ? toLocal(frame!, s.end) : null,
-        status: s.status,
-      })),
+      frame
+        ? sightsRaw.map(({ key, s }) => ({
+            key,
+            el: `isd-${s.approach}`,
+            eye: toLocal(frame, s.eye),
+            end: s.end ? toLocal(frame, s.end) : null,
+            status: s.status,
+          }))
+        : [],
     [sightsRaw, frame],
   );
 
@@ -332,7 +321,10 @@ export default function MapView({ area, facility, element, line, onFacility, onE
   );
 
   const clKey = `${clRun}|${clFid}`;
-  const lines = facility && frame && centre?.key === clKey ? centre.lines : [];
+  const lines = useMemo(
+    () => (facility && frame && centre?.key === clKey ? centre.lines : []),
+    [facility, frame, centre, clKey],
+  );
   const selId = lines.find((l) => l.id === line)?.id ?? lines[0]?.id ?? null;
   const linesView = useMemo(
     () =>
@@ -349,7 +341,6 @@ export default function MapView({ area, facility, element, line, onFacility, onE
 
   const deckLayers = useMemo(() => {
     if (!mosaic || !loaded) return [];
-    const handlers = { onFacility, onElement: pickElement, onLine, onHover };
     return [
       ...tileLayers({ metas: mosaic.metas, rasters, version, dpr }),
       // eslint-disable-next-line react-hooks/refs
@@ -358,9 +349,9 @@ export default function MapView({ area, facility, element, line, onFacility, onE
           state: { facility: facility?.id ?? null },
           tokens,
           phone,
-        selectedLine: selId,
-        element: element as ElementKey | null,
-        analysis,
+          selectedLine: selId,
+          element: element as ElementKey | null,
+          analysis,
           handlers: {
             onFacility: onFacility as (id: string | null) => void,
             pickElement: pickElement as (el: ElementKey | null) => void,
@@ -370,8 +361,13 @@ export default function MapView({ area, facility, element, line, onFacility, onE
         },
         overlays,
         facilities: areaFacilities.map(({ f, ring }) => ({ f: { id: f.id }, ring })),
-        sights: sightsRaw.map(({ key, s }) => ({ key, facId: facility?.id ?? "", s })),
-        linesView: linesView.map((l) => ({ id: l.id, at: l.at, label: l.label })),
+        sights: sights.map((s) => ({
+          key: s.key,
+          facId: facility?.id ?? "",
+          el: s.el,
+          s: { eye: s.eye, end: s.end, status: s.status },
+        })),
+        linesView: linesView.map((l) => ({ id: l.id, path: l.pts, at: l.at, label: l.label })),
         facilityRing: facilityRing ?? undefined,
       }),
     ];
@@ -391,6 +387,7 @@ export default function MapView({ area, facility, element, line, onFacility, onE
     analysis,
     facility,
     phone,
+    areaFacilities,
     onFacility,
     pickElement,
     onLine,
@@ -400,26 +397,43 @@ export default function MapView({ area, facility, element, line, onFacility, onE
   const sv = cur;
   const labelK = sv?.k ?? 1;
   const labelItems: LabelItem[] = useMemo(() => {
+    const zoom = labelK;
     const items: LabelItem[] = [];
+    const emitted: { x0: number; y0: number; x1: number; y1: number }[] = [];
+    const charW = 7 / labelK;
+    const charH = 12 / labelK;
+
     if (!facility) {
-      for (const { f, ring } of areaFacilities) {
+      const sorted = [...areaFacilities].sort((a, b) => {
+        const ra = TYPE_RANK[a.f.type] ?? 9;
+        const rb = TYPE_RANK[b.f.type] ?? 9;
+        if (ra !== rb) return ra - rb;
+        return a.f.id < b.f.id ? -1 : a.f.id > b.f.id ? 1 : 0;
+      });
+      for (const { f, ring } of sorted) {
+        if (f.type !== "intersection" && zoom < LABEL_ZOOM_THRESHOLD) continue;
         const r = rectOf(ring);
-        items.push({
-          id: `lbl-${f.id}`,
-          x: r.x0,
-          y: r.y0 - 2 / labelK,
-          text: phone ? f.id : `${f.id} · ${typeLabel(f.type)}`,
-        });
+        const text = phone ? f.id : `${f.id} · ${typeLabel(f.type)}`;
+        const x = r.x0;
+        const y = r.y0 - 2 / labelK;
+        const box = { x0: x, y0: y - charH, x1: x + text.length * charW, y1: y };
+        const overlaps = emitted.some((b) => !(box.x1 < b.x0 || box.x0 > b.x1 || box.y1 < b.y0 || box.y0 > b.y1));
+        if (overlaps) continue;
+        emitted.push(box);
+        items.push({ id: `lbl-${f.id}`, x, y, text });
       }
     }
+
     if (facility) {
       for (const l of linesView) {
-        items.push({
-          id: `cll-${l.id}`,
-          x: l.at[0] + 4 / labelK,
-          y: l.at[1] - 4 / labelK,
-          text: l.label,
-        });
+        const text = l.label ?? l.id;
+        const x = l.at[0] + 4 / labelK;
+        const y = l.at[1] - 4 / labelK;
+        const box = { x0: x, y0: y - charH, x1: x + text.length * charW, y1: y };
+        const overlaps = emitted.some((b) => !(box.x1 < b.x0 || box.x0 > b.x1 || box.y1 < b.y0 || box.y0 > b.y1));
+        if (overlaps) continue;
+        emitted.push(box);
+        items.push({ id: `cll-${l.id}`, x, y, text });
       }
     }
     return items;
@@ -444,7 +458,13 @@ export default function MapView({ area, facility, element, line, onFacility, onE
 
   return (
     <>
-      <div ref={panRef} className="pan">
+      <div
+        ref={panRef}
+        className="pan"
+        data-centreline-count={linesView.length}
+        data-label-count={labelItems.length}
+        data-facility-count={areaFacilities.length}
+      >
         <div className="gl" role="img" aria-label="Plan map">
           {cur && deckViewState && size.w > 0 && size.h > 0 && Number.isFinite(cur.k) && Number.isFinite(cur.tx) && Number.isFinite(cur.ty) && (
             <MapCanvas

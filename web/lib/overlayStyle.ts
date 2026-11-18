@@ -28,9 +28,9 @@ export function overlayStyle(
   }
   if (dimmed) color = withAlpha(color, 102);
 
-  const fill = closed ? withAlpha(color, sel ? 89 : 46) : null;
+  const fill = closed ? withAlpha(color, sel ? 89 : 18) : null;
 
-  const dash = el === "curbs" && !closed ? [5, 3] : undefined;
+  const dash = el === "curbs" && !closed ? [5, 3] : [1, 0];
 
   return { color, width, fill, dash };
 }

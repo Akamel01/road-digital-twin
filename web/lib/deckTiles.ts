@@ -33,7 +33,8 @@ export function createMosaicTileset(meta: MosaicMeta, dpr: number) {
       return indices;
     }
     getTileMetadata(index: any) {
-      return { bbox: tileBounds(index, extent) };
+      const b = tileBounds(index, extent);
+      return { bbox: { left: b[0][0], top: b[0][1], right: b[1][0], bottom: b[1][1] } };
     }
     getTileZoom(index: any) {
       return index.z;
@@ -66,7 +67,7 @@ export function tileLayers({ metas, rasters, version, dpr }: TileLayersInput) {
           const base = typeof props.url === "string" ? props.url : tileUrl(layer, version);
           const url = base.replace("{z}", String(z)).replace("{x}", String(x)).replace("{y}", String(y));
           try {
-            const res = await fetch(url);
+            const res = await fetch(url, { signal: props.signal });
             if (!res.ok) return null;
             const blob = await res.blob();
             return await createImageBitmap(blob);
@@ -76,7 +77,7 @@ export function tileLayers({ metas, rasters, version, dpr }: TileLayersInput) {
         },
         renderSubLayers: (props: any) => {
           const p = props;
-          if (!p || !p.tile) return null;
+          if (!p || !p.tile || p.data == null) return null;
           const bbox = normaliseTileBBox(p.tile.bbox) ?? tileBounds(p.tile.index, extent);
           const bounds = bitmapBounds(bbox);
           return new BitmapLayer({

@@ -74,5 +74,5 @@ export function mosaicFrame(metas: Record<Raster, MosaicMeta>): Frame | null {
 // Tileset2D.getTileZoom itself returns index.z. We use the round form with
 // tileSize = 512 * tilePx / (extent * dpr), so 512 / tileSize = extent * dpr / tilePx.
 export function tileZoomFor(viewZoom: number, extent: number, tilePx: number, dpr: number): number {
-  return Math.round(viewZoom + Math.log2((extent * dpr) / tilePx));
+  return Math.ceil(viewZoom + Math.log2((extent * dpr) / tilePx));
 }

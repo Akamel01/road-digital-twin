@@ -53,7 +53,7 @@ describe("mosaic", () => {
 
   it("tileZoomFor numeric", () => {
     expect(tileZoomFor(0.669, 555, 256, 1)).toBe(2);
-    expect(tileZoomFor(Math.log2(40), 555, 256, 1)).toBe(6);
-    expect(tileZoomFor(0, 555, 256, 2)).toBe(2);
+    expect(tileZoomFor(Math.log2(40), 555, 256, 1)).toBe(7);
+    expect(tileZoomFor(0, 555, 256, 2)).toBe(3);
   });
 });

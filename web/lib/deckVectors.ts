@@ -38,8 +38,8 @@ export interface VectorLayersOptions {
   deps: VectorDeps;
   overlays?: OverlayIn[];
   facilities?: { f: { id: string }; ring: Point[] }[];
-  sights?: { key: string; facId: string; s: any }[];
-  linesView?: { id: string; at: [number, number]; label?: string }[];
+  sights?: { key: string; facId: string; s: any; el?: string }[];
+  linesView?: { id: string; path?: Point[]; at: [number, number]; label?: string }[];
   facilityRing?: Point[];
 }
 
@@ -50,13 +50,17 @@ export function vectorLayers(opts: VectorLayersOptions | VectorDeps, ...rest: un
   let deps: VectorDeps;
   let overlays: OverlayIn[] = [];
   let facilities: { f: { id: string }; ring: Point[] }[] = [];
-  let sights: { key: string; facId: string; s: unknown }[] = [];
+  let sights: { key: string; facId: string; s: unknown; el?: string }[] = [];
+  let linesView: { id: string; path?: Point[]; at: [number, number]; label?: string }[] = [];
+  let facilityRing: Point[] | undefined;
   if ((opts as any)?.deps) {
     const o = opts as VectorLayersOptions;
     deps = o.deps;
     overlays = o.overlays ?? [];
     facilities = o.facilities ?? [];
     sights = o.sights ?? [];
+    linesView = o.linesView ?? [];
+    facilityRing = o.facilityRing;
   } else {
     deps = opts as VectorDeps;
     overlays = (rest[0] as OverlayIn[]) ?? [];
@@ -131,13 +135,18 @@ export function vectorLayers(opts: VectorLayersOptions | VectorDeps, ...rest: un
         const st = overlayStyle(d.el, false, element === d.el, element !== null && element !== d.el, accuracyColor(d), tokens);
         return st.color;
       },
-       getWidth: (d: any) => {
-         const st = overlayStyle(d.el, false, element === d.el, element !== null && element !== d.el, accuracyColor(d), tokens);
-         return st.width;
-       },
-       widthUnits: "pixels",
-       extensions: [ext],
-      updateTriggers: { getColor: [element, deps.analysis], getWidth: [element, deps.analysis] },
+        getWidth: (d: any) => {
+          const st = overlayStyle(d.el, false, element === d.el, element !== null && element !== d.el, accuracyColor(d), tokens);
+          return st.width;
+        },
+        getDashArray: (d: any) => {
+          const st = overlayStyle(d.el, false, element === d.el, element !== null && element !== d.el, accuracyColor(d), tokens);
+          return st.dash ?? [1, 0];
+        },
+        widthUnits: "pixels",
+        dashUnits: "pixels" as any,
+        extensions: [ext],
+       updateTriggers: { getColor: [element, deps.analysis], getWidth: [element, deps.analysis] },
       pickable: false,
     }),
   );
@@ -174,7 +183,7 @@ export function vectorLayers(opts: VectorLayersOptions | VectorDeps, ...rest: un
   );
 
   // 5 facilities
-  const facData = facilities.map((f) => ({ kind: "facility", id: f.f.id, ring: f.ring }));
+  const facData = state.facility === null ? facilities.map((f) => ({ kind: "facility", id: f.f.id, ring: f.ring })) : [];
   layers.push(
     new PolygonLayer({
       id: "facilities",
@@ -183,10 +192,11 @@ export function vectorLayers(opts: VectorLayersOptions | VectorDeps, ...rest: un
       getPolygon: (d: any) => d.ring,
       getFillColor: withAlpha(tokens.fac, 18) as any,
       getLineColor: tokens.fac,
-       getLineWidth: 1.4,
-       lineWidthUnits: "pixels",
-       getDashArray: [5, 4] as any,
-       extensions: [ext],
+      getLineWidth: 1.4,
+      lineWidthUnits: "pixels",
+      getLineDashArray: [5, 4] as any,
+      lineDashUnits: "pixels" as any,
+      extensions: [ext],
       pickable: state.facility === null,
       onClick: (info: any) => handlers?.onFacility?.(info?.object?.id ?? null),
       onHover: (info: any) => handlers?.onHover?.(info?.object ?? null),
@@ -194,19 +204,19 @@ export function vectorLayers(opts: VectorLayersOptions | VectorDeps, ...rest: un
   );
 
   // 6 facility-outline
+  const outlineData = facilityRing ? [{ ring: facilityRing }] : [];
   layers.push(
     new PathLayer({
       id: "facility-outline",
-      data: facData,
+      data: outlineData,
       coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
       getPath: (d: any) => d.ring,
       getColor: withAlpha(tokens.fac, 0.6 * 255),
-       getWidth: 1,
-       widthUnits: "pixels",
-       getDashArray: [3, 4],
-       extensions: [ext],
-      // outline dash [3,4]
-      updateTriggers: {},
+      getWidth: 1,
+      widthUnits: "pixels",
+      getDashArray: [3, 4],
+      dashUnits: "pixels" as any,
+      extensions: [ext],
       pickable: false,
     }),
   );
@@ -215,13 +225,15 @@ export function vectorLayers(opts: VectorLayersOptions | VectorDeps, ...rest: un
   const sightEyes: any[] = [];
   const sightPaths: any[] = [];
   for (const s of sights) {
-    const eye = (s.s as any)?.eye ?? (s.s as any)?.eye ?? [0,0];
-    sightEyes.push({ kind: "sight", id: `eye-${s.key}`, key: s.key, facId: s.facId, s: s.s, pos: eye });
-    if ((s.s as any).status === "short") {
-      sightEyes.push({ kind: "sight", id: `ring-${s.key}`, key: s.key, facId: s.facId, s: s.s, pos: eye, ring: true });
+    const ss = s.s as any;
+    const eye = ss.eye ?? [0, 0];
+    const end = ss.end ?? null;
+    sightEyes.push({ kind: "sight", id: `eye-${s.key}`, key: s.key, facId: s.facId, el: s.el, s: ss, pos: eye });
+    if (ss.status === "short" && end) {
+      sightEyes.push({ kind: "sight", id: `ring-${s.key}`, key: s.key, facId: s.facId, el: s.el, s: ss, pos: end, ring: true });
     }
-    const stubEnd = [eye[0], eye[1] + 50];
-    sightPaths.push({ kind: "sight", id: `stub-${s.key}`, key: s.key, facId: s.facId, s: s.s, path: [eye, stubEnd] });
+    const pathEnd = end ?? [eye[0], eye[1] + 50];
+    sightPaths.push({ kind: "sight", id: `sight-${s.key}`, key: s.key, facId: s.facId, el: s.el, s: ss, path: [eye, pathEnd] });
   }
 
   // 7 sight-eyes
@@ -240,8 +252,7 @@ export function vectorLayers(opts: VectorLayersOptions | VectorDeps, ...rest: un
       stroked: true,
       // @ts-expect-error deck types
       filled: (d: any) => !d.ring,
-      pickable: hitEnabled,
-      onClick: () => handlers?.pickElement?.(null),
+      pickable: false,
       onHover: (info: any) => handlers?.onHover?.(info?.object ?? null),
     }),
   );
@@ -273,13 +284,13 @@ export function vectorLayers(opts: VectorLayersOptions | VectorDeps, ...rest: un
       getWidth: 10,
       widthUnits: "pixels",
       pickable: true,
-      onClick: (info: any) => handlers?.onHover?.(info?.object ?? null),
+      onClick: (info: any) => handlers?.pickElement?.(info?.object?.el ?? null),
       onHover: (info: any) => handlers?.onHover?.(info?.object ?? null),
     }),
   );
 
   // 10 centrelines
-  const centreData = (deps as any).linesView ?? [];
+  const centreData = linesView;
   layers.push(
     new PathLayer({
       id: "centrelines",
