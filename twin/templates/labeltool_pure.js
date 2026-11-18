@@ -129,7 +129,8 @@
     if (!surface || !surfaceMap || !surfaceMap[rawType]) return null;
     var mapping = surfaceMap[rawType];
     var element = mapping[0], type = mapping[1];
-    var isPoly = surface.geom === "polygon" || surface.geom === "Polygon" || element === "crosswalk";
+    var targetGeom = (element === "crosswalk") ? "polygon" : "polyline";
+    var isPoly = targetGeom === "polygon";
     var pts = Array.isArray(surface.xy) ? surface.xy : [];
     var distinct = {};
     pts.forEach(function (p) { distinct[p[0] + "," + p[1]] = true; });
@@ -140,6 +141,7 @@
     }
     var out = JSON.parse(JSON.stringify(surface));
     out.rawType = rawType;
+    out.geom = targetGeom;
     if (out.props && typeof out.props === "object") {
       out.props.element = element;
       out.props.type = type;

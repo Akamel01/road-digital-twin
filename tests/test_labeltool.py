@@ -1,4 +1,5 @@
 import json
+import re
 
 import pytest
 
@@ -509,6 +510,27 @@ def test_template_per_row_type_select():
     assert "PURE.changeSurfaceType(f,sel.value,DATA.surface_map)" in src
     assert "queuePut();renderAll();" in src or "queuePut(); renderAll();" in src
     assert "sel.onchange" in src
+
+
+def test_template_meta_save_allowed_when_frozen():
+    with open("twin/templates/label_tool.html") as fh:
+        src = fh.read()
+    m = re.search(r"async function saveMeta\(\)\{(.*?)\nasync function boot\(\)", src, re.DOTALL)
+    assert m, "saveMeta block not found"
+    save_meta = m.group(1)
+    guard = save_meta.split("const body=", 1)[0]
+    assert "requireEditable" not in guard
+    assert "editsAllowed" not in guard
+    assert "frozen" not in guard
+    assert "state.loaded" in guard and "state.meta" in guard and "!state.stopped" in guard
+    assert 'showBanner("Metadata saved")' in save_meta
+    # labels/tracing gates remain unchanged
+    assert "if(tab!==\"surf\")return;if(!requireEditable())return;cur.push" in src
+    assert "function finish(){if(!requireEditable())return;" in src
+    assert "if(!requireEditable()){sel.value=f.rawType;return;}" in src
+    assert "if(!s&&!d)return;if(!requireEditable())return;" in src
+    assert "PURE.editsAllowed(state.meta,state.loaded)" in src
+    assert "if(state.stopped||!state.loaded||!PURE.editsAllowed(state.meta,state.loaded))return;dirty=true;" in src
 
 
 def test_template_fileof_guards_failed_boot():

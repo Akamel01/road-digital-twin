@@ -243,3 +243,47 @@ console.log(JSON.stringify(PURE.metaBody("", "notes")));
 """)
     d = json.loads(out)
     assert d == {"control": None, "notes": "notes"}
+
+
+@pytest.mark.skipif(not _node_available(), reason="node not available")
+def test_js_change_surface_type_updates_geom():
+    out = _run_js("""
+const map = {
+  "lane line, solid white": ["marking", "solid_line"],
+  "crosswalk, ladder": ["crosswalk", "ladder"],
+  "curb": ["curb", "curb"]
+};
+const line = {id:"a",rawType:"lane line, solid white",geom:"polyline",xy:[[0,0],[1,0],[2,0]],px:[],evidence:"x",props:{id:"a",origin:"operator",source_marking_type:"lane line, solid white",evidence:"x"}};
+const toLadder = PURE.changeSurfaceType(line,"crosswalk, ladder",map);
+const poly = {id:"b",rawType:"crosswalk, ladder",geom:"polygon",xy:[[0,0],[1,0],[1,1],[0,1]],px:[],evidence:"x",props:{id:"b",origin:"operator",source_marking_type:"crosswalk, ladder",evidence:"x"}};
+const toCurb = PURE.changeSurfaceType(poly,"curb",map);
+const invalid = PURE.changeSurfaceType({id:"c",rawType:"curb",geom:"polyline",xy:[[0,0],[1,0]],px:[],evidence:"x",props:{id:"c",origin:"operator",source_marking_type:"curb",evidence:"x"}},"crosswalk, ladder",map);
+console.log(JSON.stringify({
+  ladderGeom: toLadder && toLadder.geom,
+  ladderRaw: toLadder && toLadder.rawType,
+  curbGeom: toCurb && toCurb.geom,
+  curbRaw: toCurb && toCurb.rawType,
+  invalid: invalid
+}));
+""")
+    d = json.loads(out)
+    assert d["ladderGeom"] == "polygon"
+    assert d["ladderRaw"] == "crosswalk, ladder"
+    assert d["curbGeom"] == "polyline"
+    assert d["curbRaw"] == "curb"
+    assert d["invalid"] is None
+    # surfaceToFeature emits expected geometry types
+    out2 = _run_js("""
+const map = {"crosswalk, ladder":["crosswalk","ladder"], "curb":["curb","curb"]};
+const line = {id:"a",rawType:"lane line, solid white",geom:"polyline",xy:[[0,0],[1,0],[2,0]],px:[],evidence:"x",props:{id:"a",origin:"operator",source_marking_type:"lane line, solid white",evidence:"x"}};
+const ladder = PURE.changeSurfaceType(line,"crosswalk, ladder",{"lane line, solid white":["marking","solid_line"], "crosswalk, ladder":["crosswalk","ladder"]});
+const poly = {id:"b",rawType:"crosswalk, ladder",geom:"polygon",xy:[[0,0],[1,0],[1,1],[0,1]],px:[],evidence:"x",props:{id:"b",origin:"operator",source_marking_type:"crosswalk, ladder",evidence:"x"}};
+const curb = PURE.changeSurfaceType(poly,"curb",{"crosswalk, ladder":["crosswalk","ladder"], "curb":["curb","curb"]});
+console.log(JSON.stringify({
+  ladderFeature: PURE.surfaceToFeature(ladder, map).geometry.type,
+  curbFeature: PURE.surfaceToFeature(curb, map).geometry.type
+}));
+""")
+    d2 = json.loads(out2)
+    assert d2["ladderFeature"] == "Polygon"
+    assert d2["curbFeature"] == "LineString"
