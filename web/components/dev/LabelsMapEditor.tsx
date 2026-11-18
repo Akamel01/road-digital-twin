@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import styles from "@/components/dev/dev.module.css";
 import {
   approve,
   loadLabels,
@@ -30,7 +31,7 @@ interface Props {
   site: string;
   meta: SiteMeta | null;
   onMeta: (m: SiteMeta) => void;
-  run: string;
+  runs: string[];
 }
 
 type Mode = "select" | "point" | "line" | "polygon";
@@ -78,7 +79,7 @@ function vertexList(f: GeoJsonFeature<LabelFeature>): [number, number][] {
 const MAX_K = 50;
 const DEFAULT_LAYERS = { height: false, lidar: true, ortho: false };
 
-export default function LabelsMapEditor({ site, meta, onMeta, run }: Props) {
+export default function LabelsMapEditor({ site, meta, onMeta, runs }: Props) {
   const [labels, setLabels] = useState<GeoJsonFeatureCollection<LabelFeature>>(emptyCollection());
   const [mode, setMode] = useState<Mode>("select");
   const [draft, setDraft] = useState<[number, number][]>([]);
@@ -90,7 +91,7 @@ export default function LabelsMapEditor({ site, meta, onMeta, run }: Props) {
   const [info, setInfo] = useState<string | null>(null);
   const [rawOpen, setRawOpen] = useState(false);
   const [frame, setFrame] = useState<Frame | null>(null);
-  const [metaMap, setMetaMap] = useState<Record<Raster, RasterMeta> | null>(null);
+  const [metaMaps, setMetaMaps] = useState<Record<string, Record<Raster, RasterMeta>> | null>(null);
   const [layers, setLayers] = useState({ ...DEFAULT_LAYERS });
   const [size, setSize] = useState<Size>({ w: 0, h: 0 });
   const [storedView, setStoredView] = useState<View | null>(null);
@@ -115,20 +116,25 @@ export default function LabelsMapEditor({ site, meta, onMeta, run }: Props) {
   }, []);
 
   useEffect(() => {
-    if (!run) return;
+    if (!runs || runs.length === 0) return;
     let live = true;
-    Promise.all(RASTERS.map((r) => loadRasterMeta(run, r))).then(
-      (metas) => {
-        if (live) {
-          setMetaMap(Object.fromEntries(RASTERS.map((r, i) => [r, metas[i]])) as Record<Raster, RasterMeta>);
-        }
-      },
-      () => {},
-    );
+    Promise.all(
+      runs.map((r) =>
+        Promise.all(RASTERS.map((rr) => loadRasterMeta(r, rr))).then((metas) => ({
+          run: r,
+          meta: Object.fromEntries(RASTERS.map((rr, i) => [rr, metas[i]])) as Record<Raster, RasterMeta>,
+        })),
+      ),
+    )
+      .then((results) => {
+        if (live) setMetaMaps(Object.fromEntries(results.map((x) => [x.run, x.meta])));
+      })
+      .catch(() => {});
     return () => {
       live = false;
     };
-  }, [run]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runs.join("|")]);
 
   useEffect(() => {
     if (!site) return;
@@ -380,17 +386,21 @@ export default function LabelsMapEditor({ site, meta, onMeta, run }: Props) {
   }
 
   const tiles: Tile[] = [];
-  if (view && frame && metaMap && run) {
+  if (view && frame && metaMaps) {
     const rasters: Raster[] = [];
     if (layers.height) rasters.push("height");
     if (layers.ortho) rasters.push("ortho");
     if (layers.lidar) rasters.push("lidar");
-    for (const r of rasters) {
-      const m = metaMap[r];
-      if (!m) continue;
-      const rect = localRect(m.bbox, frame);
-      const z = tileLevel(view.k, typeof window === "undefined" ? 1 : window.devicePixelRatio, rect.x1 - rect.x0, m.zmax);
-      for (const tile of visibleTiles(r, run, rect, z, view, size)) tiles.push(tile);
+    for (const runId of runs) {
+      const mm = metaMaps[runId];
+      if (!mm) continue;
+      for (const r of rasters) {
+        const m = mm[r];
+        if (!m) continue;
+        const rect = localRect(m.bbox, frame);
+        const z = tileLevel(view.k, typeof window === "undefined" ? 1 : window.devicePixelRatio, rect.x1 - rect.x0, m.zmax);
+        for (const tile of visibleTiles(r, runId, rect, z, view, size)) tiles.push(tile);
+      }
     }
   }
 
@@ -405,12 +415,12 @@ export default function LabelsMapEditor({ site, meta, onMeta, run }: Props) {
               {m}
             </button>
           ))}
-          <button type="button" onClick={finishDraft} disabled={busy || draft.length === 0}>Finish</button>
-          <button type="button" onClick={deleteSelected} disabled={busy || selected === null}>Delete</button>
-          <button type="button" onClick={undo} disabled={busy || history.length === 0}>Undo</button>
-          <button type="button" onClick={handleSave} disabled={busy || !meta || meta.frozen}>Save</button>
-          <button type="button" onClick={handleApprove} disabled={busy || !meta || meta.frozen}>Approve</button>
-          <button type="button" onClick={handleNewVersion} disabled={busy || !meta}>New version</button>
+          <button type="button" className={styles.button} onClick={finishDraft} disabled={busy || draft.length === 0}>Finish</button>
+          <button type="button" className={styles.button} onClick={deleteSelected} disabled={busy || selected === null}>Delete</button>
+          <button type="button" className={styles.button} onClick={undo} disabled={busy || history.length === 0}>Undo</button>
+          <button type="button" className={styles.button} onClick={handleSave} disabled={busy || !meta || meta.frozen}>Save</button>
+          <button type="button" className={styles.button} onClick={handleApprove} disabled={busy || !meta || meta.frozen}>Approve</button>
+          <button type="button" className={styles.button} onClick={handleNewVersion} disabled={busy || !meta}>New version</button>
           {(["height", "lidar", "ortho"] as const).map((l) => (
             <button
               key={l}
@@ -426,7 +436,7 @@ export default function LabelsMapEditor({ site, meta, onMeta, run }: Props) {
         {info ? <p role="status">{info}</p> : null}
         <div
           ref={containerRef}
-          style={{ width: "100%", height: 480, border: "1px solid #ccc", background: "#f8f8f8", position: "relative", overflow: "hidden", touchAction: "none" }}
+          style={{ width: "100%", height: 480, border: "1px solid #ccc", background: "#0d1213", position: "relative", overflow: "hidden", touchAction: "none" }}
           onPointerDown={onContainerPointerDown}
           onPointerMove={onContainerPointerMove}
           onPointerUp={onContainerPointerUp}

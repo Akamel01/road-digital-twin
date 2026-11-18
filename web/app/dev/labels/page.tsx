@@ -147,7 +147,12 @@ export default function DevLabelsPage() {
           </datalist>
         </label>
         {site && meta ? (
-          <LabelsMapEditor site={site} meta={meta} onMeta={setMeta} run={run} />
+          <LabelsMapEditor
+            site={site}
+            meta={meta}
+            onMeta={setMeta}
+            runs={run ? [run] : (area?.drives.map((d) => d.run_id) ?? [])}
+          />
         ) : (
           <p className={styles.muted}>Select a site to edit labels.</p>
         )}
