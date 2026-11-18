@@ -666,8 +666,10 @@ async function main() {
       try { return await measureSide(`http://127.0.0.1:${port}`); }
       catch (e) {
         lastErr = e;
-        console.error(`${label} attempt ${attempt} failed:`, e && e.stack || e);
-        if (attempt === 0) await relaunchBrowser();
+        console.error(`${label} attempt ${attempt} failed:`, e && (e.stack || e.message || e));
+        if (attempt === 0) {
+          try { await relaunchBrowser(); } catch (re) { console.error(`${label} relaunch failed:`, re && (re.stack || re.message || re)); }
+        }
       }
     }
     throw lastErr;
