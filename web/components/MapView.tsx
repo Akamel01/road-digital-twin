@@ -1,6 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+
+let __mvRenders = 0;
+function bumpRender() {
+  __mvRenders++;
+  if (typeof window !== "undefined") (window as Window & { __renders?: number }).__renders = __mvRenders;
+}
 import dynamic from "next/dynamic";
 import MapPanel, { type Analysis, type Layer, type Layers } from "@/components/MapPanel";
 import MapLabels, { type LabelItem } from "@/components/MapLabels";
@@ -111,6 +117,7 @@ interface Props {
 }
 
 export default function MapView({ area, facility, element, line, onFacility, onElement, onLine }: Props) {
+  bumpRender();
   const phone = useMedia(PHONE);
   const [mosaic, setMosaic] = useState<{ metas: Record<Raster, MosaicMeta>; frame: Frame } | null>(null);
   const [version, setVersion] = useState("");
@@ -431,7 +438,9 @@ export default function MapView({ area, facility, element, line, onFacility, onE
   ]);
 
   const sv = cur;
-  const labelK = sv?.k ?? 1;
+  const labelK = sv ? Math.round(sv.k * 100) / 100 : 1;
+  const labelTx = sv ? Math.round(sv.tx) : 0;
+  const labelTy = sv ? Math.round(sv.ty) : 0;
   const labelItems: LabelItem[] = useMemo(() => {
     const zoom = labelK;
     const items: LabelItem[] = [];
@@ -520,7 +529,7 @@ export default function MapView({ area, facility, element, line, onFacility, onE
             />
           )}
         </div>
-        {cur && sv && Number.isFinite(sv.k) && Number.isFinite(sv.tx) && Number.isFinite(sv.ty) && <MapLabels items={labelItems} k={sv.k} tx={sv.tx} ty={sv.ty} />}
+        {cur && sv && Number.isFinite(sv.k) && Number.isFinite(sv.tx) && Number.isFinite(sv.ty) && <MapLabels items={labelItems} k={labelK} tx={labelTx} ty={labelTy} />}
       </div>
 
       {frame && (

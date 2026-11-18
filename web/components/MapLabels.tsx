@@ -1,3 +1,5 @@
+import { memo } from "react";
+
 export interface LabelItem {
   id: string;
   x: number;
@@ -5,7 +7,7 @@ export interface LabelItem {
   text: string;
 }
 
-export default function MapLabels({
+function MapLabels({
   items,
   k,
   tx,
@@ -35,3 +37,5 @@ export default function MapLabels({
     </svg>
   );
 }
+
+export default memo(MapLabels);

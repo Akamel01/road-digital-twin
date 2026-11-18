@@ -18,6 +18,15 @@ export interface TileLayersInput {
 const tileKeyCache = new WeakMap<MosaicMeta, Set<string> | null>();
 const tilesetCache = new WeakMap<MosaicMeta, Map<number, ReturnType<typeof makeMosaicTileset>>>();
 
+function profOn(): boolean {
+  return typeof window !== "undefined" && (window as any).__PROFILE_288 === true;
+}
+function pmark(name: string) { if (profOn()) performance.mark(name); }
+function pmeasure(name: string, s: string, e: string) {
+  if (!profOn()) return;
+  try { performance.measure(name, s, e); } catch {}
+}
+
 function memoTileKeys(meta: MosaicMeta): Set<string> | null {
   if (tileKeyCache.has(meta)) return tileKeyCache.get(meta)!;
   const keys = tileKeys(meta);
@@ -80,7 +89,13 @@ export function tileLayers({ metas, rasters, version, dpr }: TileLayersInput) {
         tileSize: extent,
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
         refinementStrategy: "never",
-        maxRequests: 8,
+        maxRequests: 3,
+        debounceTime: 150,
+        maxCacheSize: 128,
+        onTileUnload: (tile: any) => {
+          const bmp = tile?.data ?? tile?.content;
+          try { bmp?.close?.(); } catch {}
+        },
         getTileData: async (props: any) => {
           const keys = memoTileKeys(meta);
           const idx = props.index || {};
@@ -91,11 +106,22 @@ export function tileLayers({ metas, rasters, version, dpr }: TileLayersInput) {
           if (keys && !keys.has(`${z}/${x}/${y}`)) return null;
           const base = typeof props.url === "string" ? props.url : tileUrl(layer, version);
           const url = base.replace("{z}", String(z)).replace("{x}", String(x)).replace("{y}", String(y));
+          const tag = `${layer}-${z}-${x}-${y}-${Math.random().toString(36).slice(2, 7)}`;
           try {
+            pmark(`tile:${tag}:fetch:start`);
             const res = await fetch(url, { signal: props.signal });
+            pmark(`tile:${tag}:fetch:end`);
+            pmeasure(`tile:${layer}:fetch`, `tile:${tag}:fetch:start`, `tile:${tag}:fetch:end`);
             if (!res.ok) return null;
+            pmark(`tile:${tag}:blob:start`);
             const blob = await res.blob();
-            return await createImageBitmap(blob);
+            pmark(`tile:${tag}:blob:end`);
+            pmeasure(`tile:${layer}:blob`, `tile:${tag}:blob:start`, `tile:${tag}:blob:end`);
+            pmark(`tile:${tag}:bitmap:start`);
+            const bmp = await createImageBitmap(blob);
+            pmark(`tile:${tag}:bitmap:end`);
+            pmeasure(`tile:${layer}:createImageBitmap`, `tile:${tag}:bitmap:start`, `tile:${tag}:bitmap:end`);
+            return bmp;
           } catch {
             return null;
           }
@@ -103,15 +129,21 @@ export function tileLayers({ metas, rasters, version, dpr }: TileLayersInput) {
         renderSubLayers: (props: any) => {
           const p = props;
           if (!p || !p.tile || p.data == null) return null;
+          if (profOn()) { pmark(`tile:renderSubLayers:start`); }
           const bbox = normaliseTileBBox(p.tile.bbox) ?? tileBounds(p.tile.index, extent);
           const bounds = bitmapBounds(bbox);
-          return new BitmapLayer({
+          const layer = new BitmapLayer({
             id: `${props.id}-bitmap`,
             image: p.data,
             bounds,
             coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
             pickable: false,
           });
+          if (profOn()) {
+            pmark(`tile:renderSubLayers:end`);
+            pmeasure(`tile:renderSubLayers`, `tile:renderSubLayers:start`, `tile:renderSubLayers:end`);
+          }
+          return layer;
         },
       }),
     );

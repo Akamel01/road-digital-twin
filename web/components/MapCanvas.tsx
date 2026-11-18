@@ -1,12 +1,24 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { DeckGL } from "@deck.gl/react";
 import { OrthographicView } from "@deck.gl/core";
 import type { Layer } from "@deck.gl/core";
 import type { ViewState } from "@/lib/tiles";
 
-export default function MapCanvas(p: {
+const VIEWS = [new OrthographicView({ id: "ortho", flipY: true })];
+const CONTROLLER = {
+  dragPan: true,
+  dragRotate: false,
+  touchZoom: true,
+  doubleClickZoom: false,
+  inertia: false,
+  scrollZoom: { smooth: false },
+} as const;
+const getCursor = ({ isDragging, isHovering }: { isDragging: boolean; isHovering: boolean }) =>
+  isDragging ? "grabbing" : isHovering ? "pointer" : "grab";
+
+function MapCanvas(p: {
   viewState: ViewState;
   layers: Layer[];
   onViewStateChange: (v: ViewState) => void;
@@ -20,29 +32,20 @@ export default function MapCanvas(p: {
     setOk(!!gl);
     gl?.getExtension("WEBGL_lose_context")?.loseContext();
   }, []);
-  const views = useMemo(() => [new OrthographicView({ id: "ortho", flipY: true })], []);
+  const views = useMemo(() => VIEWS, []);
   if (ok === null) return null;
   if (!ok) return <p className="msg" role="alert">This map needs WebGL 2.</p>;
   return (
     <DeckGL
       views={views}
       viewState={p.viewState as never}
-      controller={{
-        dragPan: true,
-        dragRotate: false,
-        touchZoom: true,
-        doubleClickZoom: false,
-        inertia: false,
-        scrollZoom: { smooth: false },
-      }}
-      getCursor={({ isDragging, isHovering }) =>
-        isDragging ? "grabbing" : isHovering ? "pointer" : "grab"
-      }
+      controller={CONTROLLER as never}
+      getCursor={getCursor as never}
       layers={p.layers}
-       onViewStateChange={({ viewState: v }) => {
-          p.onViewStateChange(v as ViewState);
-        }}
+      onViewStateChange={({ viewState: v }) => p.onViewStateChange(v as ViewState)}
       onError={(e) => p.onError?.(e)}
     />
   );
 }
+
+export default memo(MapCanvas);
