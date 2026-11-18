@@ -55,7 +55,7 @@ export function errCol(e: number): string {
   return e <= 0.2 ? ERR_COL.good : e <= 0.4 ? ERR_COL.fair : ERR_COL.poor;
 }
 
-async function getJson<T>(url: string): Promise<T> {
+export async function getJson<T>(url: string): Promise<T> {
   const res = await fetch(url, { cache: "no-cache" });
   if (!res.ok) throw new Error(`Could not load ${url}`);
   return (await res.json()) as T;
