@@ -653,13 +653,12 @@ def score_command(run: str, sites: str, store: Path | None = None) -> int:
     try:
         baseline = load_baseline(st)
         doc, reason = score_target(st, target, sites=sites, baseline=baseline)
-    except (SCORE_ERRORS, site.SiteStop) as exc:
+    except (*SCORE_ERRORS, site.SiteStop) as exc:
         print(f"cannot score: {exc}", file=sys.stderr)
         return 2
     if doc is None:
         print(f"cannot score: {reason}", file=sys.stderr)
         return 2
-
     comparable = doc["compare"].get("comparable")
     if comparable is False:
         if sites == "dev":

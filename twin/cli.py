@@ -167,7 +167,8 @@ def build_parser() -> argparse.ArgumentParser:
     publish = sub.add_parser("publish", help="copy runs into a showcase folder")
     publish.add_argument("run_ids", nargs="+", metavar="run-id")
     publish.add_argument("--out", type=Path, required=True, help="showcase folder")
-    publish.add_argument(        "--store", type=Path, help="run store (default: $TWIN_RUNS or /data/twin-runs)"
+    publish.add_argument(
+        "--store", type=Path, help="run store (default: $TWIN_RUNS or /data/twin-runs)"
     )
     publish.add_argument("--mosaic", action="store_true", help="also write area mosaics (sparse XYZ)")
     site = sub.add_parser("site", help="publish a run to the public site, or roll back")
@@ -323,10 +324,10 @@ def main(argv: list[str] | None = None) -> int:
         return score_command(args.run, args.sites, args.store)
     if args.command == "publish":
         from twin.publish import publish_command
+
         return publish_command(args.run_ids, args.out, args.store, getattr(args, "mosaic", False))
     if args.command == "site":
         from twin.site import site_command
-
         return site_command(args.action, args.run_id, args.dry_run, args.store, args.latest, getattr(args, "mosaic", False))
     if args.command == "fake-run":
         from twin.fake_run import write_fake_runs

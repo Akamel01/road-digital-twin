@@ -1,9 +1,8 @@
 # Auto-publish twin.papyrus-ai.net
 
-A run publishes when the per-element score against the audit labels shows no geometry element worse than the published run beyond its noise; ties publish; the first run publishes. No fewer HD-map gate checks pass (gate veto kept). Attributes (curb height has no producer; ramp slopes are noisy) are reported but do not block publishing. `TIE_MARGIN` moves to the legacy fallback (margin_sum ± 0.01). Operator, 2026-11-16 (it was "strictly better", ADR 0005). The first run always publishes.
-## Queue it
+A run publishes when the per-element score against the audit labels shows no geometry element worse than the published run beyond its noise; ties publish; the first run publishes. No fewer HD-map gate checks pass (gate veto kept). Attributes (curb height has no producer; ramp slopes are noisy) are reported but do not block publishing. `TIE_MARGIN` moves to the legacy fallback (margin_sum ± 0.01). Operator, 2026-11-16 (it was "strictly better", ADR 0005). The first run publishes.
 
-After an eval: `{"type": "publish", "run_id": "<run>"}`, or add `"publish": true` to a `run`/`rerun`/`eval` job to publish when its eval is GO. Add `"dry_run": true` to build without deploying.
+## Queue itAfter an eval: `{"type": "publish", "run_id": "<run>"}`, or add `"publish": true` to a `run`/`rerun`/`eval` job to publish when its eval is GO. Add `"dry_run": true` to build without deploying.
 
 A publish job builds the showcase from the run (`twin publish`), writes `status.json` (verdict, time) which the site shows in the top bar, builds `web/` (needs Node and npm) and runs `npx -y wrangler@4.151.2 deploy` from `web/`. It then appends the run to `<store>/published/history.json`. A skip (NO-GO, not better) finishes the job with `publish_result: skipped: <reason>`.
 
@@ -30,6 +29,7 @@ Curb height: comparator exists, report-only; run curbs carry no `height_m` (curb
 Dev role: `--sites dev` never decides publishing (role mismatch is incomparable, exit 0 with a note).
 
 Fallback: no labels, a history entry with `"score": null` **or no `"score"` key** (the legacy signal), or a changed site list / version / `label_hash` (including partial coverage: a run covering fewer sites) → old `margin_sum ± 0.01` comparison with a stderr note. `twin score` treats a published entry without a score as no baseline (exit 0, `reason: "no baseline"`). More gate checks no longer override a per-element regression; per-site baseline view is #303; autopilot does not consume `score.json`, its `publish_result` strings are unchanged.
+
 ## Token (operator, once)
 
 Create a Cloudflare API token with **Workers Scripts: Edit** for account `1bde08c94022d2f83395dafe200028fa`, limited to the `road-digital-twin` Worker. Also needed for the custom domain route: Workers Routes/Custom Domains edit on the papyrus-ai.net zone if wrangler asks for it. Store it on the box, never in git or chat:

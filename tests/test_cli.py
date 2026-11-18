@@ -170,6 +170,16 @@ def test_score_no_dev_sites_exits_two(tmp_path, capsys):
     assert "cannot score: no dev label sites" in err
 
 
+def test_score_corrupt_labels_exits_two(tmp_path, capsys):
+    store = tmp_path / "store"
+    _labelled_store(store, "r1", 0)
+    (store / "labels" / "site-a" / "labels.geojson").write_text("{not json")
+    rc = main(["score", "r1", "--sites", "audit", "--store", str(store)])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "cannot score:" in err
+
+
 def test_score_not_comparable_exits_two(tmp_path, capsys):
     store = tmp_path / "store"
     _labelled_store(store, "r1", 0)
