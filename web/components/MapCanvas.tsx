@@ -23,6 +23,7 @@ function MapCanvas(p: {
   layers: Layer[];
   onViewStateChange: (v: ViewState) => void;
   onError?: (e: Error) => void;
+  useDevicePixels?: number | boolean;
 }) {
   const [ok, setOk] = useState<boolean | null>(null);
   useEffect(() => {
@@ -42,6 +43,7 @@ function MapCanvas(p: {
       controller={CONTROLLER as never}
       getCursor={getCursor as never}
       layers={p.layers}
+      useDevicePixels={p.useDevicePixels ?? 1}
       onViewStateChange={({ viewState: v }) => p.onViewStateChange(v as ViewState)}
       onError={(e) => p.onError?.(e)}
     />

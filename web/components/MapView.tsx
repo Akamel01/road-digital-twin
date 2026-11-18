@@ -128,6 +128,8 @@ export default function MapView({ area, facility, element, line, onFacility, onE
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [size, setSize] = useState<Size>({ w: 0, h: 0 });
   const [view, setView] = useState<StoredView | null>(null);
+  const [interacting, setInteracting] = useState(false);
+  const interactTimer = useRef<number | null>(null);
   const panRef = useRef<HTMLDivElement>(null);
   const [centre, setCentre] = useState<{ key: string; lines: Centreline[] } | null>(null);
   const pendingView = useRef<StoredView | null>(null);
@@ -178,6 +180,7 @@ export default function MapView({ area, facility, element, line, onFacility, onE
   useEffect(() => {
     return () => {
       if (viewRaf.current !== null) cancelAnimationFrame(viewRaf.current);
+      if (interactTimer.current !== null) window.clearTimeout(interactTimer.current);
     };
   }, []);
 
@@ -305,6 +308,10 @@ export default function MapView({ area, facility, element, line, onFacility, onE
 
   const onHover = useCallback((obj: { kind: string; id: string } | null) => {
     if (panRef.current) panRef.current.style.cursor = obj ? "pointer" : "";
+  }, []);
+
+  const handleCanvasError = useCallback((e: Error) => {
+    setError(e.message);
   }, []);
 
   const dpr = typeof window === "undefined" ? 1 : window.devicePixelRatio;
@@ -495,6 +502,12 @@ export default function MapView({ area, facility, element, line, onFacility, onE
       if (!Number.isFinite(t0) || !Number.isFinite(t1)) return;
       const vv = viewOf({ target: [t0, t1, 0], zoom: z }, size);
       if (!Number.isFinite(vv.k) || !Number.isFinite(vv.tx) || !Number.isFinite(vv.ty)) return;
+      setInteracting((prev) => (prev ? prev : true));
+      if (interactTimer.current !== null) window.clearTimeout(interactTimer.current);
+      interactTimer.current = window.setTimeout(() => {
+        interactTimer.current = null;
+        setInteracting(false);
+      }, 500);
       pendingView.current = { k: vv.k, tx: vv.tx, ty: vv.ty, key: fitKey };
       if (viewRaf.current === null) {
         viewRaf.current = requestAnimationFrame(() => {
@@ -524,8 +537,9 @@ export default function MapView({ area, facility, element, line, onFacility, onE
             <MapCanvas
               viewState={deckViewState}
               layers={deckLayers}
+              useDevicePixels={interacting ? 0.5 : 1}
               onViewStateChange={handleViewStateChange}
-              onError={(e) => setError(e.message)}
+              onError={handleCanvasError}
             />
           )}
         </div>

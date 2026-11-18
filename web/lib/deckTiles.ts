@@ -89,8 +89,8 @@ export function tileLayers({ metas, rasters, version, dpr }: TileLayersInput) {
         tileSize: extent,
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
         refinementStrategy: "never",
-        maxRequests: 3,
-        debounceTime: 150,
+        maxRequests: 8,
+        debounceTime: 0,
         maxCacheSize: 128,
         onTileUnload: (tile: any) => {
           const bmp = tile?.data ?? tile?.content;

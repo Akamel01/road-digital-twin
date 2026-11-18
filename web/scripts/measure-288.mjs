@@ -330,220 +330,224 @@ async function main() {
   const extent = fixtureProvenance.extent;
 
   async function measureSide(baseURL) {
-    const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
-    const page = await context.newPage();
-    const pageErrors = [];
-    const http404s = [];
-    const requestedTileZByLayer = { lidar: [], ortho: [], height: [], coverage: [] };
-    page.on("pageerror", (e) => pageErrors.push(String(e)));
-    page.on("console", (m) => { if (m.type() === "error") pageErrors.push(m.text()); });
-
-    const area = await (await fetch(baseURL + "/showcase/area.json")).json();
-    const inter = (area.facilities || []).find((f) => f.type === "intersection") || (area.facilities || [])[0];
-    const facilityId = inter ? inter.id : null;
-
-    const cdp = await context.newCDPSession(page);
-    await cdp.send("Network.enable");
-    await cdp.send("Performance.enable");
-    await cdp.send("Network.setCacheDisabled", { cacheDisabled: true });
-
-    const inflightRef = { n: 0 };
-    const webpRef = { seen: false };
-    const imgReq = new Map();
-    const whole = { count: 0, bytes: 0 };
-    const gestureWindow = { count: 0, bytes: 0 };
-    const duringGesture = { count: 0, bytes: 0 };
-    let trackGestureWindow = false;
-    let trackDuringGesture = false;
-
-    cdp.on("Network.responseReceived", (p) => {
-      const status = p.response && p.response.status;
-      const url = p.response && p.response.url || "";
-      if (status === 404) http404s.push({ url, classification: classify404(url) });
-      const ct = (((p.response || {}).headers || {})["content-type"] || "").toLowerCase();
-      const isImg = p.type === "Image" || ct.startsWith("image/") || /\.(webp|png|jpe?g|gif)(\?|$)/i.test(url);
-      imgReq.set(p.requestId, { isImg, trackGestureWindow, trackDuringGesture });
-      if (isImg) {
-        whole.count++; inflightRef.n++;
-        if (trackGestureWindow) gestureWindow.count++;
-        if (trackDuringGesture) duringGesture.count++;
-      }
-      if (/\.webp(\?|$)/i.test(url)) {
-        webpRef.seen = true;
-        const m = url.match(/\/tiles\/(lidar|ortho|height|coverage)\/(\d+)\//);
-        if (m) requestedTileZByLayer[m[1]].push(parseInt(m[2], 10));
-      }
-    });
-    cdp.on("Network.loadingFinished", (p) => {
-      const info = imgReq.get(p.requestId);
-      if (info && info.isImg) {
-        const b = p.encodedDataLength || 0;
-        whole.bytes += b;
-        inflightRef.n = Math.max(0, inflightRef.n - 1);
-        if (info.trackGestureWindow) gestureWindow.bytes += b;
-        if (info.trackDuringGesture) duringGesture.bytes += b;
-      }
-      imgReq.delete(p.requestId);
-    });
-    cdp.on("Network.loadingFailed", (p) => {
-      const info = imgReq.get(p.requestId);
-      if (info && info.isImg) inflightRef.n = Math.max(0, inflightRef.n - 1);
-      imgReq.delete(p.requestId);
-    });
-
-    async function settle(timeout = 10000) {
-      const start = Date.now();
-      let lastZero = Date.now();
-      while (Date.now() - start < timeout) {
-        if (inflightRef.n === 0) {
-          if (Date.now() - lastZero >= 300) return;
-        } else lastZero = Date.now();
-        await sleep(50);
-      }
-    }
-
-    async function viewFingerprint() {
-      try {
-        const el = page.locator(".pan");
-        const box = await el.boundingBox();
-        if (!box) return null;
-        const buf = await page.screenshot({ clip: { x: Math.max(0, box.x), y: Math.max(0, box.y), width: box.width, height: box.height }, type: "png" });
-        return createHash("sha256").update(buf).digest("hex");
-      } catch {
-        return null;
-      }
-    }
-
-    let facilityHow = null;
-    let url = baseURL;
-    if (facilityId) { url = baseURL + "?f=" + encodeURIComponent(facilityId); facilityHow = "query-param"; }
-    else facilityHow = "area-fit";
-    await page.goto(url, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector(".pan", { timeout: 15000 });
-    await settle(10000);
-
-    await page.reload({ waitUntil: "domcontentloaded" });
-    await page.waitForSelector(".pan", { timeout: 15000 });
-    await settle(10000);
-
-    {
-      const rs = Date.now();
-      while (Date.now() - rs < 15000) {
-        const st = await page.locator(".scale").textContent().catch(() => null);
-        if (st && st.trim() && webpRef.seen) break;
-        await sleep(200);
-      }
-    }
-
-    const renderer = await rendererOf(page);
-
-    // Gesture window: from cache-clear-before-zoom to gesture end
-    const fpBefore = await viewFingerprint();
-    trackGestureWindow = true;
-    // Frame-time window includes zoom-in and 10s pan
-    await page.evaluate(() => {
-      window.__frames = [];
-      let last = performance.now();
-      window.__rec = true;
-      const tick = (t) => { window.__frames.push(t - last); last = t; if (window.__rec) requestAnimationFrame(tick); };
-      requestAnimationFrame(tick);
-    });
-    const scaleBeforeZoom = (await page.locator(".scale").textContent().catch(() => null) || "").trim();
-    const panBox0 = await page.locator(".pan").boundingBox().catch(() => null);
-    const pcx = panBox0 ? panBox0.x + panBox0.width / 2 : 720;
-    const pcy = panBox0 ? panBox0.y + panBox0.height / 2 : 450;
-    for (let i = 0; i < 20; i++) { await page.click('[aria-label="Zoom in"]').catch(() => {}); await sleep(50); }
-    await settle(5000);
-    let scaleAfterZoom = (await page.locator(".scale").textContent().catch(() => null) || "").trim();
-    if (scaleAfterZoom === scaleBeforeZoom) {
-      await page.mouse.move(pcx, pcy);
-      for (let i = 0; i < 20; i++) { await page.mouse.wheel(0, -120); await sleep(50); }
-      await sleep(500);
-      await settle(5000);
-      scaleAfterZoom = (await page.locator(".scale").textContent().catch(() => null) || "").trim();
-    }
-    const finalScaleText = scaleAfterZoom;
-    const scalePx = await page.evaluate(() => { const i = document.querySelector(".scale i"); return i ? Math.round(i.getBoundingClientRect().width) : null; }).catch(() => null);
-    await settle(10000);
-
-    trackDuringGesture = true;
-    const fpBeforeDrag = await viewFingerprint();
-    let dragOk = false;
-    let dragDelta = 0;
+    let context;
+    let page;
     try {
-      const b = await page.locator(".pan").boundingBox();
-      if (b) {
-        const cx = b.x + b.width / 2, cy = b.y + b.height / 2;
-        await page.mouse.move(cx, cy);
-        for (let i = 0; i < 40; i++) {
-          const dx = Math.round(Math.cos(i * 0.4) * 40);
-          const dy = Math.round(Math.sin(i * 0.4) * 40);
-          await page.mouse.wheel(dx, dy);
-          await sleep(250);
+      for (const p of browser.contexts()) { try { await p.close(); } catch {} }
+      context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
+      page = await context.newPage();
+      const pageErrors = [];
+      const http404s = [];
+      const requestedTileZByLayer = { lidar: [], ortho: [], height: [], coverage: [] };
+      page.on("pageerror", (e) => pageErrors.push(String(e)));
+      page.on("console", (m) => { if (m.type() === "error") pageErrors.push(m.text()); });
+
+      const area = await (await fetch(baseURL + "/showcase/area.json")).json();
+      const inter = (area.facilities || []).find((f) => f.type === "intersection") || (area.facilities || [])[0];
+      const facilityId = inter ? inter.id : null;
+
+      const cdp = await context.newCDPSession(page);
+      await cdp.send("Network.enable");
+      await cdp.send("Performance.enable");
+      await cdp.send("Network.setCacheDisabled", { cacheDisabled: true });
+
+      const inflightRef = { n: 0 };
+      const webpRef = { seen: false };
+      const imgReq = new Map();
+      const whole = { count: 0, bytes: 0 };
+      const gestureWindow = { count: 0, bytes: 0 };
+      const duringGesture = { count: 0, bytes: 0 };
+      let trackGestureWindow = false;
+      let trackDuringGesture = false;
+
+      cdp.on("Network.responseReceived", (p) => {
+        const status = p.response && p.response.status;
+        const url = p.response && p.response.url || "";
+        if (status === 404) http404s.push({ url, classification: classify404(url) });
+        const ct = (((p.response || {}).headers || {})["content-type"] || "").toLowerCase();
+        const isImg = p.type === "Image" || ct.startsWith("image/") || /\.(webp|png|jpe?g|gif)(\?|$)/i.test(url);
+        imgReq.set(p.requestId, { isImg, trackGestureWindow, trackDuringGesture });
+        if (isImg) {
+          whole.count++; inflightRef.n++;
+          if (trackGestureWindow) gestureWindow.count++;
+          if (trackDuringGesture) duringGesture.count++;
         }
-        dragOk = true;
-        dragDelta = 40;
+        if (/\.webp(\?|$)/i.test(url)) {
+          webpRef.seen = true;
+          const m = url.match(/\/tiles\/(lidar|ortho|height|coverage)\/(\d+)\//);
+          if (m) requestedTileZByLayer[m[1]].push(parseInt(m[2], 10));
+        }
+      });
+      cdp.on("Network.loadingFinished", (p) => {
+        const info = imgReq.get(p.requestId);
+        if (info && info.isImg) {
+          const b = p.encodedDataLength || 0;
+          whole.bytes += b;
+          inflightRef.n = Math.max(0, inflightRef.n - 1);
+          if (info.trackGestureWindow) gestureWindow.bytes += b;
+          if (info.trackDuringGesture) duringGesture.bytes += b;
+        }
+        imgReq.delete(p.requestId);
+      });
+      cdp.on("Network.loadingFailed", (p) => {
+        const info = imgReq.get(p.requestId);
+        if (info && info.isImg) inflightRef.n = Math.max(0, inflightRef.n - 1);
+        imgReq.delete(p.requestId);
+      });
+
+      async function settle(timeout = 10000) {
+        const start = Date.now();
+        let lastZero = Date.now();
+        while (Date.now() - start < timeout) {
+          if (inflightRef.n === 0) {
+            if (Date.now() - lastZero >= 300) return;
+          } else lastZero = Date.now();
+          await sleep(50);
+        }
       }
-    } catch (e) {
-      console.error("drag gesture failed:", e && e.message || e);
-      dragOk = false;
-    }
-    trackDuringGesture = false;
-    trackGestureWindow = false; // gesture end
-    let fpAfterDrag = null;
-    try { fpAfterDrag = await viewFingerprint(); } catch {}
-    try {
-      await page.evaluate(() => { window.__rec = false; });
-    } catch {}
-    let deltas = [];
-    try { deltas = await page.evaluate(() => window.__frames || []); } catch (e) { console.error("read frames failed:", e && e.message || e); }
-    if (!deltas || deltas.length < 100) {
+
+      async function viewFingerprint() {
+        try {
+          const el = page.locator(".pan");
+          const box = await el.boundingBox();
+          if (!box) return null;
+          const buf = await page.screenshot({ clip: { x: Math.max(0, box.x), y: Math.max(0, box.y), width: box.width, height: box.height }, type: "png" });
+          return createHash("sha256").update(buf).digest("hex");
+        } catch {
+          return null;
+        }
+      }
+
+      let facilityHow = null;
+      let url = baseURL;
+      if (facilityId) { url = baseURL + "?f=" + encodeURIComponent(facilityId); facilityHow = "query-param"; }
+      else facilityHow = "area-fit";
+      await page.goto(url, { waitUntil: "domcontentloaded" });
+      await page.waitForSelector(".pan", { timeout: 15000 });
+      await settle(10000);
+
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await page.waitForSelector(".pan", { timeout: 15000 });
+      await settle(10000);
+
+      {
+        const rs = Date.now();
+        while (Date.now() - rs < 15000) {
+          const st = await page.locator(".scale").textContent().catch(() => null);
+          if (st && st.trim() && webpRef.seen) break;
+          await sleep(200);
+        }
+      }
+
+      const renderer = await rendererOf(page);
+
+      const fpBefore = await viewFingerprint();
+      trackGestureWindow = true;
+      await page.evaluate(() => {
+        window.__frames = [];
+        let last = performance.now();
+        window.__rec = true;
+        const tick = (t) => { window.__frames.push(t - last); last = t; if (window.__rec) requestAnimationFrame(tick); };
+        requestAnimationFrame(tick);
+      });
+      const scaleBeforeZoom = (await page.locator(".scale").textContent().catch(() => null) || "").trim();
+      const panBox0 = await page.locator(".pan").boundingBox().catch(() => null);
+      const pcx = panBox0 ? panBox0.x + panBox0.width / 2 : 720;
+      const pcy = panBox0 ? panBox0.y + panBox0.height / 2 : 450;
+      for (let i = 0; i < 20; i++) { await page.click('[aria-label="Zoom in"]').catch(() => {}); await sleep(50); }
+      await settle(5000);
+      let scaleAfterZoom = (await page.locator(".scale").textContent().catch(() => null) || "").trim();
+      if (scaleAfterZoom === scaleBeforeZoom) {
+        await page.mouse.move(pcx, pcy);
+        for (let i = 0; i < 20; i++) { await page.mouse.wheel(0, -120); await sleep(50); }
+        await sleep(500);
+        await settle(5000);
+        scaleAfterZoom = (await page.locator(".scale").textContent().catch(() => null) || "").trim();
+      }
+      const finalScaleText = scaleAfterZoom;
+      const scalePx = await page.evaluate(() => { const i = document.querySelector(".scale i"); return i ? Math.round(i.getBoundingClientRect().width) : null; }).catch(() => null);
+      await settle(10000);
+
+      trackDuringGesture = true;
+      const fpBeforeDrag = await viewFingerprint();
+      let dragOk = false;
+      let dragDelta = 0;
       try {
-        await page.evaluate(async () => {
-          window.__rec = true;
-          const start = performance.now();
-          while ((window.__frames || []).length < 120 && performance.now() - start < 8000) {
-            await new Promise((r) => requestAnimationFrame(r));
+        const b = await page.locator(".pan").boundingBox();
+        if (b) {
+          const cx = b.x + b.width / 2, cy = b.y + b.height / 2;
+          await page.mouse.move(cx, cy);
+          for (let i = 0; i < 40; i++) {
+            const dx = Math.round(Math.cos(i * 0.4) * 40);
+            const dy = Math.round(Math.sin(i * 0.4) * 40);
+            await page.mouse.wheel(dx, dy);
+            await sleep(250);
           }
-          window.__rec = false;
-        });
-        deltas = await page.evaluate(() => window.__frames || []);
-      } catch (e) { console.error("frame top-up failed:", e && e.message || e); }
+          dragOk = true;
+          dragDelta = 40;
+        }
+      } catch (e) {
+        console.error("drag gesture failed:", e && e.message || e);
+        dragOk = false;
+      }
+      trackDuringGesture = false;
+      trackGestureWindow = false;
+      let fpAfterDrag = null;
+      try { fpAfterDrag = await viewFingerprint(); } catch {}
+      try { await page.evaluate(() => { window.__rec = false; }); } catch {}
+      let deltas = [];
+      try { deltas = await page.evaluate(() => window.__frames || []); } catch (e) { console.error("read frames failed:", e && e.message || e); }
+      if (!deltas || deltas.length < 100) {
+        try {
+          await page.evaluate(async () => {
+            window.__rec = true;
+            const start = performance.now();
+            while ((window.__frames || []).length < 120 && performance.now() - start < 8000) {
+              await new Promise((r) => requestAnimationFrame(r));
+            }
+            window.__rec = false;
+          });
+          deltas = await page.evaluate(() => window.__frames || []);
+        } catch (e) { console.error("frame top-up failed:", e && e.message || e); }
+      }
+      if (!deltas || deltas.length < 100) throw new Error(`rAF samples too few: ${deltas ? deltas.length : 0}`);
+      const sorted = [...deltas].sort((a, b) => a - b);
+      const median = sorted[Math.floor(sorted.length / 2)];
+      const p95idx = Math.ceil(0.95 * sorted.length) - 1;
+      const p95 = sorted[Math.max(0, p95idx)];
+
+      const metrics = await cdp.send("Performance.getMetrics");
+      const heapMetric = (metrics.metrics || []).find((m) => m.name === "JSHeapUsedSize");
+      const heap = heapMetric ? heapMetric.value : null;
+
+      await context.close();
+
+      const maxRequestedZByLayer = {};
+      for (const [k, arr] of Object.entries(requestedTileZByLayer)) {
+        maxRequestedZByLayer[k] = arr.length ? Math.max(...arr) : null;
+      }
+      const scaleM = /([0-9.]+)\s*m/.exec(finalScaleText || "");
+      const kPxPerM = (scalePx != null && scaleM) ? (scalePx / parseFloat(scaleM[1])) : null;
+      const expectedMaxZ = kPxPerM != null ? Math.ceil(Math.log2((kPxPerM * extent * 1) / 256)) : null;
+
+      return {
+        facility: facilityId ? { id: facilityId, how: facilityHow } : null,
+        renderer,
+        frame_ms: { median: Math.round(median * 100) / 100, p95: Math.round(p95 * 100) / 100, samples: deltas.length },
+        whole: whole,
+        gesture: gestureWindow,
+        during_gesture: duringGesture,
+        heap,
+        final_zoom: { scale_text: (finalScaleText || "").trim(), clicks: 20, scale_px: scalePx, k_px_per_m: kPxPerM },
+        page_errors: pageErrors,
+        http_404s: http404s,
+        tile_requests: { requested_max_z_by_layer: maxRequestedZByLayer, zmax_by_layer: zmaxLayers, expected_max_z_at_final_k: expectedMaxZ },
+        drag_delta: { before_fp: fpBeforeDrag, after_fp: fpAfterDrag, changed: fpBeforeDrag !== fpAfterDrag && fpBeforeDrag != null && fpAfterDrag != null, delta: (fpBeforeDrag !== fpAfterDrag && fpBeforeDrag != null && fpAfterDrag != null) ? 1 : 0, drag_ok: dragOk, zoom_changed: fpBefore !== fpBeforeDrag },
+      };
+    } catch (e) {
+      try { if (context) await context.close(); } catch {}
+      throw e;
     }
-    if (!deltas || deltas.length < 100) throw new Error(`rAF samples too few: ${deltas ? deltas.length : 0}`);
-    const sorted = [...deltas].sort((a, b) => a - b);
-    const median = sorted[Math.floor(sorted.length / 2)];
-    const p95idx = Math.ceil(0.95 * sorted.length) - 1;
-    const p95 = sorted[Math.max(0, p95idx)];
-
-    const metrics = await cdp.send("Performance.getMetrics");
-    const heapMetric = (metrics.metrics || []).find((m) => m.name === "JSHeapUsedSize");
-    const heap = heapMetric ? heapMetric.value : null;
-
-    await context.close();
-
-    const maxRequestedZByLayer = {};
-    for (const [k, arr] of Object.entries(requestedTileZByLayer)) {
-      maxRequestedZByLayer[k] = arr.length ? Math.max(...arr) : null;
-    }
-    const scaleM = /([0-9.]+)\s*m/.exec(finalScaleText || "");
-    const kPxPerM = (scalePx != null && scaleM) ? (scalePx / parseFloat(scaleM[1])) : null;
-    const expectedMaxZ = kPxPerM != null ? Math.ceil(Math.log2((kPxPerM * extent * 1) / 256)) : null;
-
-    return {
-      facility: facilityId ? { id: facilityId, how: facilityHow } : null,
-      renderer,
-      frame_ms: { median: Math.round(median * 100) / 100, p95: Math.round(p95 * 100) / 100, samples: deltas.length },
-      whole: whole,
-      gesture: gestureWindow,
-      during_gesture: duringGesture,
-      heap,
-      final_zoom: { scale_text: (finalScaleText || "").trim(), clicks: 20, scale_px: scalePx, k_px_per_m: kPxPerM },
-      page_errors: pageErrors,
-      http_404s: http404s,
-      tile_requests: { requested_max_z_by_layer: maxRequestedZByLayer, zmax_by_layer: zmaxLayers, expected_max_z_at_final_k: expectedMaxZ },
-      drag_delta: { before_fp: fpBeforeDrag, after_fp: fpAfterDrag, changed: fpBeforeDrag !== fpAfterDrag && fpBeforeDrag != null && fpAfterDrag != null, delta: (fpBeforeDrag !== fpAfterDrag && fpBeforeDrag != null && fpAfterDrag != null) ? 1 : 0, drag_ok: dragOk, zoom_changed: fpBefore !== fpBeforeDrag },
-    };
   }
 
   async function measureWithRetry(port, label) {
