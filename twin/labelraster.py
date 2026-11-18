@@ -106,7 +106,7 @@ def _collect_drive(run, x0, y1, width=W_PX, height=H_PX, cell=G, nuscenes_root=N
     y = np.asarray(las.y)
     k = (x >= X0) & (x < X1) & (y > Y0) & (y <= Y1)
     if k.sum() < 20000:
-        raise OSError(f"{rname}: sparse drive")
+        raise OSError(f"{rname}: sparse ({int(k.sum())} points < 20000)")
     ix = ((x[k] - X0) / Gc).astype(int)
     iy = ((Y1 - y[k]) / Gc).astype(int)
     ok = (ix < W) & (iy < H)
@@ -302,8 +302,12 @@ def export_window(store, runs, *, site, x0, y1, width=1600, height=1500, cell=0.
             rname = _run_name(run)
             try:
                 dd = _collect_drive(run, x0, y1, width=width, height=height, cell=cell, nuscenes_root=nr)
-            except OSError:
-                missing.append(f"{rname}: missing ground.laz")
+            except OSError as e:
+                msg = str(e)
+                if "sparse" in msg:
+                    missing.append(msg)
+                else:
+                    missing.append(f"{rname}: missing ground.laz")
                 continue
 
             collected.append(rname)

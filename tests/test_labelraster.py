@@ -45,7 +45,7 @@ def test_blank_window_full_size_raw_base64():
     assert d["window"] == {"x0": 1.0, "y1": 2.0, "g": 0.05, "w": 1600, "h": 1500}
 
 
-def _make_laz(path, x0, y1, nx=200, ny=100):
+def _make_laz(path, x0, y1, nx=200, ny=100, intensity_range=None):
     import laspy
 
     xs = np.linspace(x0, x0 + 10, nx)
@@ -54,7 +54,11 @@ def _make_laz(path, x0, y1, nx=200, ny=100):
     xx = xx.ravel()
     yy = yy.ravel()
     z = np.zeros_like(xx)
-    intensity = np.ones_like(xx) * 100
+    if intensity_range is None:
+        intensity = np.ones_like(xx) * 100
+    else:
+        lo, hi = intensity_range
+        intensity = np.linspace(lo, hi, xx.size)
     header = laspy.LasHeader(point_format=3, version="1.2")
     las = laspy.LasData(header)
     las.x = xx
@@ -81,11 +85,12 @@ def test_sparse_drive_skipped(tmp_path):
     try:
         lr._collect_drive(run_dir, 0.0, 20.0)
         assert False, "expected sparse skip"
-    except OSError:
-        pass
+    except OSError as e:
+        assert "sparse" in str(e)
+        assert "points < 20000" in str(e)
     data = lr.export_window(tmp_path, [run_dir], site="s", x0=0.0, y1=20.0)
     assert data["no_imagery"] is True
-    assert any("sparse" in m or "missing ground" in m or "run1" in m for m in data["missing"]) or data["missing"] == ["no drives"]
+    assert any("sparse" in m and "points < 20000" in m for m in data["missing"]) or data["missing"] == ["no drives"]
 
 
 def test_export_window_without_cv2_keeps_lidar_and_height(tmp_path, monkeypatch):
@@ -119,25 +124,23 @@ def test_export_window_records_cv2_error_per_drive(tmp_path, monkeypatch):
     Image.new("RGBA", (50, 50), (0, 0, 0, 255)).save(od2 / "ortho.png")
     (od2 / "ortho.pgw").write_text("0.05 0 0 -0.05 0.025 19.975\n")
 
-    orig_fuse = lr._fuse
-
     def patched(drive, **kw):
         name = drive["run_name"] if isinstance(drive, dict) else str(drive)
         if name == "runA":
             raise lr.RasterError(name)
-        return orig_fuse(drive, **kw)
+        return {"used": False}, None
 
     monkeypatch.setattr(lr, "_fuse", patched)
     data = lr.export_window(tmp_path, [run1, run2], site="s", x0=0.0, y1=20.0)
     assert data["no_imagery"] is False
-    assert any("runA" in m for m in data["missing"])
-    assert "opencv unavailable: fused/ortho skipped" not in data["missing"] or True
+    assert any("runA" in m and "raster error" in m for m in data["missing"])
+    assert "opencv unavailable: fused/ortho skipped" not in data["missing"]
     Image.open(io.BytesIO(base64.b64decode(data["intensity"])))
 
 
 def test_export_window_all_raster_errors_keep_lidar(tmp_path, monkeypatch):
     run_dir = tmp_path / "run1"
-    _make_laz(run_dir / "4_ground" / "ground.laz", 0.0, 20.0)
+    _make_laz(run_dir / "4_ground" / "ground.laz", 0.0, 20.0, intensity_range=(100, 60000))
     od = run_dir / "6_colour"
     od.mkdir(parents=True, exist_ok=True)
     Image.new("RGBA", (50, 50), (0, 0, 0, 255)).save(od / "ortho.png")
@@ -150,9 +153,12 @@ def test_export_window_all_raster_errors_keep_lidar(tmp_path, monkeypatch):
     monkeypatch.setattr(lr, "_fuse", patched)
     data = lr.export_window(tmp_path, [run_dir], site="s", x0=0.0, y1=20.0)
     assert data["no_imagery"] is False
+    assert data["missing"] == ["run1: raster error"]
     img = Image.open(io.BytesIO(base64.b64decode(data["intensity"])))
     assert img.size == (1600, 1500)
-    assert any(b != 0 for b in img.tobytes()) or img.mode in ("L", "RGB")
+    arr = np.asarray(img)
+    assert arr.max() > 0
+    assert float(arr.std()) > 0.0
 
 
 def test_export_window_data_is_json_serialisable(tmp_path):
@@ -208,6 +214,9 @@ def test_export_window_frames_use_run_names(tmp_path):
     json.dumps(data)
 
 
-def test_export_window_uses_dataset_root_default(monkeypatch):
-    # _nuscenes_root(None) -> env root
+def test_export_window_uses_dataset_root_default(monkeypatch, tmp_path):
+    target = str(tmp_path / "nuscenes-root")
+    monkeypatch.setenv("NUSCENES_ROOT", target)
+    assert lr._nuscenes_root(None) == target
     assert lr._nuscenes_root(None) == DatasetConfig.from_env().root
+    assert lr._nuscenes_root(None) != "/data/nuscenes" or target == "/data/nuscenes"
