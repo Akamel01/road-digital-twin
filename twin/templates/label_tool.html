@@ -26,6 +26,7 @@ pre{white-space:pre-wrap;word-break:break-all;font-size:11px;max-height:300px;ov
 </style></head><body>
 <header><b>Labelling tool</b><span class="mute" id="sub"></span>
 <span style="flex:1"></span><div class="tabs"><button data-t="surf" class="on">Surfaces</button> <button data-t="dev">Devices</button> <button data-t="set">Audit set</button></div></header>
+<div id="banner" hidden style="background:#c0392b;color:#fff;padding:6px 12px"></div>
 <main><div id="mapwrap"><canvas id="map"></canvas><div class="hint" id="hint"></div><div id="legend" hidden style="position:absolute;right:8px;bottom:8px;background:#000c;color:#fff;padding:6px 8px;border-radius:6px;font-size:11px;width:210px"><div style="margin-bottom:3px">Height above road surface</div><div style="height:10px;border-radius:3px;background:linear-gradient(90deg,#0f1433,#1a59a6,#26b38c,#f2d933,#fff)"></div><div style="display:flex;justify-content:space-between;margin-top:2px"><span>0</span><span>5</span><span>10</span><span>15</span><span>20</span><span>25+ cm</span></div><div style="opacity:.75;margin-top:3px">Curb = sharp step from blue/teal (road) to yellow/white (sidewalk, 10-15 cm)</div></div></div>
 <aside>
 <div id="t-surf">
@@ -47,14 +48,12 @@ pre{white-space:pre-wrap;word-break:break-all;font-size:11px;max-height:300px;ov
 <section><h3>Supports <span class="badge" id="nsup">0</span></h3><div id="slots"></div></section>
 </div>
 <div id="t-set" hidden>
+<section><h3>Site metadata</h3><div class="row"><label>Control <select id="control"><option value=""></option><option value="signalised">signalised</option><option value="stop_controlled">stop_controlled</option><option value="uncontrolled">uncontrolled</option><option value="mid_block">mid_block</option></select></label></div><textarea id="notes" rows="4" style="width:100%"></textarea><div class="row"><button class="btn" id="savemeta">Save metadata</button><button class="btn" id="gsat">Satellite</button><button class="btn" id="gsv">Street View</button></div></section>
 <section><h3>Audit set</h3><div class="row"><span id="setid"></span></div>
-<div class="row"><button class="btn" id="freeze">Freeze this version</button><button class="btn" id="newver">Start next version</button><button class="btn" id="dl">Download JSON</button><button class="btn" id="reset">Clear all</button></div>
+<div class="row"><button class="btn" id="freeze" disabled title="server-owned; use twin labels approve/new-version">Freeze this version</button><button class="btn" id="newver" disabled title="server-owned; use twin labels approve/new-version">Start next version</button><button class="btn" id="dl">Download JSON</button><button class="btn" id="reset" disabled title="server-owned; use twin labels approve/new-version">Clear all</button></div>
 <div class="mute" id="frz"></div></section>
-<section><h3>How it stays out of tuning (proposal)</h3><div class="mute">
-1. A frozen set is stored as <code>audits/&lt;area&gt;/&lt;set&gt;@vN.json</code> with its SHA-256. Edits only go into a new version.<br>
-2. Only the scoring step reads audit sets. A parameter search gets the score, never the per-feature residuals.<br>
-3. Each run records the set id and hash it was scored on. A gate compares two runs only on the same set and hash.<br>
-4. Whoever tunes a method never edits the set it is scored on; the operator labels the set.</div></section>
+<section><h3>Labels store</h3><div class="mute">
+Surfaces persist through the labels API. Freeze/new-version are server-owned.</div></section>
 <section><h3>File</h3><pre id="json"></pre></section>
 </div>
 </aside></main>
@@ -68,10 +67,20 @@ const AREA_TYPES=new Set(DATA.area_types);
 const CODES=[["R1-1","Stop"],["R1-2","Yield"],["R2-1","Speed limit"],["R3-1","No right turn"],["R3-2","No left turn"],["R3-4","No U-turn"],["R3-5","Mandatory movement lane"],["R3-7","Lane control"],["R4-7","Keep right"],["R5-1","Do not enter"],["R6-1","One way"],["R7-1","No parking"],["R8-3","No parking (symbol)"],["R10-11","No turn on red"],["W1-1","Turn"],["W11-2","Pedestrian crossing"],["W16-7P","Downward arrow plaque"],["R3-5aP","Only plaque"],["R10-20aP","Time plaque"],["D3-1","Street name"],["sign, other","Not in list (code indeterminate)"]];
 const SIG=[["3-section","3 lenses, vertical"],["5-section","5 lenses, with arrows"],["4-section FYA","Flashing yellow arrow"],["ped","Pedestrian signal"],["signal, other","Not in list"]];
 const DEV_STORE="labeltool-devices-"+SITE;
-let state={set:SITE,version:1,frozen:false,surfaces:[],supports:[],devices:[],loaded:true,meta:null};
+let state={set:SITE,version:1,frozen:false,surfaces:[],supports:[],devices:[],loaded:false,meta:null,passthrough:[],stopped:false};
 try{const d=JSON.parse(localStorage.getItem(DEV_STORE));if(d){state.supports=d.supports||[];state.devices=d.devices||[]}}catch(e){}
 state.nextType=DATA.surface_types[0];
 const save=()=>{try{localStorage.setItem(DEV_STORE,JSON.stringify({supports:state.supports,devices:state.devices}))}catch(e){};renderAll()};
+function showBanner(msg){const b=$("banner");if(!msg){b.hidden=true;b.textContent="";return;}b.hidden=false;b.textContent=msg;}
+function requireEditable(){if(!PURE.editsAllowed(state.meta,state.loaded)){showBanner("Not editable");return false;}return true;}
+let putTimer=null,dirty=false;
+async function flushPut(keepalive){if(state.stopped||!state.loaded||!PURE.editsAllowed(state.meta,state.loaded))return;dirty=false;const body=PURE.putBody(state.meta?state.meta.version:state.version,state.passthrough,state.surfaces,DATA.surface_map);try{const res=await fetch(`/api/w/labels/${SITE}/labels`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body),keepalive:!!keepalive});if(res.status===200){showBanner("");}else if(res.status===409){state.stopped=true;showBanner("reload: the file may have changed");}else if(res.status===423){showBanner("frozen");}else if(res.status===401||res.status===403){showBanner("run locally with TWIN_DEV_NO_AUTH=1");}}catch(e){showBanner("save failed");}}
+function queuePut(){if(state.stopped||!state.loaded||!PURE.editsAllowed(state.meta,state.loaded))return;dirty=true;if(putTimer)clearTimeout(putTimer);putTimer=setTimeout(()=>flushPut(false),400);}
+async function saveMeta(){if(!requireEditable())return;const body=PURE.metaBody($("control").value,$("notes").value);try{const res=await fetch(`/api/w/labels/${SITE}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});if(res.status===200){const j=await res.json();state.meta=j;state.version=j.version;state.frozen=!!j.frozen;if($("control"))$("control").value=j.control||"";if($("notes"))$("notes").value=j.notes||"";showBanner("");renderAll();}else if(res.status===409){state.stopped=true;showBanner("reload: the file may have changed");}else if(res.status===423){showBanner("frozen");}else if(res.status===401||res.status===403){showBanner("run locally with TWIN_DEV_NO_AUTH=1");}}catch(e){showBanner("save failed");}}
+async function boot(){try{const metaRes=await fetch(`/api/r/labels/${encodeURIComponent(SITE)}`);const labelsRes=await fetch(`/api/r/labels/${SITE}/labels`);if(!metaRes.ok||!labelsRes.ok)throw new Error("boot");const meta=await metaRes.json();const labels=await labelsRes.json();state.meta=meta;state.version=meta.version;state.frozen=!!meta.frozen;state.passthrough=[];state.surfaces=[];const feats=(labels.features||(labels.feature_collection&&labels.feature_collection.features)||[]);for(const f of feats){const s=PURE.featureToSurface(f,W,DATA.surface_map,DATA.schema_fields);if(s)state.surfaces.push(s);else state.passthrough.push(f);}state.loaded=true;if($("control"))$("control").value=meta.control||"";if($("notes"))$("notes").value=meta.notes||"";renderAll();if(DATA.missing)showBanner(DATA.missing);else if(DATA.window_fallback)showBanner(DATA.window_fallback);else showBanner("");}catch(e){state.loaded=false;showBanner("Failed to load labels");}}
+window.addEventListener("pagehide",()=>flushPut(true));
+window.addEventListener("beforeunload",()=>flushPut(true));
+
 const $=id=>document.getElementById(id);
 // ---------- images
 function img(b64,mime){const i=new Image();i.src=`data:${mime};base64,${b64}`;return i}
@@ -85,12 +94,12 @@ const cv=$("map"),cx=cv.getContext("2d");let view={k:0.5,ox:0,oy:0},tab="surf",c
 function fit(){const r=cv.parentElement.getBoundingClientRect();cv.width=r.width*devicePixelRatio;cv.height=r.height*devicePixelRatio;cv.style.width=r.width+"px";cv.style.height=r.height+"px";const k=Math.min(r.width/W.w,r.height/W.h);view={k,ox:(r.width-W.w*k)/2,oy:(r.height-W.h*k)/2};draw()}
 const toPx=(x,y)=>[(x-W.x0)/W.g,(W.y1-y)/W.g],toW=(c,r)=>[W.x0+c*W.g,W.y1-r*W.g];
 const scr=p=>[p[0]*view.k+view.ox,p[1]*view.k+view.oy],unscr=(sx,sy)=>[(sx-view.ox)/view.k,(sy-view.oy)/view.k];
-function snapPt(p){if(!$("snap").checked)return p;let best=null,bd=10/view.k;for(const f of state.surfaces)for(const v of f.px){const d=Math.hypot(v[0]-p[0],v[1]-p[1]);if(d<bd){bd=d;best=v}}for(const v of cur.slice(0,-0)){const d=Math.hypot(v[0]-p[0],v[1]-p[1]);if(d<bd&&cur.length>2&&v===cur[0]){bd=d;best=v}}if(best)return [...best];
+function snapPt(p){if(DATA.no_imagery)return p;if(!$("snap").checked)return p;let best=null,bd=10/view.k;for(const f of state.surfaces)for(const v of f.px){const d=Math.hypot(v[0]-p[0],v[1]-p[1]);if(d<bd){bd=d;best=v}}for(const v of cur.slice(0,-0)){const d=Math.hypot(v[0]-p[0],v[1]-p[1]);if(d<bd&&cur.length>2&&v===cur[0]){bd=d;best=v}}if(best)return [...best];
  const t=$("stype").value;if(!grad||t==="lane line, double yellow")return p;const ridge=t.startsWith("lane line")||t==="stop line",src=ridge?lum:(t==="curb"&&hgrad?hgrad:grad);let c0=Math.round(p[0]),r0=Math.round(p[1]),bg_=-1,bp=p;for(let dr=-4;dr<=4;dr++)for(let dc=-4;dc<=4;dc++){const c=c0+dc,r=r0+dr;if(c<1||r<1||c>=W.w-1||r>=W.h-1||dc*dc+dr*dr>16)continue;const g=src[r*W.w+c];if(g>bg_){bg_=g;bp=[c,r]}}return bp}
 const COL={"lane line, solid white":"#ffffff","lane line, dashed white":"#d0e8ff","lane line, solid yellow":"#ffd21f","lane line, double yellow":"#ffaa00","stop line":"#ff5a5a","crosswalk, ladder":"#68d391","crosswalk, zebra":"#2c7a7b","crosswalk, continental":"#4fd1c5","crosswalk, transverse":"#38b2ac","curb":"#c084fc","edge of pavement":"#a3a3a3"};
 function draw(){const d=devicePixelRatio;cx.setTransform(d,0,0,d,0,0);cx.fillStyle="#000";cx.fillRect(0,0,cv.width,cv.height);cx.save();cx.translate(view.ox,view.oy);cx.scale(view.k,view.k);cx.imageSmoothingEnabled=view.k<2;
  if(BG[bg].complete)cx.drawImage(BG[bg],0,0);$("legend").hidden=bg!=="height";cx.lineWidth=2/view.k;
- for(const f of state.surfaces){const c=COL[f.type]||"#ffffff";cx.strokeStyle=c;cx.beginPath();f.px.forEach((v,i)=>i?cx.lineTo(...v):cx.moveTo(...v));if(f.geom==="polygon"){cx.closePath();cx.fillStyle=c+"22";cx.fill()}cx.stroke()}
+ for(const f of state.surfaces){const c=COL[f.rawType]||"#ffffff";cx.strokeStyle=c;cx.beginPath();f.px.forEach((v,i)=>i?cx.lineTo(...v):cx.moveTo(...v));if(f.geom==="polygon"){cx.closePath();cx.fillStyle=c+"22";cx.fill()}cx.stroke()}
  if(cur.length){cx.strokeStyle=COL[$("stype").value];cx.setLineDash([6/view.k,4/view.k]);cx.beginPath();cur.forEach((v,i)=>i?cx.lineTo(...v):cx.moveTo(...v));if(hover)cx.lineTo(...hover);cx.stroke();cx.setLineDash([]);for(const v of cur){cx.fillStyle="#fff";cx.fillRect(v[0]-2/view.k,v[1]-2/view.k,4/view.k,4/view.k)}}
  // camera positions
  for(const [i,f] of DATA.frames.entries()){const p=toPx(f.c2w[0][3],f.c2w[1][3]);const dir=[f.c2w[0][2],-f.c2w[1][2]];const on=i===A.i||i===B.i;cx.strokeStyle=on?(i===A.i?"#58a6ff":"#d9a521"):"#ffffff66";cx.beginPath();cx.moveTo(...p);cx.lineTo(p[0]+dir[0]*40,p[1]+dir[1]*40);cx.stroke();cx.fillStyle=cx.strokeStyle;cx.beginPath();cx.arc(p[0],p[1],4/view.k,0,7);cx.fill()}
@@ -99,15 +108,15 @@ function draw(){const d=devicePixelRatio;cx.setTransform(d,0,0,d,0,0);cx.fillSty
  if(tri){const p=toPx(tri.X[0],tri.X[1]);cx.strokeStyle="#ff0";cx.beginPath();cx.arc(p[0],p[1],10/view.k,0,7);cx.stroke()}
  cx.restore();$("hint").textContent=tab==="surf"?(cur.length?`${cur.length} vertices · Enter to finish`:"Pick a type, then click to trace"):"Cameras: blue = A, gold = B · orange = Support (count of devices)"}
 cv.addEventListener("contextmenu",e=>e.preventDefault());
-cv.addEventListener("pointerdown",e=>{const r=cv.getBoundingClientRect();if(e.button===2||space){pan=[e.clientX,e.clientY,view.ox,view.oy];return}if(tab!=="surf")return;cur.push(snapPt(unscr(e.clientX-r.left,e.clientY-r.top)));draw()});
+cv.addEventListener("pointerdown",e=>{const r=cv.getBoundingClientRect();if(e.button===2||space){pan=[e.clientX,e.clientY,view.ox,view.oy];return}if(tab!=="surf")return;if(!requireEditable())return;cur.push(snapPt(unscr(e.clientX-r.left,e.clientY-r.top)));draw()});
 cv.addEventListener("pointermove",e=>{const r=cv.getBoundingClientRect();if(pan){view.ox=pan[2]+e.clientX-pan[0];view.oy=pan[3]+e.clientY-pan[1];draw();return}if(cur.length){hover=snapPt(unscr(e.clientX-r.left,e.clientY-r.top));draw()}});
 addEventListener("pointerup",()=>pan=null);
 cv.addEventListener("dblclick",()=>{cur.pop();finish()});
 cv.addEventListener("wheel",e=>{e.preventDefault();const r=cv.getBoundingClientRect(),sx=e.clientX-r.left,sy=e.clientY-r.top,p=unscr(sx,sy),f=Math.exp(-e.deltaY*0.0015);view.k=Math.min(16,Math.max(0.2,view.k*f));view.ox=sx-p[0]*view.k;view.oy=sy-p[1]*view.k;draw()},{passive:false});
 addEventListener("keydown",e=>{if(e.target.tagName==="INPUT")return;if(e.code==="Space"){space=true;e.preventDefault()}if(tab!=="surf")return;if(e.key==="Enter")finish();if(e.key==="Escape"){cur=[];draw()}if(e.key==="Backspace"){cur.pop();draw()}});
 addEventListener("keyup",e=>{if(e.code==="Space")space=false});
-function finish(){const t=$("stype").value,poly=AREA_TYPES.has(t);if(cur.length<(poly?3:2)){cur=[];draw();return}if(state.frozen){alert("This version is frozen. Start the next version to edit.");cur=[];return}
- state.surfaces.push({id:"s"+Date.now().toString(36),type:t,geom:poly?"polygon":"polyline",px:cur.map(v=>[+v[0].toFixed(2),+v[1].toFixed(2)]),xy:cur.map(v=>toW(...v).map(n=>+n.toFixed(3))),evidence:bg,by:"operator"});cur=[];hover=null;save()}
+function finish(){if(!requireEditable())return;const t=$("stype").value,poly=AREA_TYPES.has(t);if(cur.length<(poly?3:2)){cur=[];draw();return}
+ state.surfaces.push({id:"s"+Date.now().toString(36),rawType:t,geom:poly?"polygon":"polyline",px:cur.map(v=>[+v[0].toFixed(2),+v[1].toFixed(2)]),xy:cur.map(v=>toW(...v).map(n=>+n.toFixed(3))),evidence:bg,by:"operator"});cur=[];hover=null;queuePut();renderAll();draw()}
 // ---------- cameras
 const A={i:-1,uv:null},B={i:-1,uv:null};let tri=null;
 const mul=(M,v)=>M.map(r=>r[0]*v[0]+r[1]*v[1]+r[2]*v[2]);
@@ -144,14 +153,28 @@ $("dsave").onclick=()=>{if(!tri)return;let s=nearestSupport(tri.X);if(!s){s={id:
  state.devices.push(dev);A.uv=B.uv=null;tri=null;$("dval").value="";$("dplaque").checked=false;save();triangulate()};
 $("dclear").onclick=()=>{A.uv=B.uv=null;triangulate()};
 // ---------- lists
-function renderAll(){ $("nsurf").textContent=state.surfaces.length;$("slist").innerHTML=state.surfaces.map(f=>`<div><span><span style="color:${COL[f.type]}">■</span> ${f.type} · ${f.px.length} pts · ${len(f).toFixed(1)} m</span><span class="x" data-s="${f.id}">✕</span></div>`).join("")||'<span class="mute">None yet.</span>';
+function renderAll(){ $("nsurf").textContent=state.surfaces.length;
+ const slist=$("slist"); slist.textContent="";
+ for(const f of state.surfaces){
+   const div=document.createElement("div");
+   const span=document.createElement("span");
+   const sq=document.createElement("span"); sq.style.color=COL[f.rawType]||"#ffffff"; sq.textContent="■ "; span.append(sq);
+   const txt=document.createTextNode(`${f.rawType} · ${f.px.length} pts · ${len(f).toFixed(1)} m`); span.append(txt);
+   const sel=document.createElement("select");
+   for(const t of SURF_TYPES){const o=document.createElement("option");o.value=t;o.textContent=t;if(t===f.rawType)o.selected=true;sel.append(o);}
+   sel.onchange=()=>{if(!requireEditable()){sel.value=f.rawType;return;}const ns=PURE.changeSurfaceType(f,sel.value,DATA.surface_map);if(!ns){showBanner("that type needs a polygon");sel.value=f.rawType;return;}const idx=state.surfaces.indexOf(f);state.surfaces[idx]=ns;queuePut();renderAll();};
+   const x=document.createElement("span"); x.className="x"; x.dataset.s=f.id; x.textContent="✕";
+   div.append(span,sel,x); slist.append(div);
+ }
+ if(!state.surfaces.length){const sp=document.createElement("span");sp.className="mute";sp.textContent="None yet.";slist.append(sp);}
  $("nsup").textContent=state.supports.length;$("slots").innerHTML=state.supports.map(s=>{const ds=state.devices.filter(d=>d.support===s.id).sort((a,b)=>b.z-a.z);return `<div class="stack"><b>${s.id}</b> <span class="mute">${s.kind} · ${ds.length} device(s)</span>${ds.map(d=>`<div class="sg ${d.plaque?"pl":""}"><span>${d.plaque?"↳ ":""}${d.code}${d.value?" · "+d.value:""}</span><span class="mute">h ${d.mount_h} m · ${d.facing_deg}° · gap ${d.ray_gap_m} m</span><span class="x" data-d="${d.id}">✕</span></div>`).join("")}</div>`}).join("")||'<span class="mute">No devices yet.</span>';
- $("setid").innerHTML=`<b>${state.set}@v${state.version}</b> · ${state.surfaces.length} surface features · ${state.devices.length} devices on ${state.supports.length} supports`;
- $("frz").textContent=state.frozen?`Frozen ${state.frozen.at} · sha256 ${state.frozen.sha256.slice(0,16)}… Read-only.`:"Draft: editable.";$("json").textContent=JSON.stringify(fileOf(),null,1);draw()}
+ $("setid").textContent=`${SITE}@v${state.meta?state.meta.version:state.version} · ${state.surfaces.length} surface features · ${state.devices.length} devices on ${state.supports.length} supports`;
+ $("frz").textContent=state.meta?PURE.siteSummary(state.meta):"Draft: editable.";
+ $("json").textContent=JSON.stringify(fileOf(),null,1);draw()}
+
 const len=f=>f.xy.reduce((s,v,i)=>i?s+Math.hypot(v[0]-f.xy[i-1][0],v[1]-f.xy[i-1][1]):0,0);
-function fileOf(){return{schema:"twin.audit/1",set:state.set,version:state.version,area:"seaport",crs:"EPSG:32619",window:{x0:W.x0,y1:W.y1,x1:W.x0+W.w*W.g,y0:W.y1-W.h*W.g},use:"scoring-only",labelled_by:"operator",frozen:state.frozen,
- surface_features:state.surfaces.map(({px,...f})=>f),supports:state.supports,devices:state.devices}}
-document.addEventListener("click",e=>{const s=e.target.dataset.s,d=e.target.dataset.d;if(!s&&!d)return;if(state.frozen)return alert("Frozen version: start the next version to edit.");if(s)state.surfaces=state.surfaces.filter(f=>f.id!==s);if(d){state.devices=state.devices.filter(x=>x.id!==d);state.supports=state.supports.filter(p=>state.devices.some(x=>x.support===p.id))}save()});
+function fileOf(){return{set:SITE,version:state.meta?state.meta.version:state.version,source:"labels-store",surface_features:state.surfaces.map(({px,...f})=>f)}}
+document.addEventListener("click",e=>{const s=e.target.dataset.s,d=e.target.dataset.d;if(!s&&!d)return;if(!requireEditable())return;if(s)state.surfaces=state.surfaces.filter(f=>f.id!==s);if(d){state.devices=state.devices.filter(x=>x.id!==d);state.supports=state.supports.filter(p=>state.devices.some(x=>x.support===p.id))}try{localStorage.setItem(DEV_STORE,JSON.stringify({supports:state.supports,devices:state.devices}))}catch(e){};queuePut();renderAll()});
 $("freeze").onclick=async()=>{if(state.frozen)return;const f=fileOf();f.frozen=null;const h=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(JSON.stringify(f)));state.frozen={at:new Date().toISOString(),sha256:[...new Uint8Array(h)].map(b=>b.toString(16).padStart(2,"0")).join("")};save()};
 $("newver").onclick=()=>{if(!state.frozen)return;state.version++;state.frozen=null;save()};
 $("reset").onclick=()=>{if(confirm("Clear every traced feature and device in this browser?")){state={set:state.set,version:1,frozen:null,surfaces:[],supports:[],devices:[]};save()}};
@@ -162,5 +185,9 @@ document.querySelectorAll("[data-bg]").forEach(b=>b.onclick=()=>{bg=b.dataset.bg
 {const s=Object.values(DATA.fuse_stats),u=s.filter(x=>x.used);$("fuseinfo").textContent=`Combined: brightness 65% LiDAR intensity + 35% orthoimage, colour from the orthoimage. Each drive's orthoimage was shifted onto its own LiDAR first (median shift ${(u.map(x=>x.shift_cm).sort((a,b)=>a-b)[u.length>>1]||0)} cm); ${u.length} of ${s.length} drives registered, the rest left out.`}
 $("sub").textContent=`${SITE} · 80×75 m at 5 cm · ${DATA.frames.length} camera frames`;
 $("stype").innerHTML=SURF_TYPES.map(t=>`<option>${t}</option>`).join("");fillCodes();
-addEventListener("resize",fit);fit();renderAll();triangulate();
+if($("savemeta"))$("savemeta").onclick=saveMeta;
+if($("control"))$("control").onchange=saveMeta;
+if($("gsat"))$("gsat").onclick=async()=>{const w=window.open("about:blank","_blank");const centre=toW(...unscr(cv.clientWidth/2,cv.clientHeight/2));try{const res=await fetch(`/api/r/geo/latlon?x=${centre[0]}&y=${centre[1]}`);if(!res.ok)throw new Error();const j=await res.json();const url=`https://www.google.com/maps/@?api=1&map_action=map&center=${j.lat},${j.lon}&zoom=19&basemap=satellite`;if(w)w.location=url;else location.href=url;}catch(e){showBanner("geo failed");if(w)w.close();}};
+if($("gsv"))$("gsv").onclick=async()=>{const w=window.open("about:blank","_blank");const centre=toW(...unscr(cv.clientWidth/2,cv.clientHeight/2));try{const res=await fetch(`/api/r/geo/latlon?x=${centre[0]}&y=${centre[1]}`);if(!res.ok)throw new Error();const j=await res.json();const url=`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${j.lat},${j.lon}`;if(w)w.location=url;else location.href=url;}catch(e){showBanner("geo failed");if(w)w.close();}};
+addEventListener("resize",fit);fit();boot();triangulate();
 </script></body></html>
