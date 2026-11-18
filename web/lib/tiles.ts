@@ -100,3 +100,78 @@ export function visibleTiles(
   }
   return out;
 }
+
+export const MAX_K = 40;
+export const MAX_VIEW_ZOOM = Math.log2(MAX_K);
+
+export interface ViewState {
+  target: [number, number, number];
+  zoom: number;
+  k?: number;
+}
+
+export type BBox = [[number, number], [number, number]];
+
+export type TileIndex = { x: number; y: number; z: number };
+
+export function viewStateOf(v: View, size: Size): ViewState {
+  const k = v.k;
+  const target: [number, number, number] = [(size.w / 2 - v.tx) / k, (size.h / 2 - v.ty) / k, 0];
+  const zoom = Math.log2(k);
+  return { target, zoom, k };
+}
+
+export function viewOf(s: ViewState, size: Size): View {
+  const k = 2 ** s.zoom;
+  return { k, tx: size.w / 2 - k * s.target[0], ty: size.h / 2 - k * s.target[1] };
+}
+
+export function fitState(r: Rect, size: Size, pad: number, maxK?: number): ViewState {
+  const view = fitView(r, size, pad, maxK ?? Infinity);
+  return viewStateOf(view, size);
+}
+
+export function minZoomOf(area: Rect, size: Size): number {
+  return Math.log2(fitView(area, size, 1.02).k * 0.8);
+}
+
+export function bitmapBounds(b: BBox): [number, number, number, number] {
+  return [b[0][0], b[1][1], b[1][0], b[0][1]];
+}
+
+export function normaliseTileBBox(b: unknown): BBox | null {
+  if (Array.isArray(b)) {
+    if (b.length === 4 && b.every((v) => typeof v === "number")) {
+      return [[b[0], b[1]], [b[2], b[3]]];
+    }
+    if (
+      b.length === 2 &&
+      Array.isArray(b[0]) &&
+      Array.isArray(b[1]) &&
+      b[0].length === 2 &&
+      b[1].length === 2 &&
+      [...b[0], ...b[1]].every((v) => typeof v === "number")
+    ) {
+      return [[b[0][0], b[0][1]], [b[1][0], b[1][1]]];
+    }
+    return null;
+  }
+  if (b !== null && typeof b === "object") {
+    const o = b as { west?: unknown; south?: unknown; east?: unknown; north?: unknown };
+    if (
+      typeof o.west === "number" &&
+      typeof o.south === "number" &&
+      typeof o.east === "number" &&
+      typeof o.north === "number"
+    ) {
+      return [[o.west, o.south], [o.east, o.north]];
+    }
+  }
+  return null;
+}
+
+export function tileBounds(index: TileIndex, extent: number): BBox {
+  const n = 2 ** index.z;
+  const s = extent / n;
+  return [[index.x * s, index.y * s], [(index.x + 1) * s, (index.y + 1) * s]];
+}
