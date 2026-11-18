@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
+from twin import labels as labels_store
 from twin.access import Verifier, verifier_from_env
 from twin.contracts import (
     PARAM_STAGE,
@@ -40,7 +41,13 @@ from twin.runstore import RunStore
 
 ALLOWED_ORIGIN = "https://twin.papyrus-ai.net"
 RUN_ID = re.compile(r"\d{8}-\d{6}-[0-9a-f]{6}")
+SITE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 COMPARE_SECTIONS = ("pipeline", "params", "metrics")
+
+
+def _check_site(site: str) -> None:
+    if not SITE_ID.fullmatch(site) or ".." in site or "\\" in site:
+        raise HTTPException(422, "bad site")
 
 
 def _check_id(run_id: str) -> None:
@@ -79,6 +86,15 @@ class RerunBody(BaseModel):
     params: dict[str, Any] | None = None
 
 
+class LabelsUpdate(BaseModel):
+    version: int
+    feature_collection: Any
+
+
+class ApproveBody(BaseModel):
+    approved_by: str
+
+
 def _known_run(store: Path, run_id: str) -> None:
     _check_id(run_id)
     if not (store / run_id / "manifest.json").is_file():
@@ -104,7 +120,7 @@ def create_app(store: Path, verifier: Verifier | None = None) -> FastAPI:
         CORSMiddleware,
         allow_origins=[ALLOWED_ORIGIN, *extra],
         allow_credentials=True,
-        allow_methods=["GET", "POST"],
+        allow_methods=["GET", "POST", "PUT"],
         allow_headers=["Content-Type"],
     )
 
@@ -170,6 +186,31 @@ def create_app(store: Path, verifier: Verifier | None = None) -> FastAPI:
             if p not in flat_a or p not in flat_b or flat_a[p] != flat_b[p]
         ]
 
+    @app.get("/api/r/labels/sites")
+    def list_label_sites() -> list[str]:
+        root = store / "labels"
+        if not root.is_dir():
+            return []
+        return sorted(p.name for p in root.iterdir() if p.is_dir() and (p / "site.json").is_file())
+
+    @app.get("/api/r/labels/{site}")
+    def get_label_site(site: str) -> dict[str, Any]:
+        _check_site(site)
+        try:
+            meta = labels_store.read_site(store, site)
+        except FileNotFoundError as exc:
+            raise HTTPException(404, "site not found") from exc
+        return meta.model_dump(mode="json")
+
+    @app.get("/api/r/labels/{site}/labels")
+    def get_site_labels(site: str) -> dict[str, Any]:
+        _check_site(site)
+        try:
+            labels_store.read_site(store, site)  # existence check
+        except FileNotFoundError as exc:
+            raise HTTPException(404, "site not found") from exc
+        return labels_store.read_labels(store, site)
+
     write = APIRouter(prefix="/api/w", dependencies=[Depends(verifier.verify)])
     next_prefixes = tuple(f"{o.rstrip('/')}/" for o in (ALLOWED_ORIGIN, *extra))
 
@@ -206,6 +247,44 @@ def create_app(store: Path, verifier: Verifier | None = None) -> FastAPI:
         _known_run(store, run_id)
         cancel(store, run_id)
         return {"run_id": run_id}
+
+    @write.put("/labels/{site}/labels")
+    def put_site_labels(site: str, body: LabelsUpdate) -> dict[str, Any]:
+        _check_site(site)
+        if not isinstance(body.feature_collection, dict):
+            raise HTTPException(422, "feature_collection must be an object")
+        try:
+            meta = labels_store.write_labels(
+                store, site, body.feature_collection, expected_version=body.version
+            )
+        except FileNotFoundError as exc:
+            raise HTTPException(404, "site not found") from exc
+        except labels_store.FrozenSiteError as exc:
+            raise HTTPException(423, str(exc)) from exc
+        except ValueError as exc:
+            msg = str(exc)
+            if "stale version" in msg:
+                raise HTTPException(409, msg) from exc
+            raise HTTPException(422, msg) from exc
+        return meta.model_dump(mode="json")
+
+    @write.post("/labels/{site}/approve")
+    def approve_site(site: str, body: ApproveBody) -> dict[str, Any]:
+        _check_site(site)
+        try:
+            meta = labels_store.approve(store, site, body.approved_by)
+        except FileNotFoundError as exc:
+            raise HTTPException(404, "site not found") from exc
+        return meta.model_dump(mode="json")
+
+    @write.post("/labels/{site}/new-version")
+    def new_site_version(site: str) -> dict[str, Any]:
+        _check_site(site)
+        try:
+            meta = labels_store.new_version(store, site)
+        except FileNotFoundError as exc:
+            raise HTTPException(404, "site not found") from exc
+        return meta.model_dump(mode="json")
 
     app.include_router(write)
     return app

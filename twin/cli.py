@@ -8,9 +8,11 @@ from twin import REPO
 from twin.contracts import (
     STAGE_NAMES,
     AreaIndex,
+    LabelFeature,
     Manifest,
     Params,
     Pipeline,
+    SiteMeta,
     StageResult,
 )
 from twin.dataset import DatasetConfig
@@ -22,6 +24,8 @@ SCHEMA_MODELS = {
     "manifest": Manifest,
     "stage_result": StageResult,
     "area_index": AreaIndex,
+    "site_meta": SiteMeta,
+    "label_feature": LabelFeature,
 }
 
 
@@ -213,6 +217,30 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8090)
+    labels = sub.add_parser("labels", help="labelled site management").add_subparsers(
+        dest="labels_cmd"
+    )
+    labels_draft = labels.add_parser("draft", help="draft labels from an area build")
+    labels_draft.add_argument("site", help="site id")
+    labels_draft.add_argument("--area", required=True, help="area name or build dir")
+    labels_draft.add_argument(
+        "--role", choices=("dev", "audit"), default="dev", help="site role"
+    )
+    labels_draft.add_argument("--force", action="store_true", help="overwrite existing site")
+    labels_draft.add_argument(
+        "--store", type=Path, help="run store (default: $TWIN_RUNS or /data/twin-runs)"
+    )
+    labels_approve = labels.add_parser("approve", help="approve and freeze a site")
+    labels_approve.add_argument("site", help="site id")
+    labels_approve.add_argument("--by", required=True, help="approver name")
+    labels_approve.add_argument(
+        "--store", type=Path, help="run store (default: $TWIN_RUNS or /data/twin-runs)"
+    )
+    labels_new_version = labels.add_parser("new-version", help="start a new editable version")
+    labels_new_version.add_argument("site", help="site id")
+    labels_new_version.add_argument(
+        "--store", type=Path, help="run store (default: $TWIN_RUNS or /data/twin-runs)"
+    )
     return parser
 
 
@@ -336,6 +364,33 @@ def main(argv: list[str] | None = None) -> int:
         from twin.api import serve_command
 
         return serve_command(args.store, args.host, args.port)
+    if args.command == "labels" and args.labels_cmd == "draft":
+        from twin.labels import draft as draft_labels
+        from twin.runner import default_store
+
+        store = args.store if args.store is not None else default_store()
+        try:
+            draft_labels(store, args.site, args.area, force=args.force, role=args.role)
+        except FileExistsError as exc:
+            import sys
+
+            print(str(exc), file=sys.stderr)
+            return 2
+        return 0
+    if args.command == "labels" and args.labels_cmd == "approve":
+        from twin.labels import approve as approve_labels
+        from twin.runner import default_store
+
+        store = args.store if args.store is not None else default_store()
+        approve_labels(store, args.site, args.by)
+        return 0
+    if args.command == "labels" and args.labels_cmd == "new-version":
+        from twin.labels import new_version as new_version_labels
+        from twin.runner import default_store
+
+        store = args.store if args.store is not None else default_store()
+        new_version_labels(store, args.site)
+        return 0
     return 0
 
 

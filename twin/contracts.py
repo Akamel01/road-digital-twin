@@ -596,6 +596,62 @@ class AreaIndex(_Strict):
     facilities: list[AreaFacility] = Field(default_factory=list)
 
 
+# ------------------------------------------------------------------ labels (audit set)
+
+
+class SiteMeta(_Strict):
+    id: str
+    role: Literal["dev", "audit"]
+    polygon: dict[str, Any]
+    version: int = Field(1, ge=1)
+    approved_by: str | None = None
+    approved_at: str | None = None
+    crs: Literal["EPSG:32619"] = "EPSG:32619"
+    created_at: str
+    source_area: str
+    frozen: bool = False
+
+
+class LabelFeature(_Strict):
+    id: str
+    element: Literal["marking", "crosswalk", "curb", "curb_ramp"]
+    type: Literal[
+        "solid_line",
+        "dashed_line",
+        "edge_line",
+        "stop_line",
+        "arrow",
+        "text",
+        "zebra",
+        "parallel",
+        "curb",
+        "curb_ramp",
+    ]
+    origin: Literal["drafted", "operator"]
+    # curb
+    height_m: float | None = None
+    # ramp fields (exact names from extract_ramps)
+    kind: str | None = None
+    width_m: float | None = None
+    run_length_m: float | None = None
+    running_slope_pct: float | None = None
+    cross_slope_pct: float | None = None
+    flare_slope_pct: float | None = None
+    gutter_step_m: float | None = None
+    running_slope_status: str | None = None
+    cross_slope_status: str | None = None
+    flare_slope_status: str | None = None
+    gutter_step_status: str | None = None
+    status: str | None = None
+    nearest_crosswalk_m: float | None = None
+    crosswalk_id: str | None = None
+    n_points: int | None = None
+    # provenance
+    source_feature_id: str | None = None
+    source_file: str | None = None
+    source_marking_type: str | None = None
+
+
 # ------------------------------------------------------------------ re-run
 
 # Which stage each parameter key belongs to. None means the key is setup,

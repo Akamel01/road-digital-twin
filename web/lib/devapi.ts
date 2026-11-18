@@ -77,7 +77,7 @@ export class ApiStatus extends Error {
 }
 
 // Every request carries credentials, so the Access cookie is sent to the API host.
-async function send<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function send<T>(path: string, init: RequestInit = {}): Promise<T> {
   let res: Response;
   try {
     res = await fetch(`${API_BASE}${path}`, { credentials: "include", ...init });
@@ -102,10 +102,16 @@ async function send<T>(path: string, init: RequestInit = {}): Promise<T> {
   return (await res.json()) as T;
 }
 
-const getJson = <T>(path: string) => send<T>(path);
-const postJson = <T>(path: string, body?: unknown) =>
+export const getJson = <T>(path: string) => send<T>(path);
+export const postJson = <T>(path: string, body?: unknown) =>
   send<T>(path, {
     method: "POST",
+    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+export const putJson = <T>(path: string, body?: unknown) =>
+  send<T>(path, {
+    method: "PUT",
     headers: body === undefined ? undefined : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });

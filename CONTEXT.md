@@ -90,6 +90,10 @@ A label on a feature's accuracy when its reference depends on the HD map's own d
 Part of the ground or a point that no camera saw cleanly. It is left without colour, never filled.
 _Avoid_: missing, no data, hole
 
+**Origin**:
+Whether a labelled feature came from the twin or from the operator: `drafted` means machine-drafted from twin outputs, `operator` means human-corrected or approved.
+_Avoid_: source, provenance
+
 ### People
 
 **Facility**:
