@@ -17,7 +17,7 @@ export default function DevLabelsPage() {
   const [site, setSite] = useState("");
   const [meta, setMeta] = useState<SiteMeta | null>(null);
   const [area, setArea] = useState<AreaIndex | null>(null);
-  const [run, setRun] = useState<string>(process.env.NEXT_PUBLIC_TWIN_RUN ?? "");
+  const [run, setRun] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -75,13 +75,50 @@ export default function DevLabelsPage() {
       .then((a) => {
         if (cancelled) return;
         setArea(a);
-        setRun((prev) => (prev ? prev : a.drives[0]?.run_id ?? ""));
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
   }, []);
+
+  function polygonBbox(poly: Record<string, unknown> | null | undefined): number[] | null {
+    if (!poly) return null;
+    const coords = (poly as { coordinates?: unknown }).coordinates;
+    if (!coords) return null;
+    let minx = Infinity;
+    let miny = Infinity;
+    let maxx = -Infinity;
+    let maxy = -Infinity;
+    const walk = (c: unknown) => {
+      if (Array.isArray(c) && c.length >= 2 && typeof c[0] === "number" && typeof c[1] === "number") {
+        const x = c[0] as number;
+        const y = c[1] as number;
+        if (x < minx) minx = x;
+        if (y < miny) miny = y;
+        if (x > maxx) maxx = x;
+        if (y > maxy) maxy = y;
+        return;
+      }
+      if (Array.isArray(c)) c.forEach(walk);
+    };
+    walk(coords);
+    if (!isFinite(minx)) return null;
+    return [minx, miny, maxx, maxy];
+  }
+
+  function bboxIntersects(a: number[], b: number[]): boolean {
+    return !(a[2] < b[0] || b[2] < a[0] || a[3] < b[1] || b[3] < a[1]);
+  }
+
+  const siteBbox = meta ? polygonBbox(meta.polygon) : null;
+  const intersectingRuns =
+    !run && area && siteBbox
+      ? area.drives
+          .filter((d) => Array.isArray(d.bbox) && bboxIntersects(d.bbox as number[], siteBbox))
+          .map((d) => d.run_id)
+      : [];
+  const editorRuns = run ? [run] : intersectingRuns;
 
   return (
     <div className={styles.root}>
@@ -151,7 +188,7 @@ export default function DevLabelsPage() {
             site={site}
             meta={meta}
             onMeta={setMeta}
-            runs={run ? [run] : (area?.drives.map((d) => d.run_id) ?? [])}
+            runs={editorRuns}
           />
         ) : (
           <p className={styles.muted}>Select a site to edit labels.</p>
