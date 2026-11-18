@@ -8,7 +8,7 @@ export type ElementKey = "markings" | "crosswalks" | "curbs";
 export type Point = [number, number];
 
 export const ELEMENTS: readonly ElementKey[] = ["markings", "crosswalks", "curbs"];
-export const RASTERS: readonly Raster[] = ["lidar", "ortho", "coverage", "height"];
+
 
 export function isElement(s: string | null): s is ElementKey {
   return s !== null && (ELEMENTS as readonly string[]).includes(s);
@@ -41,11 +41,6 @@ export interface DriveData {
   p95: Partial<Record<ElementKey, number>>;
   // Sight-distance numbers from the manifest: legs[facility id][approach].
   legs: Record<string, Record<string, LegMetric>>;
-}
-
-export interface RasterMeta {
-  bbox: number[];
-  zmax: number;
 }
 
 // Error bands from the mockup: <= 0.20 m green, <= 0.40 m amber, above that red.
@@ -141,6 +136,4 @@ export async function loadCentrelines(run: string, facility: string): Promise<Ce
     }));
 }
 
-export function loadRasterMeta(run: string, raster: Raster): Promise<RasterMeta> {
-  return getJson<RasterMeta>(`showcase/tiles/${run}/${raster}/meta.json`);
-}
+
