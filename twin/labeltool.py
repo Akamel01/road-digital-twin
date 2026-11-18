@@ -7,6 +7,7 @@ Importing this module must not touch cv2 or FastAPI (P8); raster work lives in
 from __future__ import annotations
 
 import json
+from importlib import resources
 from pathlib import Path
 from typing import Any
 
@@ -149,3 +150,21 @@ def import_draft(store: Path, site: str, draft_path, *, replace: bool = False) -
         expected_version=meta.version,
     )
     return len(surfaces)
+
+
+def render(data: dict) -> str:
+    data = dict(data or {})
+    data["surface_types"] = list(SURFACE_TYPES)
+    data["surface_map"] = {k: list(v) for k, v in SURFACE_MAP.items()}
+    from twin.contracts import LabelFeature
+
+    data["schema_fields"] = list(LabelFeature.model_fields)
+    base = resources.files("twin").joinpath("templates")
+    template = base.joinpath("label_tool.html").read_text("utf-8")
+    pure = base.joinpath("labeltool_pure.js").read_text("utf-8")
+    payload = json.dumps(data, separators=(",", ":"))
+    payload = payload.replace("<", "\\u003c")
+    payload = payload.replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
+    html = template.replace("__DATA__", payload, 1)
+    html = html.replace("__PURE__", pure, 1)
+    return html
