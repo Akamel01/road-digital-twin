@@ -793,3 +793,360 @@ def test_drive_tokens_uses_supplied_defined_not_sibling_json(tmp_path):
     }
     assert drive_tokens(build, defined=defined) == ["NEW1", "NEW2"]
     assert drive_tokens(build) == ["OLD1", "OLD2"]
+
+
+# --- M6b2: generate / CLI support helpers ---
+
+from twin.labeltool import generate
+
+
+def _minimal_raster_data(site="s1", x0=0.0, y1=20.0):
+    from twin.labelraster import blank_window
+
+    data = blank_window(site, x0, y1, [])
+    data["no_imagery"] = True
+    return data
+
+
+def _patch_export_window(monkeypatch, capture=None, data=None):
+    calls = []
+    capture = capture if capture is not None else {}
+    capture["calls"] = calls
+
+    def fake_export_window(store, runs, *, site, x0, y1, **kwargs):
+        calls.append({"store": store, "runs": list(runs), "site": site, "x0": x0, "y1": y1, **kwargs})
+        if callable(data):
+            return data(site=site, x0=x0, y1=y1, runs=runs, **kwargs)
+        if data is not None:
+            out = dict(data)
+            out.setdefault("site", site)
+            out.setdefault("window", {"x0": x0, "y1": y1, "g": 0.05, "w": 1600, "h": 1500})
+            return out
+        return _minimal_raster_data(site=site, x0=x0, y1=y1)
+
+    # generate does lazy `from twin import labelraster` and calls export_window
+    import twin.labelraster as lr
+
+    monkeypatch.setattr(lr, "export_window", fake_export_window)
+    return capture
+
+
+def _write_draft(path, site, n=15):
+    draft = _draft()
+    draft["set"] = site
+    # trim/extend to n
+    if n <= 15:
+        draft["surfaces"] = draft["surfaces"][:n]
+    else:
+        extra = []
+        for i in range(16, n + 1):
+            extra.append({"id": f"t{i:03d}", "type": "curb", "geom": "polyline", "xy": [[1, 1], [2, 2]], "px": [[20, 380], [40, 360]], "evidence": "intensity", "by": "operator"})
+        draft["surfaces"] = draft["surfaces"] + extra
+    path.write_text(json.dumps(draft))
+    return path
+
+
+def test_generate_resolves_area_outside_store(tmp_path, monkeypatch):
+    store = tmp_path / "store"
+    areas_root = tmp_path / "areasroot"
+    area_def = {
+        "name": "demo",
+        "dataset_version": "v1.0-trainval",
+        "polygon": {"type": "Polygon", "coordinates": [[[0, 0], [20, 0], [20, 20], [0, 20], [0, 0]]]},
+        "drives": [],
+    }
+    build = areas_root / "demo-twin"
+    (build / "5_features").mkdir(parents=True)
+    (areas_root / "demo.json").write_text(json.dumps(area_def))
+    (build / "drives.json").write_text(json.dumps([]))
+    _patch_export_window(monkeypatch)
+    out = generate(store, "s1", area="demo", areas_root=areas_root)
+    assert out == store / "labels" / "s1" / "tool.html"
+    assert out.is_file()
+
+
+def test_generate_accepts_explicit_window(tmp_path, monkeypatch):
+    store = tmp_path / "store"
+    area_def = {
+        "name": "a1",
+        "dataset_version": "v1.0-trainval",
+        "polygon": {"type": "Polygon", "coordinates": [[[-10, -10], [120, -10], [120, 120], [-10, 120], [-10, -10]]]},
+        "drives": [],
+    }
+    _mk_area_build(store, "a1", area_def, [])
+    cap = _patch_export_window(monkeypatch)
+    out = generate(store, "s1", area="a1", x0=5.0, y1=80.0)
+    assert out.is_file()
+    assert cap["calls"]
+    call = cap["calls"][0]
+    assert call["x0"] == 5.0
+    assert call["y1"] == 80.0
+    html = out.read_text()
+    assert '"window_fallback":false' in html
+
+
+def test_generate_creates_empty_site_for_b_and_c(tmp_path, monkeypatch):
+    store = tmp_path / "store"
+    area_def = {
+        "name": "a1",
+        "dataset_version": "v1.0-trainval",
+        "polygon": {"type": "Polygon", "coordinates": [[[0, 0], [60, 0], [60, 60], [0, 60], [0, 0]]]},
+        "drives": [],
+    }
+    _mk_area_build(store, "a1", area_def, [])
+    _patch_export_window(monkeypatch)
+    for site in ("site-b", "site-c"):
+        out = generate(store, site, area="a1")
+        assert out.is_file()
+        assert labels.read_labels(store, site)["features"] == []
+
+
+def test_two_sites_from_different_polygons_get_different_windows(tmp_path, monkeypatch):
+    store = tmp_path / "store"
+    area1 = {
+        "name": "a1",
+        "dataset_version": "v1.0-trainval",
+        "polygon": {"type": "Polygon", "coordinates": [[[0, 0], [20, 0], [20, 20], [0, 20], [0, 0]]]},
+        "drives": [],
+    }
+    area2 = {
+        "name": "a2",
+        "dataset_version": "v1.0-trainval",
+        "polygon": {"type": "Polygon", "coordinates": [[[100, 100], [120, 100], [120, 120], [100, 120], [100, 100]]]},
+        "drives": [],
+    }
+    _mk_area_build(store, "a1", area1, [])
+    _mk_area_build(store, "a2", area2, [])
+    cap = _patch_export_window(monkeypatch)
+    generate(store, "s1", area="a1")
+    generate(store, "s2", area="a2")
+    assert len(cap["calls"]) == 2
+    w1 = (cap["calls"][0]["x0"], cap["calls"][0]["y1"])
+    w2 = (cap["calls"][1]["x0"], cap["calls"][1]["y1"])
+    assert w1 != w2
+
+
+def test_generate_writes_page_under_store_only(tmp_path, monkeypatch):
+    store = tmp_path / "store"
+    area_def = {
+        "name": "a1",
+        "dataset_version": "v1.0-trainval",
+        "polygon": {"type": "Polygon", "coordinates": [[[0, 0], [20, 0], [20, 20], [0, 20], [0, 0]]]},
+        "drives": [],
+    }
+    _mk_area_build(store, "a1", area_def, [])
+    _patch_export_window(monkeypatch)
+    out = generate(store, "s1", area="a1")
+    assert out == store / "labels" / "s1" / "tool.html"
+    files = sorted(p.name for p in (store / "labels" / "s1").iterdir())
+    assert "tool.html" in files
+    # only store labels dir has this tool html for site
+    assert not (tmp_path / "tool.html").exists()
+
+
+def test_generate_keeps_existing_site_meta_and_labels_bytes(tmp_path, monkeypatch):
+    store = tmp_path / "store"
+    area_def = {
+        "name": "a1",
+        "dataset_version": "v1.0-trainval",
+        "polygon": {"type": "Polygon", "coordinates": [[[0, 0], [20, 0], [20, 20], [0, 20], [0, 0]]]},
+        "drives": [{"scene": "sc1", "scene_token": "t1"}],
+    }
+    _mk_area_build(store, "a1", area_def, ["sc1"])
+    full = {"load": "ok", "align": "ok", "ground": "ok"}
+    _mk_run(store, "20261101-000000-aaaaaa", "t1", "v1.0-trainval", full)
+    labels.draft(store, "s1", "a1", areas_root=store / "areas")
+    # add a feature so labels bytes are non-trivial
+    fc = labels.read_labels(store, "s1")
+    fc["features"].append({"type": "Feature", "geometry": {"type": "LineString", "coordinates": [[1, 1], [2, 2]]}, "properties": {"id": "keep", "element": "marking", "type": "solid_line", "origin": "operator"}})
+    labels.write_labels(store, "s1", fc, expected_version=labels.read_site(store, "s1").version)
+    site_bytes = (store / "labels" / "s1" / "site.json").read_bytes()
+    labels_bytes = (store / "labels" / "s1" / "labels.geojson").read_bytes()
+    _patch_export_window(monkeypatch)
+    generate(store, "s1", area="a1")
+    assert (store / "labels" / "s1" / "site.json").read_bytes() == site_bytes
+    assert (store / "labels" / "s1" / "labels.geojson").read_bytes() == labels_bytes
+
+
+def test_generate_imports_before_window(tmp_path, monkeypatch):
+    store = tmp_path / "store"
+    # small site/area polygon so imported far point expands the auto window
+    area_def = {
+        "name": "a1",
+        "dataset_version": "v1.0-trainval",
+        "polygon": {"type": "Polygon", "coordinates": [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]]},
+        "drives": [],
+    }
+    _mk_area_build(store, "a1", area_def, [])
+    d = _draft()
+    d["set"] = "s1"
+    d["surfaces"] = [{"id": "far", "type": "curb", "geom": "polyline", "xy": [[150, 150], [160, 160]], "px": [[0, 0], [1, 1]], "evidence": "intensity", "by": "operator"}]
+    dpath = tmp_path / "d.json"
+    dpath.write_text(json.dumps(d))
+    cap = _patch_export_window(monkeypatch)
+    generate(store, "s1", area="a1", import_path=dpath, replace=True)
+    assert cap["calls"]
+    # imported geometry reaches 160,160 so auto window must be computed after import
+    # union bounds 0,0,160,160 -> fallback centered 80,80 -> x0 40 y1 117.5
+    assert cap["calls"][0]["x0"] == pytest.approx(40.0)
+    assert cap["calls"][0]["y1"] == pytest.approx(117.5)
+    assert labels.read_labels(store, "s1")["features"][0]["properties"]["id"] == "far"
+
+
+def test_generate_requires_area_when_site_missing(tmp_path, monkeypatch):
+    store = tmp_path / "store"
+    _patch_export_window(monkeypatch)
+    with pytest.raises(DraftError):
+        generate(store, "s1")
+
+
+def test_generate_rejects_half_a_window(tmp_path, monkeypatch):
+    store = tmp_path / "store"
+    _patch_export_window(monkeypatch)
+    with pytest.raises(DraftError):
+        generate(store, "s1", area="a", x0=1.0)
+    with pytest.raises(DraftError):
+        generate(store, "s1", area="a", y1=1.0)
+
+
+def test_generate_existing_site_without_runs_raises(tmp_path, monkeypatch):
+    store = tmp_path / "store"
+    area_def = {
+        "name": "a1",
+        "dataset_version": "v1.0-trainval",
+        "polygon": {"type": "Polygon", "coordinates": [[[0, 0], [20, 0], [20, 20], [0, 20], [0, 0]]]},
+        "drives": [{"scene": "sc1", "scene_token": "t1"}],
+    }
+    _mk_area_build(store, "a1", area_def, ["sc1"])
+    labels.draft(store, "s1", "a1", areas_root=store / "areas")
+    _patch_export_window(monkeypatch)
+    with pytest.raises(DraftError, match="no resolvable runs"):
+        generate(store, "s1", area="a1")
+
+
+def test_generate_new_site_without_runs_writes_blank_page(tmp_path, monkeypatch):
+    store = tmp_path / "store"
+    area_def = {
+        "name": "a1",
+        "dataset_version": "v1.0-trainval",
+        "polygon": {"type": "Polygon", "coordinates": [[[0, 0], [20, 0], [20, 20], [0, 20], [0, 0]]]},
+        "drives": [],
+    }
+    _mk_area_build(store, "a1", area_def, [])
+    _patch_export_window(monkeypatch)
+    out = generate(store, "s1", area="a1")
+    html = out.read_text()
+    assert '"no_imagery":true' in html
+
+
+def test_generate_reset_recreates_existing_site_empty(tmp_path, monkeypatch):
+    store = tmp_path / "store"
+    area_def = {
+        "name": "a1",
+        "dataset_version": "v1.0-trainval",
+        "polygon": {"type": "Polygon", "coordinates": [[[0, 0], [20, 0], [20, 20], [0, 20], [0, 0]]]},
+        "drives": [],
+    }
+    _mk_area_build(store, "a1", area_def, [])
+    labels.draft(store, "s1", "a1", areas_root=store / "areas")
+    fc = labels.read_labels(store, "s1")
+    fc["features"].append({"type": "Feature", "geometry": {"type": "LineString", "coordinates": [[1, 1], [2, 2]]}, "properties": {"id": "x", "element": "marking", "type": "solid_line", "origin": "operator"}})
+    labels.write_labels(store, "s1", fc, expected_version=labels.read_site(store, "s1").version)
+    _patch_export_window(monkeypatch)
+    generate(store, "s1", area="a1", reset=True)
+    assert labels.read_labels(store, "s1")["features"] == []
+
+
+def test_generate_reset_refuses_frozen_site(tmp_path, monkeypatch):
+    store = tmp_path / "store"
+    area_def = {
+        "name": "a1",
+        "dataset_version": "v1.0-trainval",
+        "polygon": {"type": "Polygon", "coordinates": [[[0, 0], [20, 0], [20, 20], [0, 20], [0, 0]]]},
+        "drives": [],
+    }
+    _mk_area_build(store, "a1", area_def, [])
+    labels.draft(store, "s1", "a1", areas_root=store / "areas")
+    labels.approve(store, "s1", "op")
+    _patch_export_window(monkeypatch)
+    with pytest.raises(DraftError):
+        generate(store, "s1", area="a1", reset=True)
+
+
+def test_generate_import_replace_gives_exactly_fifteen(tmp_path, monkeypatch):
+    store = tmp_path / "store"
+    area_def = {
+        "name": "a1",
+        "dataset_version": "v1.0-trainval",
+        "polygon": {"type": "Polygon", "coordinates": [[[-50, -50], [200, -50], [200, 200], [-50, 200], [-50, -50]]]},
+        "drives": [{"scene": "sc1", "scene_token": "t1"}],
+    }
+    _mk_area_build(store, "a1", area_def, ["sc1"])
+    full = {"load": "ok", "align": "ok", "ground": "ok"}
+    _mk_run(store, "20261101-000000-aaaaaa", "t1", "v1.0-trainval", full)
+    labels.draft(store, "s1", "a1", areas_root=store / "areas")
+    fc = labels.read_labels(store, "s1")
+    fc["features"].append({"type": "Feature", "geometry": {"type": "LineString", "coordinates": [[1, 1], [2, 2]]}, "properties": {"id": "extra", "element": "marking", "type": "solid_line", "origin": "operator"}})
+    labels.write_labels(store, "s1", fc, expected_version=labels.read_site(store, "s1").version)
+    dpath = _write_draft(tmp_path / "d.json", "s1", 15)
+    _patch_export_window(monkeypatch)
+    generate(store, "s1", area="a1", import_path=dpath, replace=True)
+    assert len(labels.read_labels(store, "s1")["features"]) == 15
+
+
+def test_generate_without_cv2_writes_partial_page(tmp_path, monkeypatch):
+    import builtins
+    import sys
+
+    store = tmp_path / "store"
+    area_def = {
+        "name": "a1",
+        "dataset_version": "v1.0-trainval",
+        "polygon": {"type": "Polygon", "coordinates": [[[0, 0], [20, 0], [20, 20], [0, 20], [0, 0]]]},
+        "drives": [],
+    }
+    _mk_area_build(store, "a1", area_def, [])
+    # do not patch export_window; block cv2 so real labelraster takes no-cv2 path
+    real_import = builtins.__import__
+
+    def fake_import(name, *a, **k):
+        if name == "cv2":
+            raise ImportError("blocked")
+        return real_import(name, *a, **k)
+
+    monkeypatch.setitem(sys.modules, "cv2", None)
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    out = generate(store, "s1", area="a1")
+    assert out.is_file()
+    html = out.read_text()
+    assert "s1" in html
+
+
+def test_generate_passes_dataset_root(tmp_path, monkeypatch):
+    from twin.dataset import DatasetConfig
+
+    store = tmp_path / "store"
+    area_def = {
+        "name": "a1",
+        "dataset_version": "v1.0-trainval",
+        "polygon": {"type": "Polygon", "coordinates": [[[0, 0], [20, 0], [20, 20], [0, 20], [0, 0]]]},
+        "drives": [],
+    }
+    _mk_area_build(store, "a1", area_def, [])
+    cap = _patch_export_window(monkeypatch)
+    generate(store, "s1", area="a1")
+    assert cap["calls"][0]["nuscenes_root"] == DatasetConfig.from_env().root
+
+
+def test_gitignore_blocks_generated_pages(tmp_path):
+    import subprocess
+    from pathlib import Path
+
+    repo = Path.cwd()
+    gi = (repo / ".gitignore").read_text()
+    assert "/labels/" in gi
+    assert "tool.html" in gi
+    r1 = subprocess.run(["git", "check-ignore", "-q", "tool.html"], cwd=repo, check=False)
+    r2 = subprocess.run(["git", "check-ignore", "-q", "labels/x"], cwd=repo, check=False)
+    assert r1.returncode == 0
+    assert r2.returncode == 0

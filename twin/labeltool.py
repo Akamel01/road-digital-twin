@@ -370,6 +370,103 @@ def _window_covered(area_def, x0, y1):
     return True
 
 
+def generate(
+    store,
+    site: str,
+    *,
+    area: str | None = None,
+    areas_root: Path | None = None,
+    import_path: Path | None = None,
+    replace: bool = False,
+    reset: bool = False,
+    x0: float | None = None,
+    y1: float | None = None,
+) -> Path:
+    import os
+    import sys
+
+    store = Path(store)
+    if areas_root is not None:
+        areas_root = Path(areas_root)
+    if not valid_site(site):
+        raise DraftError(f"bad site id: {site!r}")
+
+    preexisting = labels.site_path(store, site).is_file()
+    if (x0 is None) != (y1 is None):
+        raise DraftError("must provide both --x0 and --y1")
+
+    if reset:
+        if not preexisting:
+            raise DraftError(f"site {site!r} does not exist; cannot reset")
+        meta = read_site(store, site)
+        if meta.frozen:
+            raise DraftError("site is frozen; reset refused")
+        if area is None:
+            raise DraftError("area required to reset site")
+        labels.draft(store, site, area, force=True, empty=True, areas_root=areas_root)
+        meta = read_site(store, site)
+    elif not preexisting:
+        if area is None:
+            raise DraftError("missing site without --area")
+        labels.draft(store, site, area, empty=True, areas_root=areas_root)
+        meta = read_site(store, site)
+    else:
+        meta = read_site(store, site)
+
+    area_name = area or meta.source_area
+    if not area_name:
+        raise DraftError("area required")
+    _build_dir, area_def = labels.resolve_area(store, area_name, areas_root=areas_root)
+    runs = runs_for_area(store, area_name, areas_root=areas_root)
+
+    if preexisting and not reset and not runs:
+        raise DraftError(
+            f"existing site {site!r} has no resolvable runs for area {area_name!r}; "
+            "check --store/--areas/--area"
+        )
+
+    explicit_window = x0 is not None and y1 is not None
+    info = {"fallback": False}
+    if explicit_window:
+        _window_covered(area_def, float(x0), float(y1))
+        wx0, wy1 = float(x0), float(y1)
+    else:
+        wx0 = wy1 = None  # set after import/auto
+
+    if import_path is not None:
+        import_draft(store, site, Path(import_path), replace=replace)
+
+    if not explicit_window:
+        wx0, wy1, info = window_for(store, site)
+        if preexisting and not reset:
+            print(
+                f"warning: auto window for existing site {site!r}; "
+                f"use --x0/--y1 to pin the recorded window",
+                file=sys.stderr,
+            )
+
+    from twin import labelraster
+    from twin.dataset import DatasetConfig
+
+    nuscenes_root = DatasetConfig.from_env().root
+    data = labelraster.export_window(
+        store, runs, site=site, x0=wx0, y1=wy1, nuscenes_root=nuscenes_root
+    )
+    data["site"] = site
+    data["window_fallback"] = bool(info.get("fallback", False))
+    data.setdefault("missing", [])
+    data.setdefault("no_imagery", False)
+
+    html = render(data)
+    out_dir = labels.labels_dir(store, site)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    target = out_dir / "tool.html"
+    tmp = out_dir / "tool.html.tmp"
+    tmp.write_text(html, encoding="utf-8")
+    os.replace(tmp, target)
+    return target
+
+
 def render(data: dict) -> str:
     data = dict(data or {})
     if "site" not in data:
