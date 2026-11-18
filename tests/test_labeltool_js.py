@@ -23,7 +23,6 @@ def _load_pure():
     return d
 
 
-@pytest.mark.skipif(not _node_available(), reason="node not available")
 def _run_js(code):
     # code can use require(PURE_PATH)
     full = f"const PURE = require({PURE_PATH!r});\n{code}\n"
@@ -33,6 +32,7 @@ def _run_js(code):
     return p.stdout.strip()
 
 
+@pytest.mark.skipif(not _node_available(), reason="node not available")
 def test_rendered_script_passes_node_check():
     # build rendered html using render
     from twin.labeltool import render
@@ -52,6 +52,7 @@ def test_rendered_script_passes_node_check():
     assert p.returncode == 0, p.stderr
 
 
+@pytest.mark.skipif(not _node_available(), reason="node not available")
 def test_js_feature_to_surface_imported_surface():
     out = _run_js("""
 const surf = PURE.featureToSurface({type:"Feature",geometry:{type:"LineString",coordinates:[[0,0],[1,1]]},properties:{id:"i1",origin:"operator",source_marking_type:"curb",evidence:"ortho"}}, {x0:0,y1:20,g:0.05}, {"curb":["curb","curb"]}, ["id","evidence"]);
@@ -61,9 +62,10 @@ console.log(JSON.stringify(surf));
     assert d["rawType"] == "curb"
     assert d["id"] == "i1"
     assert d["evidence"] == "ortho"
-    assert d["px"] == [[0/0.05, 20/0.05], [1/0.05, (20-1)/0.05]] or True
+    assert d["px"] == [[0 / 0.05, 20 / 0.05], [1 / 0.05, (20 - 1) / 0.05]]
 
 
+@pytest.mark.skipif(not _node_available(), reason="node not available")
 def test_js_feature_to_surface_polygon_uses_first_ring():
     out = _run_js("""
 const f = {type:"Feature",geometry:{type:"Polygon",coordinates:[[[0,0],[2,0],[2,2],[0,2],[0,0]]]},properties:{id:"p",origin:"operator",source_marking_type:"curb",evidence:"x"}};
@@ -74,6 +76,7 @@ console.log(JSON.stringify(s.xy));
     assert d == [[0, 0], [2, 0], [2, 2], [0, 2]]
 
 
+@pytest.mark.skipif(not _node_available(), reason="node not available")
 def test_js_non_editable_geometries_and_unmapped_types_return_null():
     out = _run_js("""
 const P = PURE;
@@ -87,6 +90,7 @@ console.log(JSON.stringify([
     assert json.loads(out) == [True, True, True]
 
 
+@pytest.mark.skipif(not _node_available(), reason="node not available")
 def test_js_surface_to_feature_preserves_id_and_evidence():
     out = _run_js("""
 const s = {id:"i9",rawType:"curb",geom:"polyline",xy:[[0,0],[1,1]],px:[[0,0],[20,20]],evidence:"ortho",props:{id:"i9",origin:"operator",source_marking_type:"curb",evidence:"ortho"}};
@@ -98,6 +102,7 @@ console.log(JSON.stringify(f.properties));
     assert d["evidence"] == "ortho"
 
 
+@pytest.mark.skipif(not _node_available(), reason="node not available")
 def test_js_surface_to_feature_new_surface():
     out = _run_js("""
 const s = {id:"n",rawType:"curb",geom:"polyline",xy:[[0,0],[1,1]],px:[],evidence:"intensity",props:{id:"n",origin:"operator",source_marking_type:"curb",evidence:"intensity"}};
@@ -108,6 +113,7 @@ console.log(JSON.stringify({element:f.properties.element,type:f.properties.type,
     assert d == {"element": "curb", "type": "curb", "origin": "operator", "raw": "curb", "evidence": "intensity"}
 
 
+@pytest.mark.skipif(not _node_available(), reason="node not available")
 def test_js_polygon_save_has_no_duplicate_closing_vertex():
     out = _run_js("""
 const s = {id:"p",rawType:"curb",geom:"polygon",xy:[[0,0],[1,0],[1,1]],px:[],evidence:"x",props:{id:"p",origin:"operator",source_marking_type:"curb",evidence:"x"}};
@@ -117,6 +123,7 @@ console.log(JSON.stringify(f.geometry.coordinates[0].length));
     assert json.loads(out) == 4
 
 
+@pytest.mark.skipif(not _node_available(), reason="node not available")
 def test_js_put_body_includes_passthrough_and_version():
     out = _run_js("""
 const s = {id:"n",rawType:"curb",geom:"polyline",xy:[[0,0],[1,1]],px:[],evidence:"x",props:{id:"n",origin:"operator",source_marking_type:"curb",evidence:"x"}};
@@ -127,6 +134,7 @@ console.log(JSON.stringify({version:b.version,count:b.features.length}));
     assert d == {"version": 3, "count": 2}
 
 
+@pytest.mark.skipif(not _node_available(), reason="node not available")
 def test_js_boot_empty_state():
     out = _run_js("""
 const arr=[];
@@ -138,6 +146,7 @@ console.log(JSON.stringify({editable:editable,passthrough:passthrough,features:b
     assert json.loads(out) == {"editable": 0, "passthrough": 0, "features": 0}
 
 
+@pytest.mark.skipif(not _node_available(), reason="node not available")
 def test_js_control_values():
     out = _run_js("""
 console.log(JSON.stringify({vals:PURE.CONTROL_VALUES, body:PURE.metaBody(null,null)}));
@@ -147,6 +156,7 @@ console.log(JSON.stringify({vals:PURE.CONTROL_VALUES, body:PURE.metaBody(null,nu
     assert d["body"] == {"control": None, "notes": None}
 
 
+@pytest.mark.skipif(not _node_available(), reason="node not available")
 def test_js_edits_allowed_requires_loaded_and_unfrozen():
     out = _run_js("""
 console.log(JSON.stringify({
@@ -158,6 +168,7 @@ console.log(JSON.stringify({
     assert json.loads(out) == {"a": False, "b": False, "c": True}
 
 
+@pytest.mark.skipif(not _node_available(), reason="node not available")
 def test_js_frozen_meta_uses_meta_object():
     out = _run_js("""
 console.log(JSON.stringify(PURE.siteSummary({frozen:true,approved_by:"op",approved_at:"t"})));
@@ -166,6 +177,7 @@ console.log(JSON.stringify(PURE.siteSummary({frozen:true,approved_by:"op",approv
     assert "Frozen" in s and "op" in s
 
 
+@pytest.mark.skipif(not _node_available(), reason="node not available")
 def test_js_next_trace_type_does_not_edit_surfaces():
     out = _run_js("""
 const st = {surfaces:[{id:"a"}], nextType:"x"};
@@ -178,6 +190,7 @@ console.log(JSON.stringify({orig:st.surfaces[0].id, origType:st.nextType, newTyp
     assert d["sameLen"] == 1
 
 
+@pytest.mark.skipif(not _node_available(), reason="node not available")
 def test_js_change_surface_type_updates_only_target():
     out = _run_js("""
 const s = {id:"a",rawType:"curb",geom:"polyline",xy:[[0,0],[1,1]],px:[],evidence:"x",props:{id:"a",origin:"operator",source_marking_type:"curb",evidence:"x",element:"curb",type:"curb"}};
@@ -190,6 +203,7 @@ console.log(JSON.stringify({raw:ns.rawType,geom:ns.geom,xy:ns.xy}));
     assert d["xy"] == [[0, 0], [1, 1]]
 
 
+@pytest.mark.skipif(not _node_available(), reason="node not available")
 def test_js_change_surface_type_rejects_invalid_polygon():
     out = _run_js("""
 const s = {id:"a",rawType:"curb",geom:"polyline",xy:[[0,0],[1,1]],px:[],evidence:"x",props:{id:"a",origin:"operator",source_marking_type:"curb",evidence:"x"}};
@@ -197,3 +211,15 @@ const ns = PURE.changeSurfaceType(s,"crosswalk, ladder",{"curb":["curb","curb"],
 console.log(JSON.stringify(ns));
 """)
     assert json.loads(out) is None
+
+
+@pytest.mark.skipif(not _node_available(), reason="node not available")
+def test_js_close_ring_is_idempotent():
+    out = _run_js("""
+const open = [[0,0],[1,0],[1,1]];
+const closed = [[0,0],[1,0],[1,1],[0,0]];
+console.log(JSON.stringify({open:PURE.closeRing(open), closed:PURE.closeRing(closed)}));
+""")
+    d = json.loads(out)
+    assert d["open"] == [[0, 0], [1, 0], [1, 1], [0, 0]]
+    assert d["closed"] == [[0, 0], [1, 0], [1, 1], [0, 0]]

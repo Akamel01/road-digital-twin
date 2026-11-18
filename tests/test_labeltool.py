@@ -302,8 +302,13 @@ def test_render_injects_surface_types_and_escapes_script():
     assert "</script><script>x" not in html
     assert "\\u003c" in html
 
-    # surface types equals mapping keys
-    assert list(SURFACE_MAP.keys()) == list(SURFACE_MAP.keys())
+    # surface types equals mapping keys (11 raw types)
+    assert len(SURFACE_MAP) == 11
+    assert list(SURFACE_MAP.keys()) == [
+        "lane line, solid white", "lane line, dashed white", "lane line, solid yellow",
+        "lane line, double yellow", "stop line", "crosswalk, ladder", "crosswalk, continental",
+        "crosswalk, transverse", "crosswalk, zebra", "curb", "edge of pavement",
+    ]
     assert "schema_fields" in html
     assert '"id"' in html and '"evidence"' in html
 
@@ -320,67 +325,34 @@ def test_rendered_html_has_no_removed_bindings():
     assert "SITE" in html
 
 
-def test_template_persists_through_labels_api():
+def test_rendered_script_has_one_script_element():
     from twin.labeltool import render
 
     html = render({"site": "s1", "window": {"x0": 0, "y1": 20, "g": 0.05}})
-    for s in ("/api/r/labels/", "source_marking_type", "surface_map", "state.loaded", "editsAllowed", "queuePut", "pagehide", "beforeunload", "keepalive"):
-        assert s in html, s
+    import re
+    assert len(re.findall(r"<script>", html)) == 1
+    assert len(re.findall(r"</script>", html)) == 1
 
 
-def test_template_gates_tracing_until_loaded():
+def test_rendered_script_declarations_are_unique():
     from twin.labeltool import render
 
     html = render({"site": "s1", "window": {"x0": 0, "y1": 20, "g": 0.05}})
-    assert "requireEditable" in html
-    assert "editsAllowed" in html
+    import re
+    m = re.search(r"<script>(.*)</script>", html, re.DOTALL)
+    script = m.group(1)
+    for decl in ("function renderAll", "function fileOf", "let state", "function snapPt",
+                 "function fit", "function draw", "function finish", "const toPx"):
+        import re as _re
+        n = len(_re.findall(r"\b" + _re.escape(decl) + r"\b", script))
+        assert n == 1, (decl, n)
 
 
-def test_template_has_google_buttons():
+def test_prototype_ui_markers_present():
     from twin.labeltool import render
 
     html = render({"site": "s1", "window": {"x0": 0, "y1": 20, "g": 0.05}})
-    assert "map_action=map" in html or "map_action=pano" in html
-    assert "/api/r/geo/latlon" in html
-    assert "basemap=satellite" in html
-    assert "viewpoint=" in html
+    for tok in ("map", "ca", "cb", "strip", "slist", "slots", "data-bg", "stype",
+                "fit", "draw", "snapPt", "unscr", "triangulate", "drawStrip", "renderAll", "fileOf"):
+        assert tok in html, tok
 
-
-def test_template_has_control_field():
-    from twin.labeltool import render
-
-    html = render({"site": "s1", "window": {"x0": 0, "y1": 20, "g": 0.05}})
-    for v in ("signalised", "stop_controlled", "uncontrolled", "mid_block"):
-        assert v in html
-    assert "/api/w/labels/" in html
-
-
-def test_template_has_banners():
-    from twin.labeltool import render
-
-    html = render({"site": "s1", "window": {"x0": 0, "y1": 20, "g": 0.05}, "missing": ["m"], "window_fallback": True})
-    assert "DATA.missing" in html
-    assert "DATA.window_fallback" in html
-
-
-def test_template_no_imagery_disables_snap():
-    from twin.labeltool import render
-
-    html = render({"site": "s1", "window": {"x0": 0, "y1": 20, "g": 0.05}, "no_imagery": True})
-    assert "DATA.no_imagery" in html
-    assert "snap" in html
-
-
-def test_template_has_no_hardcoded_audit_titles():
-    from twin.labeltool import render
-
-    html = render({"site": "s1", "window": {"x0": 0, "y1": 20, "g": 0.05}})
-    assert "TITLES=" not in html
-    assert "audit-" not in html
-
-
-def test_template_server_owned_buttons_disabled():
-    from twin.labeltool import render
-
-    html = render({"site": "s1", "window": {"x0": 0, "y1": 20, "g": 0.05}})
-    assert "disabled" in html

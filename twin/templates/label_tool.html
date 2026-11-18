@@ -61,6 +61,7 @@ pre{white-space:pre-wrap;word-break:break-all;font-size:11px;max-height:300px;ov
 <script>
 __PURE__
 const DATA=__DATA__;
+const PURE=LABELTOOL_PURE;
 const W=DATA.window, SITE=DATA.site;
 const SURF_TYPES=DATA.surface_types;
 const AREA_TYPES=new Set(DATA.area_types);
@@ -69,6 +70,7 @@ const SIG=[["3-section","3 lenses, vertical"],["5-section","5 lenses, with arrow
 const DEV_STORE="labeltool-devices-"+SITE;
 let state={set:SITE,version:1,frozen:false,surfaces:[],supports:[],devices:[],loaded:true,meta:null};
 try{const d=JSON.parse(localStorage.getItem(DEV_STORE));if(d){state.supports=d.supports||[];state.devices=d.devices||[]}}catch(e){}
+state.nextType=DATA.surface_types[0];
 const save=()=>{try{localStorage.setItem(DEV_STORE,JSON.stringify({supports:state.supports,devices:state.devices}))}catch(e){};renderAll()};
 const $=id=>document.getElementById(id);
 // ---------- images
