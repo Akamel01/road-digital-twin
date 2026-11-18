@@ -154,14 +154,23 @@ def import_draft(store: Path, site: str, draft_path, *, replace: bool = False) -
 
 def render(data: dict) -> str:
     data = dict(data or {})
+    if "site" not in data:
+        data["site"] = data.get("site", "")
     data["surface_types"] = list(SURFACE_TYPES)
     data["surface_map"] = {k: list(v) for k, v in SURFACE_MAP.items()}
+    data["area_types"] = [raw for raw, (el, t) in SURFACE_MAP.items() if el == "crosswalk"]
     from twin.contracts import LabelFeature
 
     data["schema_fields"] = list(LabelFeature.model_fields)
     base = resources.files("twin").joinpath("templates")
-    template = base.joinpath("label_tool.html").read_text("utf-8")
-    pure = base.joinpath("labeltool_pure.js").read_text("utf-8")
+    template_path = base.joinpath("label_tool.html")
+    pure_path = base.joinpath("labeltool_pure.js")
+    template = template_path.read_text("utf-8")
+    pure = pure_path.read_text("utf-8")
+    if template.count("__DATA__") != 1:
+        raise ValueError("expected __DATA__ placeholder exactly once")
+    if template.count("__PURE__") != 1:
+        raise ValueError("expected __PURE__ placeholder exactly once")
     payload = json.dumps(data, separators=(",", ":"))
     payload = payload.replace("<", "\\u003c")
     payload = payload.replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
