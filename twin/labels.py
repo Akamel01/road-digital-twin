@@ -85,6 +85,25 @@ def _now() -> str:
 def read_site(store: Path | str, site: str) -> SiteMeta:
     return SiteMeta.model_validate_json(site_path(store, site).read_text())
 
+def list_sites(store: Path | str, role: str | None = None) -> list[SiteMeta]:
+    """Labelled sites under <store>/labels, sorted by id; a missing labels dir is []."""
+    root = Path(store) / "labels"
+    if not root.is_dir():
+        return []
+    out: list[SiteMeta] = []
+    for d in sorted(root.iterdir(), key=lambda p: p.name):
+        if not d.is_dir():
+            continue
+        sp = d / "site.json"
+        if not sp.is_file():
+            continue
+        site = SiteMeta.model_validate_json(sp.read_text())
+        if role is not None and site.role != role:
+            continue
+        out.append(site)
+    out.sort(key=lambda s: s.id)
+    return out
+
 
 def read_labels(store: Path | str, site: str) -> dict:
     p = labels_path(store, site)
