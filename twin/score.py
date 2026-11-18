@@ -84,8 +84,6 @@ def _effective_type(feat: dict) -> str:
             return "stop_line"
         if t in ("arrow", "text"):
             return "other_paint"
-        if t in _MARKING_TYPES:
-            return t
         return t
     return p.get("type")
 
@@ -126,24 +124,6 @@ def _areal_parts(g):
     return parts
 
 
-def _slot_feeds(file_name: str, props: dict):
-    if file_name == "markings.geojson":
-        mt = props.get("marking_type")
-        if mt == "crosswalk_stripe":
-            return [("crosswalk_stripe", None)]  # (marking_type slot, element slot handled separately)
-        mm = mt if mt in _MARKING_TYPES else "other_paint"
-        return [("marking", mm)]
-    if file_name == "crosswalks.geojson":
-        return [("crosswalk", None)]
-    if file_name == "curbs.geojson":
-        return [("curb", None)]
-    if file_name == "ramps.geojson":
-        return [("curb_ramp", None)]
-    return []
-
-
-# slot_feeds returns (element_slot_or_None, marking_type_slot_or_None) pairs? We need both.
-# Redefine cleanly:
 def _feeds(file_name: str, props: dict):
     """Return list of (element_slot or None, marking_type_slot or None)."""
     if file_name == "markings.geojson":
@@ -194,10 +174,11 @@ def score_elements(run_features: dict[str, list[dict]], sites: list[tuple[SiteMe
         if fn in run_features:
             _geoms, excl = accuracy._observed(run_features.get(fn, []) or [])
             n_excluded_not_observed += excl
-            # count stripes
-            for f in (run_features.get(fn) or []):
-                if fn == "markings.geojson" and _props(f).get("marking_type") == "crosswalk_stripe":
-                    n_excluded_stripes += 1
+            # count observed stripes
+            if fn == "markings.geojson":
+                for f in (run_features.get(fn) or []):
+                    if accuracy._observed([f])[0] and _props(f).get("marking_type") == "crosswalk_stripe":
+                        n_excluded_stripes += 1
             # store features
             observed_by_file[fn] = list(run_features.get(fn) or [])
         else:
@@ -222,7 +203,7 @@ def score_elements(run_features: dict[str, list[dict]], sites: list[tuple[SiteMe
         observed_features_by_file[fn] = kept_feats
 
     # site loop
-    for site, labels in sites:
+    for site, labels in sorted(sites, key=lambda t: t[0].id):
         site_poly = _make_valid(shape(site.polygon))
         labels = labels or []
         if len(labels) == 0:
@@ -345,12 +326,9 @@ def score_elements(run_features: dict[str, list[dict]], sites: list[tuple[SiteMe
 
         # attribute pairing
         # curbs: pair run curbs to label curbs one-to-one nearest within radius (geometry distance)
-        _pair_items(site_run_curbs, site_label_curbs, curb_pairs, BUFFER_M)  # use 1.0 radius
-        _pair_items(site_run_ramps, site_label_ramps, ramp_pairs, BUFFER_M)
-        # ramp distances
-        for rp, lp, d in [(None, None, None) for _ in []]:
-            pass
-        # compute ramp pair distances now
+        _pair_items(site_run_curbs, site_label_curbs, curb_pairs, RADIUS_M)
+        _pair_items(site_run_ramps, site_label_ramps, ramp_pairs, RADIUS_M)
+        # ramp pairs collected
         # We'll recompute pairing distances in _pair_items? Instead store distance in pairs.
         # curb_pairs entries: (run_props, label_props, distance)
         # ramp_pairs entries: (run_props, label_props, distance)
@@ -694,8 +672,8 @@ def score_command(run: str, sites: str, store: Path | None = None) -> int:
         except (RuntimeError, OSError, ValueError, KeyError, TypeError) as exc:
             print(f"cannot score: {exc}", file=sys.stderr)
             return 2
-    baseline = load_baseline(st)
     try:
+        baseline = load_baseline(st)
         doc, reason = score_target(st, target, sites=sites, baseline=baseline)
     except SCORE_ERRORS as exc:
         print(f"cannot score: {exc}", file=sys.stderr)
@@ -707,11 +685,11 @@ def score_command(run: str, sites: str, store: Path | None = None) -> int:
     comparable = doc["compare"].get("comparable")
     if comparable is False:
         if sites == "dev":
+            print(f"publish: not comparable ({doc['compare'].get('reason')})", file=sys.stderr)
             print("dev labels never decide publishing", file=sys.stderr)
-            # print table anyway
             _print_table(doc, target, sites)
             return 0
-        print("not comparable", file=sys.stderr)
+        print(f"publish: not comparable ({doc['compare'].get('reason')})", file=sys.stderr)
         _print_table(doc, target, sites)
         return 2
 

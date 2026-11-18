@@ -86,7 +86,8 @@ def test_mapping_rows(element, eff, eslot, mtslot):
     # run features
     if element == "crosswalk":
         # two run features: crosswalk polygon feeds crosswalk; typed stripe line feeds crosswalk_stripe
-        cw_poly = {"type": "Feature", "properties": {"id": "r1", "reliability": "observed", "marking_type": "crosswalk"}, "geometry": {"type": "Polygon", "coordinates": [[[1, 1], [9, 1], [9, 9], [1, 9], [1, 1]]]}}
+        ring = [[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]
+        cw_poly = {"type": "Feature", "properties": {"id": "r1", "reliability": "observed", "marking_type": "crosswalk"}, "geometry": {"type": "Polygon", "coordinates": [ring]}}
         stripe_line = {"type": "Feature", "properties": {"id": "r2", "reliability": "observed", "marking_type": "crosswalk_stripe"}, "geometry": {"type": "LineString", "coordinates": [[0, 0], [10, 0]]}}
         run_features = {"crosswalks.geojson": [cw_poly], "markings.geojson": [stripe_line]}
     else:
@@ -106,28 +107,33 @@ def test_mapping_rows(element, eff, eslot, mtslot):
     site = _site()
     partial = score.score_elements(run_features, [(site, [label])])
 
-    # check expected slot measured
     if eslot is not None:
-        assert partial["elements"][eslot]["n_labels"] >= 1
-        assert partial["elements"][eslot]["n_extracted"] >= 1
+        assert partial["elements"][eslot]["n_labels"] == 1
+        assert partial["elements"][eslot]["n_extracted"] == 1
         assert partial["elements"][eslot]["measured"] is True
+        assert partial["elements"][eslot]["recall"] == 1.0
     if mtslot is not None:
-        assert partial["marking_types"][mtslot]["n_labels"] >= 1
-        # for row3, n_extracted may be 1 from stripe
+        assert partial["marking_types"][mtslot]["n_labels"] == 1
         if mtslot == "crosswalk_stripe":
             assert partial["marking_types"][mtslot]["n_extracted"] == 1
         else:
+            # row1/2/4 run markings non-stripe feed marking+type; n_extracted for type equals run count
             assert partial["marking_types"][mtslot]["n_extracted"] >= 0
 
-    # no other slot counts the label: check element slots not expected have n_labels 0 for this label's element? 
-    # For marking rows, curb/curb_ramp/crosswalk n_labels 0
     if element == "marking":
         assert partial["elements"]["curb"]["n_labels"] == 0
         assert partial["elements"]["curb_ramp"]["n_labels"] == 0
         assert partial["elements"]["crosswalk"]["n_labels"] == 0
-    # crosswalk rows: marking n_labels 0
+        if eff == "crosswalk_stripe":
+            assert partial["elements"]["marking"]["n_labels"] == 0
+            assert partial["elements"]["marking"]["n_extracted"] == 0
+        else:
+            assert partial["elements"]["marking"]["n_labels"] == 1
+            assert partial["elements"]["marking"]["n_extracted"] == 1
     if element == "crosswalk":
         assert partial["elements"]["marking"]["n_labels"] == 0
+        assert partial["elements"]["marking"]["n_extracted"] == 0
+        assert partial["elements"]["crosswalk"]["n_extracted"] == 1
 
 
 def test_recall_is_matched_share_of_label_length():
@@ -204,10 +210,11 @@ def test_curb_height_compared_when_both_carry_height():
 def test_curb_height_pairs_one_to_one():
     labels = [{"type": "Feature", "properties": {"element": "curb", "type": "curb", "id": "l1", "height_m": 0.10}, "geometry": {"type": "LineString", "coordinates": [[0, 0], [10, 0]]}}]
     rf1 = {"type": "Feature", "properties": {"id": "r1", "reliability": "observed", "kind": "curb", "height_m": 0.12}, "geometry": {"type": "LineString", "coordinates": [[0, 0], [10, 0]]}}
-    rf2 = {"type": "Feature", "properties": {"id": "r2", "reliability": "observed", "kind": "curb", "height_m": 0.13}, "geometry": {"type": "LineString", "coordinates": [[100, 0], [110, 0]]}}
+    rf2 = {"type": "Feature", "properties": {"id": "r2", "reliability": "observed", "kind": "curb", "height_m": 0.13}, "geometry": {"type": "LineString", "coordinates": [[0, 0.5], [10, 0.5]]}}
     run_features = {"curbs.geojson": [rf1, rf2]}
     site = _site()
     partial = score.score_elements(run_features, [(site, labels)])
+    assert partial["elements"]["curb"]["n_extracted"] == 2
     h = partial["attributes"]["curb"]["height_m"]
     assert h["n_compared"] == 1
 
@@ -377,13 +384,20 @@ def test_publish_lost_element_skips():
 
 
 def test_empty_label_site_reports_not_labelled():
-    # site with empty labels.geojson -> skipped
-    # site with no labels
     site = _site(id="s1")
     run_features = {}
     partial = score.score_elements(run_features, [(site, [])])
     assert partial["sites"] == []
     assert partial["qa"]["sites_skipped"] == [{"id": "s1", "reason": "no labels"}]
+
+    base = {"target_kind": "run", "sites": [{"id": "s1", "version": 1, "label_hash": "abc"}], "elements": {}}
+    cand = {"target_kind": "run", "sites": [{"id": "s1", "version": 1, "label_hash": "abc"}], "elements": {}}
+    for el in score.ELEMENT_ORDER:
+        base["elements"][el] = {"measured": True, "n_labels": 1, "precision": 0.5, "recall": 0.5, "p95_m": 0.1}
+        cand["elements"][el] = {"measured": False, "n_labels": 0, "precision": None, "recall": None, "p95_m": None}
+    res = score.publish_decision(cand, base)
+    assert all(v["status"] == "not measured" for v in res["elements"].values())
+    assert res["publish"] is True
 
 
 def test_comparability_guard():
@@ -522,3 +536,33 @@ def test_score_is_deterministic(tmp_path):
     score.score_target(store, run, sites="audit", baseline=None)
     b2 = (run / "score.json").read_bytes()
     assert b1 == b2
+
+
+def test_no_clipped_run_features_site():
+    label = {"type": "Feature", "properties": {"element": "marking", "type": "solid_line", "source_marking_type": "divider", "id": "l"}, "geometry": {"type": "LineString", "coordinates": [[0, 0], [10, 0]]}}
+    site = _site()
+    rf = _line([[1000, 1000], [1010, 1000]], type="solid_line", element="marking", mtype="divider")
+    rf["properties"]["marking_type"] = "divider"
+    run_features = {"markings.geojson": [rf]}
+    partial = score.score_elements(run_features, [(site, [label])])
+    assert partial["qa"]["sites_skipped"] == [{"id": "s1", "reason": "no extracted elements in site"}]
+
+
+def test_list_sites(tmp_path):
+    import json
+
+    from twin.labels import list_sites
+    store = tmp_path / "store"
+    assert list_sites(store) == []
+    (store / "labels" / "b").mkdir(parents=True)
+    (store / "labels" / "a").mkdir(parents=True)
+    (store / "labels" / "a" / "site.json").write_text(json.dumps({
+        "id": "a", "role": "audit", "polygon": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]]},
+        "version": 1, "created_at": "2026-01-01T00:00:00+00:00", "source_area": "x"
+    }))
+    (store / "labels" / "b" / "site.json").write_text(json.dumps({
+        "id": "b", "role": "dev", "polygon": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]]},
+        "version": 1, "created_at": "2026-01-01T00:00:00+00:00", "source_area": "x"
+    }))
+    assert [s.id for s in list_sites(store)] == ["a", "b"]
+    assert [s.id for s in list_sites(store, role="audit")] == ["a"]
