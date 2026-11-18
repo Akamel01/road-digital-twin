@@ -2,6 +2,7 @@ import base64
 import io
 import json
 import sys
+import types
 
 import numpy as np
 from PIL import Image
@@ -12,6 +13,63 @@ from twin.dataset import DatasetConfig
 
 def _block_cv2(monkeypatch):
     monkeypatch.setitem(sys.modules, "cv2", None)
+    monkeypatch.setattr(lr, "_cv2", None, raising=False)
+    monkeypatch.setattr(lr, "_cv2_tried", False, raising=False)
+
+
+class _FakeBuf:
+    def __init__(self, data):
+        self._data = data
+
+    def tobytes(self):
+        return self._data
+
+
+def _fake_cv2_module(calls):
+    m = types.ModuleType("cv2")
+    m.INTER_LINEAR = 1
+    m.INTER_AREA = 2
+    m.INTER_NEAREST = 0
+    m.IMWRITE_JPEG_QUALITY = 1
+    m.COLOR_RGB2BGR = 4
+    m.error = Exception
+
+    def GaussianBlur(arr, ksize, sigma):
+        calls.append(("blur", tuple(np.asarray(arr).shape), float(sigma)))
+        return np.asarray(arr, dtype=np.float32)
+
+    def resize(arr, dsize, interpolation=None):
+        w, h = dsize
+        arr = np.asarray(arr)
+        calls.append(("resize", tuple(arr.shape), (h, w), interpolation))
+        if arr.ndim == 2:
+            return np.zeros((h, w), dtype=arr.dtype)
+        return np.zeros((h, w, arr.shape[2]), dtype=arr.dtype)
+
+    def imencode(ext, arr, params=None):
+        calls.append(("imencode", str(ext), tuple(np.asarray(arr).shape), tuple(params or [])))
+        # produce a real decodable image of same shape/size
+        a = np.asarray(arr)
+        if a.ndim == 2:
+            img = Image.fromarray(a.astype(np.uint8), mode="L")
+        else:
+            img = Image.fromarray(a.astype(np.uint8), mode="RGB")
+        buf = io.BytesIO()
+        if ext == ".png":
+            img.save(buf, format="PNG")
+        else:
+            img.save(buf, format="JPEG", quality=82)
+        return True, _FakeBuf(buf.getvalue())
+
+    def cvtColor(arr, code):
+        calls.append(("cvtColor", tuple(np.asarray(arr).shape), code))
+        return np.asarray(arr)
+
+    m.GaussianBlur = GaussianBlur
+    m.resize = resize
+    m.imencode = imencode
+    m.cvtColor = cvtColor
+    return m
 
 
 def test_import_labeltool_without_cv2(monkeypatch):
@@ -220,3 +278,50 @@ def test_export_window_uses_dataset_root_default(monkeypatch, tmp_path):
     assert lr._nuscenes_root(None) == target
     assert lr._nuscenes_root(None) == DatasetConfig.from_env().root
     assert lr._nuscenes_root(None) != "/data/nuscenes" or target == "/data/nuscenes"
+
+
+def test_helpers_prefer_cv2_when_available(monkeypatch):
+    calls = []
+    fake = _fake_cv2_module(calls)
+    monkeypatch.setitem(sys.modules, "cv2", fake)
+    monkeypatch.setattr(lr, "_cv2", None, raising=False)
+    monkeypatch.setattr(lr, "_cv2_tried", False, raising=False)
+
+    a = np.ones((4, 6), dtype=np.float32)
+    b = lr._blur(a, 2.0)
+    r = lr._resize(a, (8, 12), interpolation="linear")
+    enc = lr._encode(np.zeros((3, 5, 3), dtype=np.uint8), ".jpg")
+    assert b.shape == a.shape
+    assert r.shape == (8, 12)
+    assert "data:" not in enc
+    assert base64.b64decode(enc)
+    assert any(c[0] == "blur" for c in calls)
+    assert any(c[0] == "resize" for c in calls)
+    assert any(c[0] == "imencode" and c[1] == ".jpg" for c in calls)
+
+
+def test_helpers_fallback_without_cv2_produce_valid_images(monkeypatch):
+    _block_cv2(monkeypatch)
+    a = np.tile(np.linspace(0, 255, 16, dtype=np.uint8), (8, 1)).astype(np.float32)
+    b = lr._blur(a, 1.5)
+    r = lr._resize(a, (10, 20), interpolation="area")
+    enc_png = lr._encode((b[:4, :4]).astype(np.uint8), ".png")
+    enc_jpg = lr._encode(np.dstack([r.astype(np.uint8)] * 3), ".jpg")
+    assert b.shape == a.shape
+    assert r.shape == (10, 20)
+    for data, size in ((enc_png, (4, 4)), (enc_jpg, (20, 10))):
+        img = Image.open(io.BytesIO(base64.b64decode(data)))
+        assert img.size == size
+        assert "data:" not in data
+
+
+def test_encode_raw_base64_decodes_to_right_size(monkeypatch):
+    _block_cv2(monkeypatch)
+    arr_l = np.full((7, 9), 5, dtype=np.uint8)
+    arr_rgb = np.full((11, 13, 3), 7, dtype=np.uint8)
+    for arr, ext, size in ((arr_l, ".png", (9, 7)), (arr_rgb, ".jpg", (13, 11))):
+        data = lr._encode(arr, ext)
+        assert not data.startswith("data:")
+        raw = base64.b64decode(data)
+        img = Image.open(io.BytesIO(raw))
+        assert img.size == size

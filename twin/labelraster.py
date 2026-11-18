@@ -1,6 +1,7 @@
 """Raster export for the labelling tool page DATA.
 
-cv2 is imported only inside ``_fuse``; this module imports nothing from cv2 at top level.
+cv2 is preferred for prototype-faithful smoothing/resize/encoding when importable,
+but is never imported at module import time. Fallback uses scipy/Pillow.
 """
 
 from __future__ import annotations
@@ -8,6 +9,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import sys
 from pathlib import Path
 
 import laspy
@@ -22,18 +24,50 @@ W_PX = 1600
 H_PX = 1500
 G = 0.05
 
+_cv2 = None
+_cv2_tried = False
+
 
 class RasterError(RuntimeError):
     pass
 
 
-def _raster_errors():
+def _try_cv2():
+    """Return cv2 module or None. Cached; never imports cv2 at module import."""
+    global _cv2, _cv2_tried
+    if "cv2" in sys.modules:
+        mod = sys.modules["cv2"]
+        if mod is None:
+            _cv2 = None
+            _cv2_tried = True
+            return None
+        if mod is _cv2 and _cv2_tried:
+            return _cv2
+        # sys.modules override/fake: use it if it looks usable
+        if hasattr(mod, "GaussianBlur") and hasattr(mod, "resize") and hasattr(mod, "imencode"):
+            _cv2 = mod
+            _cv2_tried = True
+            return _cv2
+        _cv2 = None
+        _cv2_tried = True
+        return None
+    if _cv2_tried:
+        return _cv2
+    _cv2_tried = True
     try:
-        import cv2
+        import cv2 as mod  # type: ignore
 
+        _cv2 = mod
+    except (ImportError, OSError):
+        _cv2 = None
+    return _cv2
+
+
+def _raster_errors():
+    cv2 = _try_cv2()
+    if cv2 is not None:
         return (OSError, ValueError, cv2.error)
-    except ImportError:
-        return (OSError, ValueError)
+    return (OSError, ValueError)
 
 
 def _nuscenes_root(root):
@@ -55,8 +89,55 @@ def _run_name(run):
     return Path(run).name
 
 
+def _blur(a, sigma):
+    arr = np.asarray(a, dtype=np.float32)
+    cv2 = _try_cv2()
+    if cv2 is not None:
+        return cv2.GaussianBlur(arr, (0, 0), float(sigma))
+    return ndimage.gaussian_filter(arr, sigma=float(sigma)).astype(np.float32)
+
+
+def _blur_masked(a, mask, sigma):
+    """Masked normalisation: blur(a*m)/blur(m)."""
+    arr = np.asarray(a, dtype=np.float32)
+    m = np.asarray(mask, dtype=np.float32)
+    num = _blur(arr * m, sigma)
+    den = _blur(m, sigma) + 1e-6
+    return (num / den).astype(np.float32)
+
+
+def _resize(a, shape_hw, interpolation="linear"):
+    arr = np.asarray(a)
+    h, w = shape_hw
+    cv2 = _try_cv2()
+    if cv2 is not None:
+        interp = cv2.INTER_AREA if interpolation == "area" else cv2.INTER_LINEAR
+        out = cv2.resize(arr, (w, h), interpolation=interp)
+        return out.astype(arr.dtype, copy=False)
+    if arr.ndim == 2:
+        zoom = (h / arr.shape[0], w / arr.shape[1])
+        out = ndimage.zoom(arr.astype(np.float32), zoom, order=1)
+        return out.astype(arr.dtype, copy=False)
+    zoom = (h / arr.shape[0], w / arr.shape[1], 1)
+    out = ndimage.zoom(arr.astype(np.float32), zoom, order=1)
+    return out.astype(arr.dtype, copy=False)
+
+
 def _encode(array, ext):
+    """Return raw base64 (no data: prefix)."""
     arr = np.asarray(array)
+    cv2 = _try_cv2()
+    if cv2 is not None:
+        data = arr
+        if data.ndim == 3:
+            data = cv2.cvtColor(data.astype(np.uint8), cv2.COLOR_RGB2BGR)
+        else:
+            data = data.astype(np.uint8)
+        params = [cv2.IMWRITE_JPEG_QUALITY, 82] if ext == ".jpg" else []
+        ok, buf = cv2.imencode(ext, data, params)
+        if not ok:
+            raise OSError("cv2.imencode failed")
+        return base64.b64encode(buf.tobytes()).decode()
     if arr.ndim == 2:
         img = Image.fromarray(arr.astype(np.uint8), mode="L")
     else:
@@ -123,20 +204,18 @@ def _collect_drive(run, x0, y1, width=W_PX, height=H_PX, cell=G, nuscenes_root=N
 
     with np.errstate(all="ignore"):
         zd = np.where(cnt > 0, sz / np.maximum(cnt, 1), np.nan).astype(np.float32)
-    zl = ndimage.gaussian_filter(np.nan_to_num(zd), sigma=2) / (
-        ndimage.gaussian_filter((cnt > 0).astype(np.float32), sigma=2) + 1e-6
-    )
-    okd = ndimage.gaussian_filter((cnt > 0).astype(np.float32), sigma=2) > 0.3
+    zl = _blur_masked(np.nan_to_num(zd), (cnt > 0).astype(np.float32), sigma=2)
+    okd = _blur((cnt > 0).astype(np.float32), sigma=2) > 0.3
 
     sm = np.where(okd, zl, np.nan)[::5, ::5]
     road = ndimage.percentile_filter(np.where(np.isfinite(sm), sm, 1e3), 10, size=25)
     road[road > 100] = np.nan
     fill = float(np.nanmedian(sm)) if np.isfinite(sm).any() else 0.0
-    roadr = ndimage.zoom(
+    roadr = _resize(
         np.nan_to_num(road, nan=fill).astype(np.float32),
-        (H / road.shape[0], W / road.shape[1]),
-        order=1,
-    )
+        (H, W),
+        interpolation="linear",
+    ).astype(np.float32)
     sR = np.where(okd, zl - roadr, 0)
     cR = okd.astype(float)
 
@@ -193,16 +272,15 @@ def _pct(a, m, lo=2, hi=99.5):
 def _hp(a, m):
     a = np.where(m, a, 0).astype(np.float32)
     w = m.astype(np.float32)
-    from scipy import ndimage as _nd
-
-    ab = _nd.gaussian_filter(a, sigma=20)  # approx
-    wb = _nd.gaussian_filter(w, sigma=20)
+    ab = _blur(a, sigma=20)
+    wb = _blur(w, sigma=20)
     return np.where(m, a - ab / (wb + 1e-6), 0).astype(np.float32)
 
 
 def _fuse(drive, *, width=W_PX, height=H_PX, cell=G, **kw):
-    import cv2
-    import numpy as np
+    cv2 = _try_cv2()
+    if cv2 is None:
+        raise ImportError("cv2 unavailable")
 
     def sh(a, dx, dy, shape):
         return cv2.warpAffine(
@@ -235,8 +313,8 @@ def _fuse(drive, *, width=W_PX, height=H_PX, cell=G, **kw):
             return float((x * y).sum() / np.sqrt((x * x).sum() * (y * y).sum() + 1e-9))
 
         def register(A, Bm, m):
-            A2 = cv2.resize(A, (W // 2, H // 2), interpolation=cv2.INTER_AREA)
-            B2 = cv2.resize(Bm, (W // 2, H // 2), interpolation=cv2.INTER_AREA)
+            A2 = _resize(A, (H // 2, W // 2), interpolation="area")
+            B2 = _resize(Bm, (H // 2, W // 2), interpolation="area")
             m2 = cv2.resize(m.astype(np.uint8), (W // 2, H // 2), interpolation=cv2.INTER_NEAREST) > 0
             best = (-2.0, 0, 0)
             for dy in range(-10, 11):
