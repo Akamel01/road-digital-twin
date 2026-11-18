@@ -28,6 +28,9 @@ def main():
     ap.add_argument("--src", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--source", default="unknown")
+    ap.add_argument("--tiles-200", type=int, default=0)
+    ap.add_argument("--tiles-404", type=int, default=0)
+    ap.add_argument("--mirrored-bytes", type=int, default=0)
     args = ap.parse_args()
 
     src = Path(args.src)
@@ -162,6 +165,7 @@ def main():
             "zmin": 0,
             "zmax": int(zmax),
             "cell_m_at_zmax": float(layer_cell[layer]),
+            "origin": "top-left",
         }
         write_mosaic_tiles(fixture_showcase, layer, np.asarray(canvas), zmax, (x0, y0, x0 + extent, y0 + extent), meta_out)
         # count
@@ -171,18 +175,14 @@ def main():
         layer_tiles_bytes[layer] = {"tiles": nfiles, "bytes": nbytes}
 
     # tile_version
-    try:
-        report_path = fixture_showcase / "publish_report.json"
-        if report_path.exists():
-            rep = json.loads(report_path.read_text())
-        else:
-            rep = {}
-        rep["tile_version"] = pub._tile_version(fixture_showcase)
-        # also set layers maybe
-        rep.setdefault("layers", {})
-        report_path.write_text(json.dumps(rep, indent=2))
-    except Exception as e:  # noqa: BLE001 - fixture best-effort version stamp
-        (out / "version_error.txt").write_text(str(e))
+    report_path = fixture_showcase / "publish_report.json"
+    if report_path.exists():
+        rep = json.loads(report_path.read_text())
+    else:
+        rep = {}
+    rep["tile_version"] = pub._tile_version(fixture_showcase)
+    rep.setdefault("layers", {})
+    report_path.write_text(json.dumps(rep, indent=2))
 
     # provenance
     provenance = {
@@ -192,6 +192,9 @@ def main():
         "extent": float(extent),
         "layers": {l: {"cell": layer_cell[l], "zmax": layer_zmax[l], **layer_tiles_bytes.get(l, {})} for l in layers_present},
         "per_file": per_file_status,
+        "tiles_200": args.tiles_200,
+        "tiles_404": args.tiles_404,
+        "mirrored_bytes": args.mirrored_bytes,
     }
     (out / "provenance.json").write_text(json.dumps(provenance, indent=2))
     print(f"fixture written to {out} ({len(drives)} drives, extent {extent:.1f}m)")
