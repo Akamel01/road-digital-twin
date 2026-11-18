@@ -169,7 +169,6 @@ def score_elements(run_features: dict[str, list[dict]], sites: list[tuple[SiteMe
             absent_files.append(fn)
 
     # observed run features per file
-    observed_by_file: dict[str, list[dict]] = {}
     for fn in FEATURE_FILES:
         if fn in run_features:
             _geoms, excl = accuracy._observed(run_features.get(fn, []) or [])
@@ -179,16 +178,7 @@ def score_elements(run_features: dict[str, list[dict]], sites: list[tuple[SiteMe
                 for f in (run_features.get(fn) or []):
                     if accuracy._observed([f])[0] and _props(f).get("marking_type") == "crosswalk_stripe":
                         n_excluded_stripes += 1
-            # store features
-            observed_by_file[fn] = list(run_features.get(fn) or [])
-        else:
-            observed_by_file[fn] = []
 
-    # filter observed properly: _observed returns geoms only; keep features that pass
-    def _is_observed(feat):
-        return accuracy._observed([feat])[0] and True if accuracy._observed([feat])[0] else False
-
-    # We'll instead use accuracy._observed to get kept geometries but need props; recompute membership
     observed_features_by_file: dict[str, list[dict]] = {}
     for fn in FEATURE_FILES:
         if fn not in run_features:
@@ -329,17 +319,6 @@ def score_elements(run_features: dict[str, list[dict]], sites: list[tuple[SiteMe
         _pair_items(site_run_curbs, site_label_curbs, curb_pairs, RADIUS_M)
         _pair_items(site_run_ramps, site_label_ramps, ramp_pairs, RADIUS_M)
         # ramp pairs collected
-        # We'll recompute pairing distances in _pair_items? Instead store distance in pairs.
-        # curb_pairs entries: (run_props, label_props, distance)
-        # ramp_pairs entries: (run_props, label_props, distance)
-        # ramp_pair_distances append distance
-
-    # Fix: _pair_items above signature; redefine below. We'll instead call a helper that returns pairs with distance.
-    # Oops: need restructure. Let's instead not rely; redo pairing inline? Too late. We'll handle by making _pair_items
-    # append to a list of (run_props,label_props,dist) and also append dist to ramp_pair_distances for ramps.
-    # Since we called _pair_items for curbs and ramps both appending to different pair lists, fine.
-    # But ramp_pair_distances not populated. Let's populate now from ramp_pairs distances (stored).
-    # We'll store distance as third tuple element.
 
     # Build entries
     entries_elements = {}
@@ -541,7 +520,6 @@ def publish_decision(candidate: dict, baseline: dict | None, noise: dict[str, fl
                     d[m_out] = round(cv - bv, 3)
                 else:
                     d[m_out] = None
-            # map back
             dp = d.get("d_precision")
             dr = d.get("d_recall")
             dk = d.get("d_p95_m")

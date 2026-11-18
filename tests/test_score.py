@@ -1,7 +1,6 @@
 import json
 
 import pytest
-from shapely.geometry import mapping, shape
 
 from twin import score
 from twin.contracts import SiteMeta
@@ -33,12 +32,6 @@ def _site(poly=None, role="audit", id="s1", version=1):
         poly = [[-100, -100], [100, -100], [100, 100], [-100, 100], [-100, -100]]
     return SiteMeta(id=id, role=role, polygon={"type": "Polygon", "coordinates": [poly]},
                     version=version, created_at="2026-01-01T00:00:00+00:00", source_area="a")
-
-
-def _label_feat(props, geom):
-    p = dict(props)
-    p.setdefault("id", "lab-1")
-    return {"type": "Feature", "properties": p, "geometry": mapping(shape(geom)) if not isinstance(geom, dict) else geom}
 
 
 # Mapping rows test
@@ -93,9 +86,14 @@ def test_mapping_rows(element, eff, eslot, mtslot):
     else:
         # generic run feature matching slot
         if element in ("marking",):
-            rf = _line([[0, 0], [10, 0]], type="solid_line", element="marking", mtype=eff if eff in ("divider","stop_line","other_paint") else "divider")
-            # ensure marking_type not crosswalk_stripe
-            rf["properties"]["marking_type"] = "divider" if eff != "crosswalk_stripe" else "crosswalk_stripe"
+            if eff == "other_paint":
+                mt = "arrow"
+            elif eff == "crosswalk_stripe":
+                mt = "crosswalk_stripe"
+            else:
+                mt = eff
+            rf = _line([[0, 0], [10, 0]], type="solid_line", element="marking", mtype=mt)
+            rf["properties"]["marking_type"] = mt
             run_features = {"markings.geojson": [rf]}
         elif element == "curb":
             rf = {"type": "Feature", "properties": {"id": "r", "reliability": "observed", "kind": "curb"}, "geometry": {"type": "LineString", "coordinates": [[0, 0], [10, 0]]}}
@@ -117,8 +115,16 @@ def test_mapping_rows(element, eff, eslot, mtslot):
         if mtslot == "crosswalk_stripe":
             assert partial["marking_types"][mtslot]["n_extracted"] == 1
         else:
-            # row1/2/4 run markings non-stripe feed marking+type; n_extracted for type equals run count
-            assert partial["marking_types"][mtslot]["n_extracted"] >= 0
+            assert partial["marking_types"][mtslot]["n_extracted"] == 1
+
+    for mt in score.MARKING_TYPE_ORDER:
+        if mt != mtslot:
+            assert partial["marking_types"][mt]["n_labels"] == 0
+    if mtslot is None and element == "crosswalk":
+        assert partial["marking_types"]["crosswalk_stripe"]["n_extracted"] == 1
+    for slot in score.ELEMENT_ORDER:
+        if slot != eslot:
+            assert partial["elements"][slot]["n_labels"] == 0
 
     if element == "marking":
         assert partial["elements"]["curb"]["n_labels"] == 0
@@ -545,6 +551,7 @@ def test_no_clipped_run_features_site():
     rf["properties"]["marking_type"] = "divider"
     run_features = {"markings.geojson": [rf]}
     partial = score.score_elements(run_features, [(site, [label])])
+    assert partial["sites"] == []
     assert partial["qa"]["sites_skipped"] == [{"id": "s1", "reason": "no extracted elements in site"}]
 
 
@@ -556,6 +563,7 @@ def test_list_sites(tmp_path):
     assert list_sites(store) == []
     (store / "labels" / "b").mkdir(parents=True)
     (store / "labels" / "a").mkdir(parents=True)
+    (store / "labels" / "c").mkdir(parents=True)
     (store / "labels" / "a" / "site.json").write_text(json.dumps({
         "id": "a", "role": "audit", "polygon": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]]},
         "version": 1, "created_at": "2026-01-01T00:00:00+00:00", "source_area": "x"
@@ -566,3 +574,26 @@ def test_list_sites(tmp_path):
     }))
     assert [s.id for s in list_sites(store)] == ["a", "b"]
     assert [s.id for s in list_sites(store, role="audit")] == ["a"]
+
+
+def test_empty_label_site_reports_not_labelled_score_target(tmp_path):
+    import json
+    store = tmp_path / "store"
+    run = tmp_path / "run"
+    run.mkdir()
+    poly = [[-100, -100], [100, -100], [100, 100], [-100, 100], [-100, -100]]
+    for sid, labels in (("s1", []), ("s2", [{"type": "Feature", "properties": {"id": "l", "element": "marking", "type": "solid_line", "source_marking_type": "divider"}, "geometry": {"type": "LineString", "coordinates": [[5, 0], [15, 0]]}}])):
+        sd = store / "labels" / sid
+        sd.mkdir(parents=True)
+        (sd / "site.json").write_text(json.dumps({"id": sid, "role": "audit", "polygon": {"type": "Polygon", "coordinates": [poly]}, "version": 1, "created_at": "2026-01-01T00:00:00+00:00", "source_area": "a"}))
+        (sd / "labels.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": labels}))
+    (run / "5_features").mkdir()
+    rf = {"type": "Feature", "properties": {"id": "r", "reliability": "observed", "marking_type": "divider"}, "geometry": {"type": "LineString", "coordinates": [[5, 0], [15, 0]]}}
+    (run / "5_features" / "markings.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": [rf]}))
+    baseline = {"target": "old", "target_kind": "run", "sites": [{"id": "s1", "version": 1, "label_hash": "x"}], "elements": {}}
+    doc, reason = score.score_target(store, run, sites="audit", baseline=baseline)
+    assert reason == ""
+    assert doc["qa"]["sites_skipped"] == [{"id": "s1", "reason": "no labels"}]
+    assert [s["id"] for s in doc["sites"]] == ["s2"]
+    assert doc["compare"]["comparable"] is False
+    assert doc["compare"]["publish"] is None
