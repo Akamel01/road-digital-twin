@@ -28,3 +28,7 @@ deploy/twin.env
 web/public/latest-build/
 
 web/tsconfig.tsbuildinfo
+
+# generated label-tool pages (derived, not committed)
+/labels/
+tool.html

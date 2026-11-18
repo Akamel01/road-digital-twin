@@ -529,3 +529,10 @@ Every ticket's PR includes pytest tests. CI runs them on synthetic fixtures. nuS
 | 3 | T5, T8 (on fake runs), T10 |
 | 4 | T6, T7, T12, finish T8; #11 if time |
 | 5 | T11, fixes |
+
+## Label tool (#324)
+
+- CLI: `twin labels tool <site>` and `twin labels import <site> <draft.json>`.
+- Routes: `GET /api/r/labels/{site}/tool` (loopback-only page serving), `PUT /api/w/labels/{site}` (site metadata), `GET /api/r/geo/latlon`.
+- Page stored under `<store>/labels/<site>/tool.html`.
+- Loopback-only page serving.

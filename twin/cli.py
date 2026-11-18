@@ -234,6 +234,9 @@ def build_parser() -> argparse.ArgumentParser:
     labels_draft.add_argument(
         "--store", type=Path, help="run store (default: $TWIN_RUNS or /data/twin-runs)"
     )
+    labels_draft.add_argument(
+        "--areas", type=Path, default=None, help="areas root (default: <store>/areas)"
+    )
     labels_approve = labels.add_parser("approve", help="approve and freeze a site")
     labels_approve.add_argument("site", help="site id")
     labels_approve.add_argument("--by", required=True, help="approver name")
@@ -243,6 +246,27 @@ def build_parser() -> argparse.ArgumentParser:
     labels_new_version = labels.add_parser("new-version", help="start a new editable version")
     labels_new_version.add_argument("site", help="site id")
     labels_new_version.add_argument(
+        "--store", type=Path, help="run store (default: $TWIN_RUNS or /data/twin-runs)"
+    )
+    labels_tool = labels.add_parser("tool", help="generate a labelling tool page")
+    labels_tool.add_argument("site", help="site id")
+    labels_tool.add_argument("--area", help="area name, build dir, or area json")
+    labels_tool.add_argument(
+        "--areas", type=Path, default=None, help="areas root (default: <store>/areas)"
+    )
+    labels_tool.add_argument("--reset", action="store_true", help="recreate an existing site empty")
+    labels_tool.add_argument("--import", dest="import_path", type=Path, help="import a draft JSON before rendering")
+    labels_tool.add_argument("--replace", action="store_true", help="replace the label collection on import")
+    labels_tool.add_argument("--x0", type=float, help="window origin x (UTM)")
+    labels_tool.add_argument("--y1", type=float, help="window top y (UTM)")
+    labels_tool.add_argument(
+        "--store", type=Path, help="run store (default: $TWIN_RUNS or /data/twin-runs)"
+    )
+    labels_import = labels.add_parser("import", help="import a draft JSON into a site")
+    labels_import.add_argument("site", help="site id")
+    labels_import.add_argument("draft", type=Path, help="draft JSON file")
+    labels_import.add_argument("--replace", action="store_true", help="replace the label collection")
+    labels_import.add_argument(
         "--store", type=Path, help="run store (default: $TWIN_RUNS or /data/twin-runs)"
     )
     return parser
@@ -372,15 +396,22 @@ def main(argv: list[str] | None = None) -> int:
 
         return serve_command(args.store, args.host, args.port)
     if args.command == "labels" and args.labels_cmd == "draft":
+        import sys
+
         from twin.labels import draft as draft_labels
         from twin.runner import default_store
 
         store = args.store if args.store is not None else default_store()
         try:
-            draft_labels(store, args.site, args.area, force=args.force, role=args.role)
-        except FileExistsError as exc:
-            import sys
-
+            draft_labels(
+                store,
+                args.site,
+                args.area,
+                force=args.force,
+                role=args.role,
+                areas_root=getattr(args, "areas", None),
+            )
+        except (ValueError, FileNotFoundError, FileExistsError) as exc:
             print(str(exc), file=sys.stderr)
             return 2
         return 0
@@ -397,6 +428,54 @@ def main(argv: list[str] | None = None) -> int:
 
         store = args.store if args.store is not None else default_store()
         new_version_labels(store, args.site)
+        return 0
+    if args.command == "labels" and args.labels_cmd == "tool":
+        import sys
+
+        from twin import labels as labels_mod
+        from twin.runner import default_store
+
+        store = args.store if args.store is not None else default_store()
+        try:
+            from twin.labeltool import DraftError, generate
+
+            path = generate(
+                store,
+                args.site,
+                area=getattr(args, "area", None),
+                areas_root=getattr(args, "areas", None),
+                import_path=getattr(args, "import_path", None),
+                replace=getattr(args, "replace", False),
+                reset=getattr(args, "reset", False),
+                x0=getattr(args, "x0", None),
+                y1=getattr(args, "y1", None),
+            )
+        except (DraftError, ValueError, FileNotFoundError, labels_mod.FrozenSiteError) as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        print(path)
+        print("serve locally at http://127.0.0.1:8090 (default; adjust for --host/--port)")
+        return 0
+    if args.command == "labels" and args.labels_cmd == "import":
+        import sys
+
+        from twin import labels as labels_mod
+        from twin.runner import default_store
+
+        store = args.store if args.store is not None else default_store()
+        try:
+            from twin.labeltool import DraftError, import_draft
+
+            n = import_draft(
+                store,
+                args.site,
+                args.draft,
+                replace=getattr(args, "replace", False),
+            )
+        except (DraftError, ValueError, FileNotFoundError, labels_mod.FrozenSiteError) as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        print(n)
         return 0
     return 0
 

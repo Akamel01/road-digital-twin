@@ -9,9 +9,11 @@ from twin.cli import render_schema, write_schemas
 from twin.contracts import (
     PARAM_STAGE,
     STAGES,
+    LabelFeature,
     Params,
     Pipeline,
     PipelineStage,
+    SiteMeta,
     check_rerun,
 )
 
@@ -172,3 +174,100 @@ def test_ramps_params_defaults_and_schema():
     with pytest.raises(ValidationError):
         RampsParams(gap_min_m=5.0, gap_max_m=1.0)
     assert "ramps.geojson" in STAGES["features"].outputs
+
+
+def test_site_meta_control_and_notes_default_none():
+    m = SiteMeta(
+        id="s",
+        role="dev",
+        polygon={"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]]},
+        created_at="2026-01-01T00:00:00",
+        source_area="a",
+    )
+    assert m.control is None
+    assert m.notes is None
+    m2 = SiteMeta(
+        id="s",
+        role="dev",
+        polygon={"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]]},
+        created_at="2026-01-01T00:00:00",
+        source_area="a",
+        control="signalised",
+        notes="n",
+    )
+    assert m2.control == "signalised" and m2.notes == "n"
+
+
+@pytest.mark.parametrize("t", ["double_line", "ladder", "continental", "transverse"])
+def test_label_feature_accepts_extended_types(t):
+    elem = {"double_line": "marking", "ladder": "crosswalk", "continental": "crosswalk", "transverse": "crosswalk"}[t]
+    f = LabelFeature(
+        id="x",
+        element=elem,
+        type=t,
+        origin="operator",
+        evidence="ortho",
+    )
+    assert f.type == t and f.evidence == "ortho"
+    # round-trip via dump
+    d = f.model_dump(mode="json")
+    f2 = LabelFeature.model_validate(d)
+    assert f2.evidence == "ortho" and f2.type == t
+
+
+def test_label_schema_doc_lists_new_fields_and_types():
+    text = (REPO / "docs" / "design" / "label-schema.md").read_text()
+    for field in ("control", "notes", "evidence"):
+        assert field in text, field
+    for t in ("double_line", "ladder", "continental", "transverse"):
+        assert t in text, t
+    # mapping table / normalisation rules
+    assert "by→origin" in text
+    assert "open ring" in text
+    for t in ("double_line", "ladder", "continental", "transverse"):
+        assert t in text
+    for f in ("control", "notes"):
+        assert f in text
+
+
+def test_decision_record_exists():
+    p = REPO / "docs" / "decisions" / "0008-label-tool-persistence.md"
+    assert p.is_file()
+    text = p.read_text()
+    assert "loopback" in text.lower()
+    assert "areas root" in text.lower() or "areas-root" in text.lower() or "areas_root" in text
+
+
+def test_spec_delta_lists_label_routes_and_cli():
+    text = (REPO / "docs" / "design" / "twin-v1-spec.md").read_text()
+    for s in (
+        "twin labels tool",
+        "twin labels import",
+        "/api/r/labels/{site}/tool",
+        "PUT /api/w/labels/{site}",
+        "/api/r/geo/latlon",
+    ):
+        assert s in text, s
+
+
+def test_docs_do_not_contain_draft_a_ids_or_ranges():
+    # real draft-A ids look like smwi...; ranges mention specific coords
+    forbidden = ["smwi"]
+    for p in [
+        REPO / "docs" / "design" / "label-schema.md",
+        REPO / "docs" / "decisions" / "0008-label-tool-persistence.md",
+        REPO / "docs" / "design" / "twin-v1-spec.md",
+    ]:
+        text = p.read_text()
+        for f in forbidden:
+            assert f not in text, (p, f)
+    import re
+
+    docs_text = (
+        (REPO / "docs" / "design" / "label-schema.md").read_text()
+        + (REPO / "docs" / "design" / "twin-v1-spec.md").read_text()
+        + (REPO / "docs" / "decisions" / "0008-label-tool-persistence.md").read_text()
+    )
+    # no real draft-A ids (smwi...) and no 6-7 digit UTM coordinate literals
+    assert re.search(r"smwi[0-9a-z]{6,}", docs_text) is None
+    assert re.search(r"\b\d{6,7}\.\d{3}\b", docs_text) is None

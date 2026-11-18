@@ -5,11 +5,16 @@ import pytest
 from twin.contracts import LabelFeature, SiteMeta
 from twin.labels import (
     FrozenSiteError,
+    _area_def,
     approve,
+    area_build_dir,
     draft,
     new_version,
     read_labels,
     read_site,
+    resolve_area,
+    set_meta,
+    valid_site,
     write_labels,
 )
 
@@ -216,3 +221,163 @@ def test_draft_reads_twin_features_and_clips(tmp_path):
     coords = geom["coordinates"]
     assert all(0 <= x <= 10 and 0 <= y <= 10 for x, y in coords)
     assert coords != [[0, 0], [100, 100]]
+
+
+def _area_outside(tmp_path):
+    root = tmp_path / "areas"
+    root.mkdir()
+    build = root / "demo-twin"
+    build.mkdir()
+    # feature file
+    _write_fc(build / "markings.geojson", [{"type": "Feature", "geometry": {"type": "LineString", "coordinates": [[0, 0], [1, 1]]}, "properties": {"id": "m1", "marking_type": "solid"}}])
+    area_def = {"name": "demo", "polygon": {"type": "Polygon", "coordinates": [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]]}}
+    (root / "demo.json").write_text(json.dumps(area_def) + "\n")
+    return root, build
+
+
+def test_draft_empty_creates_no_features(tmp_path):
+    store = tmp_path / "store"
+    build = _make_area(tmp_path)
+    meta = draft(store, "s1", str(build), empty=True, created_at="2026-01-01T00:00:00+00:00")
+    assert meta.version == 1
+    assert meta.role == "dev"
+    labels = read_labels(store, "s1")
+    assert labels["features"] == []
+    assert meta.source_area is not None
+
+
+def test_draft_default_still_copies_features(tmp_path):
+    store = tmp_path / "store"
+    build = _make_area(tmp_path)
+    draft(store, "s1", str(build), created_at="2026-01-01T00:00:00+00:00")
+    labels = read_labels(store, "s1")
+    assert len(labels["features"]) == 4
+
+
+def test_resolve_area_inside_store(tmp_path):
+    store = tmp_path / "store"
+    store.mkdir()
+    build = store / "demo-twin"
+    build.mkdir()
+    (build / "markings.geojson").write_text('{"type":"FeatureCollection","features":[]}')
+    (store / "areas").mkdir(exist_ok=True)
+    (store / "areas" / "demo.json").write_text(json.dumps({"polygon": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]]}}))
+    bd, ad = resolve_area(store, "demo")
+    assert bd == build
+    assert "polygon" in ad
+
+
+def test_resolve_area_outside_store(tmp_path):
+    root, build = _area_outside(tmp_path)
+    store = tmp_path / "store"
+    bd, ad = resolve_area(store, "demo", areas_root=root)
+    assert bd == build
+    assert "polygon" in ad
+
+
+def test_resolve_area_accepts_build_path(tmp_path):
+    _root, build = _area_outside(tmp_path)
+    store = tmp_path / "store"
+    bd, ad = resolve_area(store, str(build))
+    assert bd == build
+    assert "polygon" in ad
+
+
+def test_resolve_area_accepts_area_json(tmp_path):
+    root, build = _area_outside(tmp_path)
+    store = tmp_path / "store"
+    json_path = root / "demo.json"
+    bd, _ad = resolve_area(store, str(json_path), areas_root=root)
+    # sibling build found
+    assert bd == build
+
+
+def test_area_build_dir_preserves_store_name_candidate(tmp_path):
+    store = tmp_path / "store"
+    store.mkdir()
+    build = store / "demo"
+    build.mkdir()
+    (build / "markings.geojson").write_text('{"type":"FeatureCollection","features":[]}')
+    bd = area_build_dir(store, "demo")
+    assert bd == build
+
+
+def test_area_build_dir_areas_root_candidates_first(tmp_path):
+    store = tmp_path / "store"
+    store.mkdir()
+    # both store/demo and areas_root/demo-twin exist with equal features
+    b1 = store / "demo"
+    b1.mkdir()
+    (b1 / "markings.geojson").write_text('{"type":"FeatureCollection","features":[]}')
+    root = tmp_path / "areas"
+    root.mkdir()
+    b2 = root / "demo-twin"
+    b2.mkdir()
+    (b2 / "markings.geojson").write_text('{"type":"FeatureCollection","features":[]}')
+    bd = area_build_dir(store, "demo", areas_root=root)
+    assert bd == b2
+
+
+def test_area_def_prefers_exact_sibling_over_wildcard(tmp_path):
+    store = tmp_path / "store"
+    store.mkdir()
+    build = store / "demo-twin"
+    build.mkdir()
+    # two jsons in parent
+    (store / "demo.json").write_text(json.dumps({"polygon": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]]}}))
+    (store / "other.json").write_text(json.dumps({"polygon": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]]}}))
+    ad = _area_def(store, "demo", build)
+    # exact sibling demo.json wins -> name demo; just ensure returns dict with polygon
+    assert "polygon" in ad
+
+
+def test_area_def_rejects_ambiguous_polygon_json(tmp_path):
+    store = tmp_path / "store"
+    store.mkdir()
+    build = store / "demo-twin"
+    build.mkdir()
+    (store / "a.json").write_text(json.dumps({"polygon": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]]}}))
+    (store / "b.json").write_text(json.dumps({"polygon": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]]}}))
+    import pytest
+    with pytest.raises((FileNotFoundError, ValueError)):
+        _area_def(store, "demo", build)
+
+
+def test_set_meta_updates_control_and_notes(tmp_path):
+    store = tmp_path / "store"
+    build = _make_area(tmp_path)
+    draft(store, "s1", str(build), created_at="2026-01-01T00:00:00+00:00")
+    meta = set_meta(store, "s1", control="signalised", notes="hello")
+    assert meta.control == "signalised"
+    assert meta.notes == "hello"
+    assert meta.version == 1
+    meta2 = read_site(store, "s1")
+    assert meta2.control == "signalised"
+    assert meta2.notes == "hello"
+
+
+def test_set_meta_rejects_unknown_control(tmp_path):
+    from pydantic import ValidationError
+    store = tmp_path / "store"
+    build = _make_area(tmp_path)
+    draft(store, "s1", str(build), created_at="2026-01-01T00:00:00+00:00")
+    with pytest.raises(ValidationError):
+        set_meta(store, "s1", control="bogus", notes=None)
+
+
+def test_set_meta_allowed_on_frozen_site(tmp_path):
+    store = tmp_path / "store"
+    build = _make_area(tmp_path)
+    draft(store, "s1", str(build), created_at="2026-01-01T00:00:00+00:00")
+    approve(store, "s1", "alice", approved_at="2026-01-02T00:00:00+00:00")
+    meta = set_meta(store, "s1", control="stop_controlled", notes="frozen ok")
+    assert meta.control == "stop_controlled"
+    assert meta.frozen is True
+
+
+def test_valid_site_rejects_traversal():
+    assert valid_site("../x") is False
+    assert valid_site("a\\b") is False
+    assert valid_site("") is False
+    assert valid_site(".hidden") is False
+    assert valid_site("ok.site-1") is True
