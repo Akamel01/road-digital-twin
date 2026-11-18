@@ -186,10 +186,10 @@ function renderAll(){ $("nsurf").textContent=state.surfaces.length;
  if(!state.supports.length){const sp=document.createElement("span");sp.className="mute";sp.textContent="No devices yet.";slots.append(sp);}
  $("setid").textContent=`${SITE}@v${state.meta?state.meta.version:state.version} · ${state.surfaces.length} surface features · ${state.devices.length} devices on ${state.supports.length} supports`;
  $("frz").textContent=state.meta?PURE.siteSummary(state.meta):"Draft: editable.";
- $("json").textContent=JSON.stringify(fileOf(),null,1);draw()}
+ $("json").textContent=JSON.stringify(fileOf(),null,1);if($("dl"))$("dl").disabled=!state.loaded;draw()}
 
 const len=f=>f.xy.reduce((s,v,i)=>i?s+Math.hypot(v[0]-f.xy[i-1][0],v[1]-f.xy[i-1][1]):0,0);
-function fileOf(){return{set:SITE,version:state.meta.version,source:"labels-store",surface_features:state.surfaces.map(({px,...f})=>f)}}
+function fileOf(){if(!state.loaded||!state.meta)return{set:SITE,version:1,source:"labels-store",surface_features:[]};return{set:SITE,version:state.meta.version,source:"labels-store",surface_features:state.surfaces.map(({px,...f})=>f)}}
 document.addEventListener("click",e=>{const s=e.target.dataset.s,d=e.target.dataset.d;if(!s&&!d)return;if(!requireEditable())return;if(s)state.surfaces=state.surfaces.filter(f=>f.id!==s);if(d){state.devices=state.devices.filter(x=>x.id!==d);state.supports=state.supports.filter(p=>state.devices.some(x=>x.support===p.id))}try{localStorage.setItem(DEV_STORE,JSON.stringify({supports:state.supports,devices:state.devices}))}catch(e){};queuePut();renderAll()});
 $("freeze").onclick=async()=>{if(state.frozen)return;const f=fileOf();f.frozen=null;const h=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(JSON.stringify(f)));state.frozen={at:new Date().toISOString(),sha256:[...new Uint8Array(h)].map(b=>b.toString(16).padStart(2,"0")).join("")};save()};
 $("newver").onclick=()=>{if(!state.frozen)return;state.version++;state.frozen=null;save()};

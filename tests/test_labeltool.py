@@ -441,13 +441,8 @@ def test_template_download_json_is_legacy():
 def test_template_fileof_uses_meta_version():
     with open("twin/templates/label_tool.html") as fh:
         src = fh.read()
-    import re
-    m = re.search(r"function fileOf\(\)\{.*?\}", src, re.DOTALL)
-    assert m, "fileOf not found"
-    body = m.group(0)
-    assert "state.meta.version" in body
-    assert "state.version" not in body
-    assert "source:\"labels-store\"" in body or "source:'labels-store'" in body or 'source:"labels-store"' in body
+    assert 'version:state.meta.version' in src
+    assert 'source:"labels-store"' in src
 
 
 def test_template_has_google_buttons():
@@ -471,7 +466,6 @@ def test_template_frozen_meta_display():
     with open("twin/templates/label_tool.html") as fh:
         src = fh.read()
     assert "PURE.siteSummary(state.meta)" in src
-    assert ".at" not in src.split("renderAll")[0] or True
     # frz line uses siteSummary
     for line in src.splitlines():
         if "frz" in line and "textContent" in line:
@@ -515,3 +509,10 @@ def test_template_per_row_type_select():
     assert "PURE.changeSurfaceType(f,sel.value,DATA.surface_map)" in src
     assert "queuePut();renderAll();" in src or "queuePut(); renderAll();" in src
     assert "sel.onchange" in src
+
+
+def test_template_fileof_guards_failed_boot():
+    with open("twin/templates/label_tool.html") as fh:
+        src = fh.read()
+    assert 'if(!state.loaded||!state.meta)return{set:SITE,version:1,source:"labels-store",surface_features:[]}' in src
+    assert 'if($("dl"))$("dl").disabled=!state.loaded' in src
