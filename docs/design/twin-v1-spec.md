@@ -132,7 +132,7 @@ run store (box: /data/twin-runs/<run-id>/) ──► control API (twin-api.papyr
 
 **Static showcase.**
 - `twin publish <run-id>…` copies the public files of one run per drive into the Pages build, plus an area index (`area.json`: drives, facilities, best-covered run per facility):
-  - plan rasters (lidar intensity, orthoimage, coverage), as 256 px WebP tile pyramids (decision 41);
+  - plan rasters (lidar intensity, orthoimage, coverage), as per-layer mosaic sparse XYZ WebP tiles (showcase/tiles/<layer>/<z>/<x>/<y>.webp + meta.json);
   - GeoJSON;
   - a downsampled LAZ;
   - PDFs and DXFs;
@@ -365,7 +365,7 @@ If a scene fails the markings threshold, its runs report markings as "not extrac
 
 **Outputs.**
 - `laspy[lazrs]` writes LAZ, with the CRS set via `header.add_crs()`.
-- Rasters for publishing are cut into 256 px WebP tile pyramids (decision 41), so every file stays far under 25 MiB; the run keeps the full PNG and world file.
+- Rasters for publishing are mosaicked into per-layer sparse XYZ WebP tiles (showcase/tiles/<layer>/<z>/<x>/<y>.webp + meta.json); the run keeps the full PNG and world file.
 - ezdxf writes DXF. The PDF is drawn from the same DXF with the ezdxf `drawing` add-on (matplotlib backend).
 
 ## 7. Risks and limits
