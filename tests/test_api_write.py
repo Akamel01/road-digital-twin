@@ -300,3 +300,171 @@ def test_signin_extra_origin_only_when_env_set(store, access, monkeypatch, auth)
     client = TestClient(create_app(store, access.verifier))
     resp = client.get("/api/w/signin", params={"next": target}, headers=auth, follow_redirects=False)
     assert resp.status_code == 302 and resp.headers["location"] == target
+
+
+# ---- M7 additions ----
+
+from twin import labels as _labels_store
+from twin.contracts import SiteMeta as _SiteMeta
+
+
+def _make_site(store, site="site1", frozen=False, approved=False):
+    meta = _SiteMeta(
+        id=site,
+        role="dev",
+        polygon={"type": "Polygon", "coordinates": [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]]},
+        version=1,
+        created_at="2024-01-01T00:00:00Z",
+        source_area="area",
+        frozen=frozen,
+        approved_by="op" if approved else None,
+        approved_at="2024-01-02T00:00:00Z" if approved else None,
+    )
+    _labels_store.write_site(store, site, meta)
+    _labels_store.labels_path(store, site).write_text('{"type": "FeatureCollection", "features": []}\n')
+    return site
+
+
+def test_tool_page_loopback_served(store, access):
+    site = _make_site(store)
+    d = _labels_store.labels_dir(store, site)
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "tool.html").write_text("<html>tool</html>")
+    client = TestClient(create_app(store, access.verifier), base_url="http://127.0.0.1:8090", client=("127.0.0.1", 50000))
+    resp = client.get(f"/api/r/labels/{site}/tool")
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers.get("content-type", "")
+    assert resp.headers.get("cache-control") == "no-store"
+
+
+def test_tool_page_refused_for_non_loopback_peer(store, access):
+    site = _make_site(store)
+    d = _labels_store.labels_dir(store, site)
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "tool.html").write_text("<html>tool</html>")
+    client = TestClient(create_app(store, access.verifier))
+    resp = client.get(f"/api/r/labels/{site}/tool")
+    assert resp.status_code == 404
+
+
+def test_tool_page_refused_for_non_loopback_host(store, access):
+    site = _make_site(store)
+    d = _labels_store.labels_dir(store, site)
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "tool.html").write_text("<html>tool</html>")
+    client = TestClient(create_app(store, access.verifier), base_url="http://127.0.0.1:8090", client=("127.0.0.1", 50000))
+    resp = client.get(f"/api/r/labels/{site}/tool", headers={"Host": "evil.example"})
+    assert resp.status_code == 404
+
+
+def test_tool_page_missing_file_404(store, access):
+    site = _make_site(store)
+    client = TestClient(create_app(store, access.verifier), base_url="http://127.0.0.1:8090", client=("127.0.0.1", 50000))
+    resp = client.get(f"/api/r/labels/{site}/tool")
+    assert resp.status_code == 404
+
+
+def test_tool_page_missing_site_404(store, access):
+    client = TestClient(create_app(store, access.verifier), base_url="http://127.0.0.1:8090", client=("127.0.0.1", 50000))
+    resp = client.get("/api/r/labels/nope/tool")
+    assert resp.status_code == 404
+
+
+def test_tool_page_bad_site_422(store, access):
+    client = TestClient(create_app(store, access.verifier), base_url="http://127.0.0.1:8090", client=("127.0.0.1", 50000))
+    resp = client.get("/api/r/labels/bad..site/tool")
+    assert resp.status_code == 422
+
+
+@pytest.mark.parametrize("control", ["signalised", "stop_controlled", "uncontrolled", "mid_block"])
+def test_site_meta_put_each_control_value(store, access, control):
+    site = _make_site(store)
+    client = TestClient(create_app(store, access.verifier))
+    auth = {"Cf-Access-Jwt-Assertion": access.token()}
+    before = client.get(f"/api/r/labels/{site}").json()
+    resp = client.put(f"/api/w/labels/{site}", json={"control": control, "notes": "n1"}, headers=auth)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["control"] == control
+    assert body["notes"] == "n1"
+    assert body["version"] == before["version"]
+
+
+def test_site_meta_put_invalid_control_422(store, access):
+    site = _make_site(store)
+    client = TestClient(create_app(store, access.verifier))
+    auth = {"Cf-Access-Jwt-Assertion": access.token()}
+    resp = client.put(f"/api/w/labels/{site}", json={"control": "bogus"}, headers=auth)
+    assert resp.status_code == 422
+
+
+def test_site_meta_put_needs_token_401(store, access):
+    site = _make_site(store)
+    client = TestClient(create_app(store, access.verifier))
+    resp = client.put(f"/api/w/labels/{site}", json={"control": "mid_block"})
+    assert resp.status_code == 401
+
+
+def test_site_meta_put_missing_site_404(store, access):
+    client = TestClient(create_app(store, access.verifier))
+    auth = {"Cf-Access-Jwt-Assertion": access.token()}
+    resp = client.put("/api/w/labels/nope", json={"control": "mid_block"}, headers=auth)
+    assert resp.status_code == 404
+
+
+def test_site_meta_put_allowed_when_frozen(store, access):
+    site = _make_site(store, frozen=True, approved=True)
+    client = TestClient(create_app(store, access.verifier))
+    auth = {"Cf-Access-Jwt-Assertion": access.token()}
+    resp = client.put(f"/api/w/labels/{site}", json={"control": "mid_block"}, headers=auth)
+    assert resp.status_code == 200
+    # labels PUT is 423
+    body = {"version": 1, "feature_collection": {"type": "FeatureCollection", "features": []}}
+    resp2 = client.put(f"/api/w/labels/{site}/labels", json=body, headers=auth)
+    assert resp2.status_code == 423
+
+
+def test_labels_put_then_get_reflects_edit(store, access):
+    site = _make_site(store)
+    client = TestClient(create_app(store, access.verifier))
+    auth = {"Cf-Access-Jwt-Assertion": access.token()}
+    # get current labels
+    client.get(f"/api/r/labels/{site}/labels").json()
+    # modify coordinates? just round trip feature collection
+    fc = {"type": "FeatureCollection", "features": []}
+    body = {"version": 1, "feature_collection": fc}
+    resp = client.put(f"/api/w/labels/{site}/labels", json=body, headers=auth)
+    assert resp.status_code == 200
+    g2 = client.get(f"/api/r/labels/{site}/labels")
+    assert g2.status_code == 200
+
+
+def test_labels_put_stale_version_409(store, access):
+    site = _make_site(store)
+    client = TestClient(create_app(store, access.verifier))
+    auth = {"Cf-Access-Jwt-Assertion": access.token()}
+    # bump version
+    client.post(f"/api/w/labels/{site}/new-version", headers=auth)
+    # now meta version 2; put labels with old version 1 -> 409
+    body = {"version": 1, "feature_collection": {"type": "FeatureCollection", "features": []}}
+    resp = client.put(f"/api/w/labels/{site}/labels", json=body, headers=auth)
+    assert resp.status_code == 409
+    # equal version last-writer-wins: put with current version 2 -> 200, version stays 2
+    body2 = {"version": 2, "feature_collection": {"type": "FeatureCollection", "features": []}}
+    resp2 = client.put(f"/api/w/labels/{site}/labels", json=body2, headers=auth)
+    assert resp2.status_code == 200
+    assert resp2.json()["version"] == 2
+
+
+def test_latlon_endpoint_test_point(store, access):
+    client = TestClient(create_app(store, access.verifier))
+    resp = client.get("/api/r/geo/latlon", params={"x": 332414.0, "y": 4690067.2})
+    assert resp.status_code == 200
+    assert resp.json() == {"lat": 42.344822, "lon": -71.034536}
+
+
+def test_serve_refuses_dev_auth_on_public_host(store, monkeypatch):
+    monkeypatch.setenv("TWIN_DEV_NO_AUTH", "1")
+    from twin.api import serve_command
+    rc = serve_command(store, "0.0.0.0", 8090)
+    assert rc == 2

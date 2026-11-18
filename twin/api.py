@@ -8,10 +8,11 @@ validated by twin.contracts, never YAML.
 import logging
 import os
 import re
+import sys
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel, Field
@@ -25,8 +26,11 @@ from twin.contracts import (
     Manifest,
     Params,
     Pipeline,
+    SiteControl,
     flatten,
 )
+from twin.geo import utm_to_latlon
+from twin.labels import SITE_ID
 from twin.runner import (
     INTERRUPTED,
     LowDisk,
@@ -41,7 +45,6 @@ from twin.runstore import RunStore
 
 ALLOWED_ORIGIN = "https://twin.papyrus-ai.net"
 RUN_ID = re.compile(r"\d{8}-\d{6}-[0-9a-f]{6}")
-SITE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 COMPARE_SECTIONS = ("pipeline", "params", "metrics")
 
 
@@ -93,6 +96,18 @@ class LabelsUpdate(BaseModel):
 
 class ApproveBody(BaseModel):
     approved_by: str
+
+
+class SiteMetaUpdate(BaseModel):
+    control: SiteControl | None = None
+    notes: str | None = None
+
+
+def _loopback(request: Request) -> None:
+    peer = getattr(request.client, "host", None)
+    host = request.url.hostname
+    if peer not in {"127.0.0.1", "::1"} or host not in {"127.0.0.1", "localhost", "::1"}:
+        raise HTTPException(404, "not found")
 
 
 def _known_run(store: Path, run_id: str) -> None:
@@ -211,6 +226,27 @@ def create_app(store: Path, verifier: Verifier | None = None) -> FastAPI:
             raise HTTPException(404, "site not found") from exc
         return labels_store.read_labels(store, site)
 
+    @app.get("/api/r/labels/{site}/tool")
+    def get_label_tool(site: str, request: Request) -> FileResponse:
+        _check_site(site)
+        _loopback(request)
+        try:
+            labels_store.read_site(store, site)  # existence check
+        except FileNotFoundError as exc:
+            raise HTTPException(404, "site not found") from exc
+        base = labels_store.labels_dir(store, site).resolve()
+        target = (base / "tool.html").resolve()
+        if not target.is_relative_to(base):
+            raise HTTPException(404, "not found")
+        if not target.is_file():
+            raise HTTPException(404, "not found")
+        return FileResponse(target, media_type="text/html", headers={"Cache-Control": "no-store"})
+
+    @app.get("/api/r/geo/latlon")
+    def geo_latlon(x: float = Query(...), y: float = Query(...)) -> dict[str, float]:
+        lat, lon = utm_to_latlon(x, y)
+        return {"lat": lat, "lon": lon}
+
     write = APIRouter(prefix="/api/w", dependencies=[Depends(verifier.verify)])
     next_prefixes = tuple(f"{o.rstrip('/')}/" for o in (ALLOWED_ORIGIN, *extra))
 
@@ -247,6 +283,15 @@ def create_app(store: Path, verifier: Verifier | None = None) -> FastAPI:
         _known_run(store, run_id)
         cancel(store, run_id)
         return {"run_id": run_id}
+
+    @write.put("/labels/{site}")
+    def put_site_meta(site: str, body: SiteMetaUpdate) -> dict[str, Any]:
+        _check_site(site)
+        try:
+            meta = labels_store.set_meta(store, site, control=body.control, notes=body.notes)
+        except FileNotFoundError as exc:
+            raise HTTPException(404, "site not found") from exc
+        return meta.model_dump(mode="json")
 
     @write.put("/labels/{site}/labels")
     def put_site_labels(site: str, body: LabelsUpdate) -> dict[str, Any]:
@@ -293,6 +338,9 @@ def create_app(store: Path, verifier: Verifier | None = None) -> FastAPI:
 def serve_command(store: Path | None, host: str, port: int) -> int:
     import uvicorn
 
+    if os.environ.get("TWIN_DEV_NO_AUTH") == "1" and host not in {"127.0.0.1", "::1", "localhost"}:
+        print("TWIN_DEV_NO_AUTH=1 is only allowed on loopback hosts; refusing to bind to " + str(host), file=sys.stderr)
+        return 2
     store = store or default_store()
     for run_id in recover_interrupted(store):  # runs cut off by a restart: stage marked failed
         logging.getLogger("twin.api").warning("run %s: %s", run_id, INTERRUPTED)
