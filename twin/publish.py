@@ -272,7 +272,7 @@ def publish_runs(
     grid = _grid_from_points(all_x, all_y, target_lidar)
     x0, y0, cell, side = grid
 
-    # per-drive pyramids (default behaviour)
+    # per-drive public files
     runs = []
     for i, rid in enumerate(run_ids):
         run_dir = run_dirs[i]

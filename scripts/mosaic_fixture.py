@@ -103,8 +103,8 @@ def main():
         (src / "tiles" / d["run_id"] / l).exists() for d in drives)]
 
     # Composite + write mosaic
-    from twin.tiles import write_mosaic_tiles
     import twin.publish as pub
+    from twin.tiles import write_mosaic_tiles
 
     layer_tiles_bytes = {}
     for layer in layers_present:
@@ -133,7 +133,7 @@ def main():
                     except ValueError:
                         continue
                     for yf in xf.iterdir():
-                        if not yf.suffix == ".webp":
+                        if yf.suffix != ".webp":
                             continue
                         try:
                             yi = int(yf.stem)
@@ -152,8 +152,8 @@ def main():
             drv_h = (mb[3] - mb[1]) / extent * side
             if drv_w < 1 or drv_h < 1:
                 continue
-            resized = img.resize((max(1, int(round(drv_w))), max(1, int(round(drv_h)))), Image.Resampling.NEAREST)
-            canvas.paste(resized, (int(round(ox)), int(round(oy))), resized)
+            resized = img.resize((max(1, round(drv_w)), max(1, round(drv_h))), Image.Resampling.NEAREST)
+            canvas.paste(resized, (round(ox), round(oy)), resized)
 
         meta_out = {
             "crs": "EPSG:32619",
@@ -181,7 +181,7 @@ def main():
         # also set layers maybe
         rep.setdefault("layers", {})
         report_path.write_text(json.dumps(rep, indent=2))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - fixture best-effort version stamp
         (out / "version_error.txt").write_text(str(e))
 
     # provenance
