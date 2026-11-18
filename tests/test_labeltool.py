@@ -1473,3 +1473,58 @@ def test_generate_reset_import_failure_restores_bytes(tmp_path, monkeypatch):
             replace=True,
         )
     assert _site_dir_bytes(store, "s1") == before
+
+
+def test_generate_snapshot_failure_leaves_site_unchanged(tmp_path, monkeypatch):
+    import shutil
+    import tempfile
+    from pathlib import Path
+
+    store = tmp_path / "store"
+    area_def = {
+        "name": "a1",
+        "dataset_version": "v1.0-trainval",
+        "polygon": {"type": "Polygon", "coordinates": [[[0, 0], [20, 0], [20, 20], [0, 20], [0, 0]]]},
+        "drives": [{"scene": "sc1", "scene_token": "t1"}],
+    }
+    _mk_area_build(store, "a1", area_def, ["sc1"])
+    full = {"load": "ok", "align": "ok", "ground": "ok"}
+    _mk_run(store, "20261101-000000-aaaaaa", "t1", "v1.0-trainval", full)
+    labels.draft(store, "s1", "a1", areas_root=store / "areas", role="audit")
+    fc = labels.read_labels(store, "s1")
+    fc["features"].append(
+        {
+            "type": "Feature",
+            "geometry": {"type": "LineString", "coordinates": [[1, 1], [2, 2]]},
+            "properties": {
+                "id": "keep",
+                "element": "marking",
+                "type": "solid_line",
+                "origin": "operator",
+            },
+        }
+    )
+    labels.write_labels(store, "s1", fc, expected_version=labels.read_site(store, "s1").version)
+    site_json = (store / "labels" / "s1" / "site.json").read_bytes()
+    labels_geo = (store / "labels" / "s1" / "labels.geojson").read_bytes()
+    tmpdir = Path(tempfile.gettempdir())
+    before_tmp = set(tmpdir.glob("labeltool-site-*"))
+
+    calls = {"n": 0}
+
+    def boom_copytree(*args, **kwargs):
+        calls["n"] += 1
+        raise OSError("snapshot boom")
+
+    monkeypatch.setattr(shutil, "copytree", boom_copytree)
+    _patch_export_window(monkeypatch)
+    with pytest.raises(OSError, match="snapshot boom"):
+        generate(store, "s1", area="a1", areas_root=store / "areas", reset=True)
+
+    assert calls["n"] == 1
+    site_dir = store / "labels" / "s1"
+    assert site_dir.is_dir()
+    assert (site_dir / "site.json").read_bytes() == site_json
+    assert (site_dir / "labels.geojson").read_bytes() == labels_geo
+    after_tmp = set(tmpdir.glob("labeltool-site-*"))
+    assert after_tmp == before_tmp

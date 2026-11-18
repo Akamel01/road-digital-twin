@@ -446,12 +446,16 @@ def generate(
 
     site_dir = labels.labels_dir(store, site)
     existed_before = preexisting
+    needs_snapshot = bool(reset or import_path is not None)
     backup_root: Path | None = None
-    try:
-        if existed_before:
-            backup_root = Path(tempfile.mkdtemp(prefix="labeltool-site-"))
-            shutil.copytree(site_dir, backup_root / "site")
+    backup_ok = False
+    restored = False
+    if needs_snapshot and existed_before:
+        backup_root = Path(tempfile.mkdtemp(prefix="labeltool-site-"))
+        shutil.copytree(site_dir, backup_root / "site")
+        backup_ok = True
 
+    try:
         if reset:
             assert meta is not None
             role = meta.role or "audit"
@@ -508,16 +512,24 @@ def generate(
         tmp.write_text(html, encoding="utf-8")
         os.replace(tmp, target)
         return target
-    except Exception:
-        if existed_before and backup_root is not None:
-            if site_dir.exists():
-                shutil.rmtree(site_dir)
-            shutil.copytree(backup_root / "site", site_dir)
+    except BaseException:
+        if backup_ok and backup_root is not None:
+            try:
+                if site_dir.exists():
+                    shutil.rmtree(site_dir)
+                shutil.copytree(backup_root / "site", site_dir)
+                restored = True
+            except Exception:
+                print(
+                    f"labeltool: restore failed; backup preserved at {backup_root}",
+                    file=sys.stderr,
+                )
+                raise
         elif not existed_before and site_dir.exists():
             shutil.rmtree(site_dir)
         raise
     finally:
-        if backup_root is not None:
+        if backup_root is not None and (not backup_ok or restored):
             shutil.rmtree(backup_root, ignore_errors=True)
 
 
