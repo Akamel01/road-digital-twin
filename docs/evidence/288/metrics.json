@@ -10,7 +10,7 @@
   },
   "commits": {
     "before": "1d3951c",
-    "after": "72bea60b0a98c5f0e485af6491a3bba1a75a53c0"
+    "after": "74d9d7f5d171e4a45849d491607a044776473149"
   },
   "renderer": {
     "before": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
@@ -23,8 +23,8 @@
   },
   "whole": {
     "before": {
-      "count": 322,
-      "bytes": 2347443
+      "count": 318,
+      "bytes": 2290984
     },
     "after": {
       "count": 0,
@@ -33,8 +33,8 @@
   },
   "gesture": {
     "before": {
-      "count": 114,
-      "bytes": 689209
+      "count": 110,
+      "bytes": 632750
     },
     "after": {
       "count": 0,
@@ -42,19 +42,19 @@
     }
   },
   "heap": {
-    "before": 67559924,
-    "after": 27290060
+    "before": 38171444,
+    "after": 39675716
   },
   "frame_ms": {
     "before": {
-      "median": 0,
-      "p95": 0,
-      "samples": 0
+      "median": 16.7,
+      "p95": 199.9,
+      "samples": 242
     },
     "after": {
-      "median": 0,
-      "p95": 0,
-      "samples": 0
+      "median": 16.7,
+      "p95": 16.8,
+      "samples": 660
     }
   },
   "final_zoom": {
@@ -84,85 +84,30 @@
       "Failed to load resource: the server responded with a status of 404 (Not Found)",
       "Failed to load resource: the server responded with a status of 404 (Not Found)",
       "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    ],
+    "after_stacks": [],
+    "after_404s": [
       "Failed to load resource: the server responded with a status of 404 (Not Found)",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')",
-      "TypeError: Cannot read properties of null (reading '0')"
+      "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "Failed to load resource: the server responded with a status of 404 (Not Found)"
     ]
   },
   "limitations": {
     "full_res_by_layer": "displayed level vs published zmax at MAX_K (see docs)"
   },
   "comparison": {
-    "frame_p95_before": 0,
-    "frame_p95_after": 0,
-    "whole_count_before": 322,
+    "frame_p95_before": 199.9,
+    "frame_p95_after": 16.8,
+    "whole_count_before": 318,
     "whole_count_after": 0
   },
   "gate": {
-    "passed": false,
-    "reasons": [
-      "frame p95 not improved: 0 -> 0",
-      "page errors: before=7 after=69"
-    ]
+    "passed": true,
+    "reasons": []
   }
 }

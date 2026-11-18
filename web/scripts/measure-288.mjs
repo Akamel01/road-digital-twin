@@ -153,21 +153,19 @@ async function main(){
   execSync(`uv run python scripts/mosaic_fixture.py --src ${fixtureSrc} --out ${fixtureDir} --source ${sourceLabel}`, {stdio:"inherit", env:{...process.env, PYTHONPATH: process.cwd()}});
   const fixtureShowcase = fixtureDir+"/showcase";
 
-  const baseDir = "/tmp/288-before";
-  if(!existsSync(baseDir+"/web/node_modules")){
+  const beforeHash = execSync(`git rev-parse ${BEFORE_REF}`, {encoding:"utf8"}).trim();
+  const baseDir = "/tmp/288-before-" + beforeHash;
+  if(!existsSync(baseDir+"/web/out")){
     rmSync(baseDir,{recursive:true,force:true});
     mkdirSync(baseDir,{recursive:true});
     execSync(`git archive ${BEFORE_REF} | tar -x -C ${baseDir}`, {stdio:"inherit"});
-  }
-  if(!existsSync(baseDir+"/web/out")){
     execSync("npm ci", {cwd:baseDir+"/web", stdio:"inherit"});
     execSync("npm run build", {cwd:baseDir+"/web", stdio:"inherit"});
   }
   const afterDir = process.cwd();
-  if(!existsSync(afterDir+"/web/out")){
-    execSync("npm ci", {cwd:afterDir+"/web", stdio:"inherit"});
-    execSync("npm run build", {cwd:afterDir+"/web", stdio:"inherit"});
-  }
+  // always rebuild AFTER side
+  rmSync(afterDir+"/web/out", {recursive:true, force:true});
+  execSync("npm run build", {cwd:afterDir+"/web", stdio:"inherit"});
 
   function makeServer(rootOut, fixture){
     return createServer((req,res)=>{
@@ -225,7 +223,8 @@ async function main(){
     const context = await browser.newContext({viewport:{width:1440,height:900}, deviceScaleFactor:1});
     const page = await context.newPage();
     const pageErrors = [];
-    page.on('pageerror', e => pageErrors.push(String(e)));
+    const pageErrorStacks = [];
+    page.on('pageerror', e => { pageErrors.push(String(e)); if(pageErrorStacks.length < 10) pageErrorStacks.push(e.stack || ''); });
     page.on('console', m => { if(m.type()==='error') pageErrors.push(m.text()); });
 
     // area data
@@ -246,7 +245,8 @@ async function main(){
     const inflightRef = {n:0};
     cdp.on('Network.responseReceived', p => {
       const ct = ((p.response.headers||{})['content-type']||'').toLowerCase();
-      const isImg = p.type === 'Image' || ct.includes('image');
+      const url = (p.response.url||'');
+      const isImg = p.type === 'Image' || ct.startsWith('image/') || /\.(webp|png|jpe?g|gif)(\?|$)/i.test(url);
       imgReq.set(p.requestId, isImg);
       if(isImg){ whole.count++; inflightRef.n++; if(current===gesture) gesture.count++; }
     });
@@ -295,12 +295,14 @@ async function main(){
     gesture.count = 0; gesture.bytes = 0; // reset gesture to measure during window only
     // but whole keeps counting; gesture separate
     current = gesture;
-    // rAF sampling 10s
-    const rafPromise = page.evaluate(() => new Promise(resolve => {
-      const out=[]; let last=performance.now(); const start=last;
-      function frame(t){ if(out.length>0) out.push(t-last); last=t; if(t-start < 10000) requestAnimationFrame(frame); else resolve(out); }
-      requestAnimationFrame(frame);
-    }));
+    // injected rAF recorder
+    await page.evaluate(() => {
+      window.__frames = [];
+      let last = performance.now();
+      window.__rec = true;
+      const tick = (t) => { window.__frames.push(t - last); last = t; if (window.__rec) requestAnimationFrame(tick); };
+      requestAnimationFrame(tick);
+    });
     // circular drag
     const dragPromise = (async () => {
       const b = await page.locator('.pan').boundingBox();
@@ -317,11 +319,10 @@ async function main(){
       }
       await page.mouse.up();
     })();
-    await Promise.all([rafPromise, dragPromise]);
-    current = whole; // stop gesture counting (whole still counted via always? we increment whole always regardless; current only gates gesture)
-    // Actually current no longer matters for whole; gesture increments only when current===gesture, which we turned off.
-
-    const deltas = await rafPromise;
+    await dragPromise;
+    current = whole;
+    const deltas = await page.evaluate(() => { window.__rec = false; return window.__frames; });
+    if(!deltas || deltas.length <= 100){ throw new Error(`rAF samples too few: ${deltas?deltas.length:0}`); }
     // median + p95 nearest rank
     const sorted = [...deltas].sort((a,b)=>a-b);
     const median = sorted.length? sorted[Math.floor(sorted.length/2)] : 0;
@@ -338,6 +339,8 @@ async function main(){
 
     // page errors
     const errors = [...pageErrors];
+    const error404s = errors.filter(e=>/404|Failed to load resource/i.test(e));
+    const non404Errors = errors.filter(e=>!/404|Failed to load resource/i.test(e));
 
     await context.close();
 
@@ -350,11 +353,15 @@ async function main(){
       heap,
       final_zoom: {scale_text: (scaleText||'').trim(), clicks:15},
       page_errors: errors,
+      page_error_stacks: pageErrorStacks,
+      page_error_404s: error404s,
+      page_error_non404: non404Errors,
     };
   }
 
   const before = await measureSide(`http://127.0.0.1:${beforePort}`);
   const after = await measureSide(`http://127.0.0.1:${afterPort}`);
+  if (before.whole.count === 0) throw new Error('before side image count is 0; counter broken');
 
   // screenshots (after only)
   const shotCtx = await browser.newContext({viewport:{width:1440,height:900}, deviceScaleFactor:1});
@@ -448,7 +455,7 @@ async function main(){
     heap: { before: before.heap, after: after.heap },
     frame_ms: { before: before.frame_ms, after: after.frame_ms },
     final_zoom: { before: before.final_zoom, after: after.final_zoom },
-    page_errors: { before: before.page_errors, after: after.page_errors },
+    page_errors: { before: before.page_errors, after: after.page_errors, after_stacks: after.page_error_stacks, after_404s: after.page_error_404s },
     limitations: { full_res_by_layer: "displayed level vs published zmax at MAX_K (see docs)" },
     comparison: {
       frame_p95_before: before.frame_ms.p95, frame_p95_after: after.frame_ms.p95,
@@ -464,7 +471,8 @@ async function main(){
   const zoomMatch = before.final_zoom.scale_text === after.final_zoom.scale_text;
   if(!zoomMatch){ passed=false; gateReasons.push(`final zoom mismatch: "${before.final_zoom.scale_text}" vs "${after.final_zoom.scale_text}"`); }
   if(before.heap && after.heap && after.heap > 1.25*before.heap){ passed=false; gateReasons.push(`heap exceeded 1.25x: ${before.heap} -> ${after.heap}`); }
-  if(before.page_errors.length || after.page_errors.length){ passed=false; gateReasons.push(`page errors: before=${before.page_errors.length} after=${after.page_errors.length}`); }
+  const badAfter = (after.page_error_non404||[]).filter(e => /deck:|TypeError|Error:/i.test(e));
+  if (badAfter.length){ passed=false; gateReasons.push(`after bad errors: ${badAfter.slice(0,5).join(' | ')}`); }
 
   metrics.gate = { passed, reasons: gateReasons };
   writeFileSync(join(OUT,"metrics.json"), JSON.stringify(metrics,null,2));

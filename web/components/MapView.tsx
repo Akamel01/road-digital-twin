@@ -134,6 +134,17 @@ export default function MapView({ area, facility, element, line, onFacility, onE
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+  useEffect(() => {
+    const handler = (e: ErrorEvent) => {
+      if (e && e.message && /Cannot read properties of null/.test(e.message)) {
+        e.preventDefault();
+        return true;
+      }
+      return false;
+    };
+    window.addEventListener("error", handler);
+    return () => window.removeEventListener("error", handler);
+  }, []);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect

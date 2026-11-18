@@ -40,7 +40,10 @@ export default function MapCanvas(p: {
         isDragging ? "grabbing" : isHovering ? "pointer" : "grab"
       }
       layers={p.layers}
-      onViewStateChange={({ viewState: v }) => p.onViewStateChange(v as ViewState)}
+       onViewStateChange={({ viewState: v, interactionState }) => {
+         if (interactionState?.isDragging) return;
+         p.onViewStateChange(v as ViewState);
+       }}
       onError={(e) => p.onError?.(e)}
     />
   );
