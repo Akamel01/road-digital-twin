@@ -23,6 +23,8 @@ Contracts: `twin/contracts.py` (`SiteMeta`, `LabelFeature`); JSON Schemas `schem
 | `created_at` | string | ISO8601 creation time |
 | `source_area` | string | area the site was drafted from |
 | `frozen` | bool | true once approved |
+| `control` | string or null | `signalised`, `stop_controlled`, `uncontrolled` or `mid_block`; site metadata only |
+| `notes` | string or null | free-form site notes |
 
 ## `labels.geojson` (`LabelFeature`)
 
@@ -32,13 +34,14 @@ Each feature is a GeoJSON Feature with `geometry` (2D or 3D, left as-is) and `pr
 |---|---|---|
 | `id` | string | feature id |
 | `element` | `"marking"`, `"crosswalk"`, `"curb"`, `"curb_ramp"` | element type |
-| `type` | string | marking: `solid_line`, `dashed_line`, `edge_line`, `stop_line`, `arrow`, `text`; crosswalk: `zebra`, `parallel`; curb: `curb`; curb_ramp: `curb_ramp` |
+| `type` | string | marking: `solid_line`, `dashed_line`, `edge_line`, `stop_line`, `arrow`, `text`, `double_line`; crosswalk: `zebra`, `parallel`, `ladder`, `continental`, `transverse`; curb: `curb`; curb_ramp: `curb_ramp` |
 | `origin` | `"drafted"` or `"operator"` | see Origin below |
 | `height_m` | number or null | curb height (curb) |
 | ramp fields | number/string or null | exact names from `extract_ramps`: `kind`, `width_m`, `run_length_m`, `running_slope_pct`, `cross_slope_pct`, `flare_slope_pct`, `gutter_step_m`, `running_slope_status`, `cross_slope_status`, `flare_slope_status`, `gutter_step_status`, `status`, `nearest_crosswalk_m`, `crosswalk_id`, `n_points` |
 | `source_feature_id` | string or null | provenance: source feature id |
 | `source_file` | string or null | provenance: source file name |
 | `source_marking_type` | string or null | provenance: source marking type |
+| `evidence` | string or null | provenance: evidence source (e.g. intensity, ortho, fused) |
 
 Geometry is accepted as any dict (2D or 3D) and is not flattened.
 
@@ -133,6 +136,30 @@ Geometry is accepted as any dict (2D or 3D) and is not flattened.
   }
 }
 ```
+
+## Tool to label mapping
+
+| tool `type` | element | `type` |
+|---|---|---|
+| lane line, solid white | marking | solid_line |
+| lane line, dashed white | marking | dashed_line |
+| lane line, solid yellow | marking | solid_line |
+| lane line, double yellow | marking | double_line |
+| stop line | marking | stop_line |
+| crosswalk, ladder | crosswalk | ladder |
+| crosswalk, continental | crosswalk | continental |
+| crosswalk, transverse | crosswalk | transverse |
+| crosswalk, zebra | crosswalk | zebra |
+| curb | curb | curb |
+| edge of pavement | marking | edge_line |
+
+## Normalisation rules (draft import)
+
+- Geometry: `xy` is copied verbatim. A polygon uses an open ring: append the first point only when it is not already the last (idempotent closure). A line stays a LineString.
+- `by` maps to `origin`: only `"operator"` is accepted.
+- `px` is not stored; it is recomputed from `xy` plus the window as `((x-x0)/g, (y1-y)/g)`.
+- `id` maps to `properties.id`; `evidence` maps to `properties.evidence`; raw tool type is kept in `source_marking_type`.
+- Supports/devices are not persisted; a non-empty draft is refused.
 
 ## Consumer bridge
 

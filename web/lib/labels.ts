@@ -14,6 +14,8 @@ export interface SiteMeta {
   created_at: string;
   source_area: string;
   frozen: boolean;
+  control?: "signalised" | "stop_controlled" | "uncontrolled" | "mid_block" | null;
+  notes?: string | null;
 }
 
 export interface LabelFeature {
@@ -29,7 +31,11 @@ export interface LabelFeature {
     | "zebra"
     | "parallel"
     | "curb"
-    | "curb_ramp";
+    | "curb_ramp"
+    | "double_line"
+    | "ladder"
+    | "continental"
+    | "transverse";
   origin: "drafted" | "operator";
   height_m?: number | null;
   kind?: string | null;
@@ -50,6 +56,7 @@ export interface LabelFeature {
   source_feature_id?: string | null;
   source_file?: string | null;
   source_marking_type?: string | null;
+  evidence?: string | null;
 }
 
 export interface GeoJsonGeometry {

@@ -47,6 +47,18 @@
       "title": "Element",
       "type": "string"
     },
+    "evidence": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Evidence"
+    },
     "flare_slope_pct": {
       "anyOf": [
         {
@@ -250,7 +262,11 @@
         "zebra",
         "parallel",
         "curb",
-        "curb_ramp"
+        "curb_ramp",
+        "double_line",
+        "ladder",
+        "continental",
+        "transverse"
       ],
       "title": "Type",
       "type": "string"

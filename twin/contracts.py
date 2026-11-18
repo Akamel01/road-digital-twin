@@ -599,6 +599,9 @@ class AreaIndex(_Strict):
 # ------------------------------------------------------------------ labels (audit set)
 
 
+SiteControl = Literal["signalised", "stop_controlled", "uncontrolled", "mid_block"]
+
+
 class SiteMeta(_Strict):
     id: str
     role: Literal["dev", "audit"]
@@ -610,6 +613,8 @@ class SiteMeta(_Strict):
     created_at: str
     source_area: str
     frozen: bool = False
+    control: SiteControl | None = None
+    notes: str | None = None
 
 
 class LabelFeature(_Strict):
@@ -626,6 +631,10 @@ class LabelFeature(_Strict):
         "parallel",
         "curb",
         "curb_ramp",
+        "double_line",
+        "ladder",
+        "continental",
+        "transverse",
     ]
     origin: Literal["drafted", "operator"]
     # curb
@@ -650,6 +659,7 @@ class LabelFeature(_Strict):
     source_feature_id: str | None = None
     source_file: str | None = None
     source_marking_type: str | None = None
+    evidence: str | None = None
 
 
 # ------------------------------------------------------------------ re-run

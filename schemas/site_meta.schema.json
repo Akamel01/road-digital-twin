@@ -25,6 +25,24 @@
       "default": null,
       "title": "Approved By"
     },
+    "control": {
+      "anyOf": [
+        {
+          "enum": [
+            "signalised",
+            "stop_controlled",
+            "uncontrolled",
+            "mid_block"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Control"
+    },
     "created_at": {
       "title": "Created At",
       "type": "string"
@@ -43,6 +61,18 @@
     "id": {
       "title": "Id",
       "type": "string"
+    },
+    "notes": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Notes"
     },
     "polygon": {
       "additionalProperties": true,
