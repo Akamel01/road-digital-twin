@@ -153,13 +153,15 @@ export function vectorLayers(opts: VectorLayersOptions | VectorDeps, ...rest: un
       data: hitEnabled ? closedData : [],
       coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
       getPolygon: (d: any) => d.points,
-       getFillColor: [0, 0, 0, 0],
-       lineWidthUnits: "pixels",
-       pickable: true,
-       onClick: (info: any) => handlers?.pickElement?.(info?.object?.el ?? null),
-       onHover: (info: any) => handlers?.onHover?.(info?.object ?? null),
-     }),
-   );
+      getFillColor: [0, 0, 0, 0],
+      getLineColor: [0, 0, 0, 0],
+      getLineWidth: 0,
+      lineWidthUnits: "pixels",
+      pickable: true,
+      onClick: (info: any) => handlers?.pickElement?.(info?.object?.el ?? null),
+      onHover: (info: any) => handlers?.onHover?.(info?.object ?? null),
+    }),
+  );
 
    // 4 overlay-open-hit
   layers.push(
