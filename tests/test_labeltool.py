@@ -308,8 +308,10 @@ def test_render_injects_surface_types_and_escapes_script():
     assert len(d["surface_types"]) == 11
     assert "id" in d["schema_fields"] and "evidence" in d["schema_fields"]
     assert d["notes"] == "</script><script>x"
-    assert "</script><script>x" not in html.split("const DATA=", 1)[1].split(";", 1)[0] or True
-    assert "\\u003c" in html
+    data_json = html.split("const DATA=", 1)[1].split(";", 1)[0]
+    assert "</script><script>x" not in data_json
+    assert "\\u003c" in data_json
+    assert d["notes"] == "</script><script>x"
 
     assert len(SURFACE_MAP) == 11
     assert "schema_fields" in html
@@ -366,15 +368,19 @@ def test_prototype_ui_markers_present():
     from twin.labeltool import render
 
     html = render({"site": "s1", "window": {"x0": 0, "y1": 20, "g": 0.05}})
-    for rid in ("map", "ca", "cb", "strip", "slist", "slots", "stype", "snap", "fuseinfo",
+    for rid in ("map", "mapwrap", "ca", "cb", "strip", "slist", "slots", "stype", "snap", "fuseinfo",
                 "legend", "hint", "json", "setid", "frz", "freeze", "newver", "dl", "reset",
                 "sub", "nsurf", "nsup", "la", "lb", "tri", "dsup", "dsave", "dclear", "dkind",
                 "dcode", "dval", "dplaque"):
         assert re.search(r'id="' + rid + r'"', html), rid
     for fn in ("function fit(", "function draw(", "function snapPt(", "const toPx=",
                "unscr=", "function finish(", "function triangulate(", "function drawStrip(",
-                "function drawPanes(", "function renderAll(", "function fileOf(", "toW="):
+               "function drawPanes(", "function renderAll(", "function fileOf(", "toW=",
+               "function ray(", "function proj(", "function drawPane("):
         assert fn in html, fn
+    for s in ("LiDAR intensity", "Orthoimage", "Combined", "Height", "Click to add vertices",
+              "Frames", "Mark the device face centre in both views", "Traced features", "Supports"):
+        assert s in html, s
     for bg in ("intensity", "ortho", "fused", "height"):
         assert f'data-bg="{bg}"' in html, bg
 
