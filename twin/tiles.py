@@ -12,16 +12,16 @@ from PIL import Image
 TILE = 256
 
 
-def write_mosaic_tiles(out, layer, mosaic, zmax, bbox, meta) -> None:
+def write_mosaic_tiles(out, layer, mosaic, zmax, bbox, meta, tiles_name: str = "tiles") -> None:
     """Write sparse loose XYZ WebP tiles for one area mosaic layer.
 
-    Writes ``out/tiles/<layer>/<z>/<x>/<y>.webp``, skipping tiles whose alpha
-    channel is entirely zero. Writes ``out/tiles/<layer>/meta.json`` with bbox,
-    crs, zmin, zmax, cell_m_at_zmax and the written tile list/count.
+    Writes ``out/<tiles_name>/<layer>/<z>/<x>/<y>.webp``, skipping tiles whose
+    alpha channel is entirely zero. Writes ``out/<tiles_name>/<layer>/meta.json``
+    with bbox, crs, zmin, zmax, cell_m_at_zmax and the written tile list/count.
     lidar/ortho use lossy WebP (q85); height/coverage use lossless WebP.
     """
     out = Path(out)
-    layer_dir = out / "tiles" / layer
+    layer_dir = out / tiles_name / layer
     lossy = layer in ("lidar", "ortho")
     arr = np.asarray(mosaic)
     base_img = Image.fromarray(arr.astype(np.uint8))

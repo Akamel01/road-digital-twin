@@ -147,3 +147,35 @@ def test_tile_version_changes_on_same_size_content(tmp_path):
     v2 = _tile_version(out)
     assert v1 != v2
     assert len(v1) == 12 and all(c in "0123456789abcdef" for c in v1)
+
+
+def test_bad_run_id_preserves_previous_tiles(runs, tmp_path):
+    site, run_ids = _site(runs, tmp_path)
+    sentinel = site / "tiles" / "lidar" / "sentinel.txt"
+    sentinel.write_text("keep")
+    before_files = sorted(
+        p.relative_to(site / "tiles").as_posix()
+        for p in (site / "tiles").rglob("*")
+        if p.is_file()
+    )
+    with pytest.raises(FileNotFoundError):
+        publish_runs([*run_ids, "no-such-run"], site, runs[0])
+    assert sentinel.read_text() == "keep"
+    after_files = sorted(
+        p.relative_to(site / "tiles").as_posix()
+        for p in (site / "tiles").rglob("*")
+        if p.is_file()
+    )
+    assert before_files == after_files
+    assert not (site / "tiles.new").exists()
+
+
+def test_successful_publish_replaces_tiles(runs, tmp_path):
+    site, run_ids = _site(runs, tmp_path)
+    stale = site / "tiles" / "stale" / "old.txt"
+    stale.parent.mkdir(parents=True, exist_ok=True)
+    stale.write_text("old")
+    publish_runs(run_ids, site, runs[0])
+    assert not stale.exists()
+    assert not (site / "tiles.new").exists()
+    assert (site / "tiles" / "lidar" / "meta.json").is_file()

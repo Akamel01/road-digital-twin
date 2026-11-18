@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -229,13 +230,18 @@ def _coverage_union(drive_orthos: list[np.ndarray], has_points: np.ndarray) -> n
     return coverage
 
 
-def _tile_version(out: Path) -> str:
-    """Content digest over all published mosaic WebP tiles (first 12 hex of sha256)."""
+def _tile_version(out: Path, tiles_name: str = "tiles") -> str:
+    """Content digest over mosaic WebP tiles (first 12 hex of sha256).
+
+    Hashes paths as tiles/<layer>/... so the value is stable when computed over a
+    temporary tiles directory before an atomic swap.
+    """
     h = hashlib.sha256()
     entries = []
-    for p in out.glob("tiles/*/*/*/*.webp"):
+    tiles_dir = out / tiles_name
+    for p in tiles_dir.glob("*/*/*/*.webp"):
         data = p.read_bytes()
-        rel = p.relative_to(out).as_posix()
+        rel = (Path("tiles") / p.relative_to(tiles_dir)).as_posix()
         entries.append(f"{rel}:{len(data)}:{hashlib.sha256(data).hexdigest()}")
     for line in sorted(entries):
         h.update((line + "\n").encode())
@@ -250,8 +256,11 @@ def publish_runs(
     max_files: int = MAX_FILES,
 ) -> tuple[AreaIndex, PublishReport]:
     out.mkdir(parents=True, exist_ok=True)
-    shutil.rmtree(out / "tiles", ignore_errors=True)
-    # Preload ground points for all drives to compute build-wide height above road.
+    tiles_name = "tiles.new"
+    tiles_tmp = out / tiles_name
+
+    # Preload/validate runs before mutating published tiles: a bad run id or
+    # manifest must not destroy a previous publish.
     all_drive_pts: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
     manifests: list[Manifest] = []
     run_dirs: list[Path] = []
@@ -271,6 +280,8 @@ def publish_runs(
     target_lidar = max(0.05, max(gsds) if gsds else 0.05)
     grid = _grid_from_points(all_x, all_y, target_lidar)
     x0, y0, cell, side = grid
+
+    shutil.rmtree(tiles_tmp, ignore_errors=True)
 
     # per-drive public files
     runs = []
@@ -347,9 +358,9 @@ def publish_runs(
             "layer": layer,
             "run_ids": run_ids,
         }
-        write_mosaic_tiles(out, layer, arr, zmax, bbox, meta)
+        write_mosaic_tiles(out, layer, arr, zmax, bbox, meta, tiles_name=tiles_name)
         # compute tile count
-        layer_dir = out / "tiles" / layer
+        layer_dir = tiles_tmp / layer
         tiles = [p for p in layer_dir.rglob("*.webp")]
         # per layer bytes = sum of webp + meta
         layer_bytes = sum(p.stat().st_size for p in layer_dir.rglob("*") if p.is_file())
@@ -361,9 +372,19 @@ def publish_runs(
             cell_m_at_zmax=float(gextent / (TILE * 2**zmax)),
         )
 
-    files = [p for p in out.rglob("*") if p.is_file()]
-    for path in files:
+    # Size/count checks over the would-be final output (tiles.new treated as tiles).
+    files = [
+        p for p in out.rglob("*")
+        if p.is_file() and "tiles.new" not in p.relative_to(out).parts
+    ]
+    files.extend(p for p in tiles_tmp.rglob("*") if p.is_file())
+    for path in [p for p in out.rglob("*") if p.is_file() and "tiles.new" not in p.relative_to(out).parts]:
         _check_size(path, out, max_file_bytes)
+    for path in [p for p in tiles_tmp.rglob("*") if p.is_file()]:
+        size = path.stat().st_size
+        if size > max_file_bytes:
+            rel = (Path("tiles") / path.relative_to(tiles_tmp)).as_posix()
+            raise ValueError(f"{rel}: {size} bytes exceeds {max_file_bytes} byte limit")
     if len(files) >= max_files:
         raise ValueError(f"{len(files)} files in {out}, limit is {max_files - 1}")
 
@@ -378,7 +399,7 @@ def publish_runs(
     report_path = out / "publish_report.json"
     other = [p for p in files if p != report_path]
     base = sum(p.stat().st_size for p in other)
-    report.tile_version = _tile_version(out)
+    report.tile_version = _tile_version(out, tiles_name=tiles_name)
     total = base
     for _ in range(10):
         report.total_bytes = total
@@ -389,6 +410,10 @@ def publish_runs(
         total = new_total
     report.total_bytes = total
     report_path.write_text(report.model_dump_json(indent=2))
+
+    # Commit tiles atomically only after report/size checks succeeded.
+    shutil.rmtree(out / "tiles", ignore_errors=True)
+    os.replace(tiles_tmp, out / "tiles")
     return area, report
 
 def publish_command(run_ids: list[str], out: Path, store: Path | None) -> int:
