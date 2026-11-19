@@ -5,10 +5,12 @@ import sys
 import types
 
 import numpy as np
+import pytest
 from PIL import Image
 
 import twin.labelraster as lr
 from twin.dataset import DatasetConfig
+from twin.labeltool import AreaSource, area_source
 
 
 def _block_cv2(monkeypatch):
@@ -161,6 +163,80 @@ def _make_laz(path, x0, y1, nx=200, ny=100, intensity_range=None):
     las.intensity = intensity.astype(np.uint16)
     path.parent.mkdir(parents=True, exist_ok=True)
     las.write(str(path))
+
+
+def _mk_area_source_build(root):
+    import json
+
+    import laspy
+    from PIL import Image
+
+    area = root / "areas"
+    twin = area / "a1-twin"
+    (twin / "5_features").mkdir(parents=True, exist_ok=True)
+    gdir = twin / "4_ground"
+    gdir.mkdir(parents=True, exist_ok=True)
+    laz = gdir / "ground.laz"
+    xs = np.linspace(52, 62, 200)
+    ys = np.linspace(75, 85, 150)
+    xx, yy = np.meshgrid(xs, ys)
+    xx = xx.ravel()
+    yy = yy.ravel()
+    z = np.where(np.abs(xx - 57) < 0.5, 0.2, 0.0)
+    intensity = np.linspace(100, 60000, xx.size).astype(np.uint16)
+    header = laspy.LasHeader(point_format=3, version="1.2")
+    las = laspy.LasData(header)
+    las.x = xx
+    las.y = yy
+    las.z = z
+    las.intensity = intensity
+    laz.parent.mkdir(parents=True, exist_ok=True)
+    las.write(str(laz))
+
+    merged = area / "a1-merged"
+    (merged / "drives" / "scene-1" / "3_align").mkdir(parents=True, exist_ok=True)
+    (merged / "drives" / "scene-2" / "3_align").mkdir(parents=True, exist_ok=True)
+    (merged / "drives" / "scene-1" / "1_load").mkdir(parents=True, exist_ok=True)
+    (merged / "drives" / "scene-2" / "1_load").mkdir(parents=True, exist_ok=True)
+
+    P1 = [[0, 1, 0, 40], [-1, 0, 0, -40], [0, 0, 1, 0], [0, 0, 0, 1]]
+    P2 = [[1, 0, 0, 62], [0, 1, 0, 40], [0, 0, 1, 0], [0, 0, 0, 1]]
+    for scene, P in (("scene-1", P1), ("scene-2", P2)):
+        (merged / "drives" / scene / "3_align" / "poses.json").write_text(
+            json.dumps({"poses": [{"timestamp_us": 1000, "matrix": P}, {"timestamp_us": 2000, "matrix": P}]})
+        )
+    cams = []
+    for ts in (1200, 1500, 1800):
+        cams.append(
+            {
+                "channel": "CAM_FRONT",
+                "timestamp_us": ts,
+                "image": "samples/cam.jpg",
+                "intrinsics": [[800, 0, 800], [0, 800, 450], [0, 0, 1]],
+                "extrinsics": {"translation": [0, 0, 0], "rotation_wxyz": [0.7071067811865476, -0.7071067811865476, 0, 0]},
+            }
+        )
+    for scene in ("scene-1", "scene-2"):
+        (merged / "drives" / scene / "1_load" / "cameras.json").write_text(json.dumps({"cameras": cams}))
+
+    (merged / "drives.json").write_text(
+        json.dumps(
+            [
+                {"scene": "scene-1", "correction": {"dx_m": 2.0, "dy_m": 0.0, "dz_m": 0.0, "translation_m": 2.0, "yaw_deg": 90.0}},
+                {"scene": "scene-2"},
+            ]
+        )
+    )
+    # twin copy
+    (twin / "drives.json").write_text((merged / "drives.json").read_text())
+
+    area_def = {"name": "a1", "dataset_version": "v1.0-trainval", "polygon": {"type": "Polygon", "coordinates": [[[0, 0], [20, 0], [20, 20], [0, 20], [0, 0]]]}, "drives": [{"scene": "scene-1", "scene_token": "t1"}, {"scene": "scene-2", "scene_token": "t2"}]}
+    (area / "a1.json").write_text(json.dumps(area_def))
+    (area.parent / "a1.json").write_text(json.dumps(area_def))
+
+    (root / "nuscenes" / "samples").mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (1600, 900), (10, 20, 30)).save(root / "nuscenes" / "samples" / "cam.jpg")
+    return twin, area_def
 
 
 def test_collect_drive_without_ortho_keeps_intensity_and_height(tmp_path, monkeypatch):
@@ -399,3 +475,35 @@ def test_try_cv2_returns_none_for_partial_fake(monkeypatch):
     assert lr._try_cv2() is None
     assert lr._try_cv2() is None
     assert calls == []
+
+
+def test_export_window_area_source(tmp_path):
+    twin_dir, area_def = _mk_area_source_build(tmp_path)
+    src = area_source(twin_dir, area_def)
+    assert isinstance(src, AreaSource)
+    assert src.base == twin_dir
+    assert len(src.frames) == 2
+    assert src.frames[0].name == "scene-1"
+    import numpy as np
+
+    T = src.frames[0].transform
+    assert T @ np.array([10, 10, 0, 1]) == pytest.approx([12, 10, 0, 1])
+    assert T @ np.array([0, 0, 0, 1]) == pytest.approx([22, 0, 0, 1])
+    assert src.frames[1].transform @ np.array([10, 10, 0, 1]) == pytest.approx([10, 10, 0, 1])
+
+    data = lr.export_window(tmp_path, [src], site="s1", x0=22.0, y1=117.5, nuscenes_root=tmp_path / "nuscenes")
+    assert len(data["frames"]) >= 6
+    assert data["no_imagery"] is False
+    assert data["frames"][0]["run"] == "scene-1"
+    assert data["frames"][0]["c2w"][0][3] == pytest.approx(62.0)
+    assert data["frames"][0]["c2w"][1][3] == pytest.approx(40.0)
+    import base64
+    import io
+
+    from PIL import Image
+
+    for key in ("intensity", "height"):
+        raw = base64.b64decode(data[key])
+        img = Image.open(io.BytesIO(raw))
+        assert img.size == (1600, 1500)
+        assert np.asarray(img).max() > 0

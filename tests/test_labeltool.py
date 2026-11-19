@@ -3,9 +3,11 @@ import re
 
 import pytest
 
+from tests.test_labelraster import _mk_area_source_build
 from twin import labels
 from twin.labeltool import (
     SURFACE_MAP,
+    AreaSource,
     DraftError,
     import_draft,
     surface_to_feature,
@@ -1536,3 +1538,104 @@ def test_generate_snapshot_failure_leaves_site_unchanged(tmp_path, monkeypatch):
     assert (site_dir / "labels.geojson").read_bytes() == labels_geo
     after_tmp = set(tmpdir.glob("labeltool-site-*"))
     assert after_tmp == before_tmp
+
+
+def test_generate_area_build_marks_ortho_unavailable(tmp_path, monkeypatch):
+    store = tmp_path / "store"
+    store.mkdir()
+    _twin_dir, _area_def = _mk_area_source_build(tmp_path)
+    # place areas under store/areas? _mk_area_source_build created under tmp_path/areas
+    # move? Instead set areas_root
+    areas_root = tmp_path / "areas"
+    data = _minimal_raster_data("s1", -30.0, 47.5)
+    data["no_imagery"] = False
+    data["frames"] = []
+    cap = _patch_export_window(monkeypatch, data=data)
+    from twin.labeltool import generate
+
+    generate(store, "s1", area="a1", areas_root=areas_root)
+    assert isinstance(cap["calls"][0]["runs"][0], AreaSource)
+    assert cap["calls"][0]["x0"] == pytest.approx(-30.0)
+    assert cap["calls"][0]["y1"] == pytest.approx(47.5)
+    html = (store / "labels" / "s1" / "tool.html").read_text()
+    assert '"unavailable":["ortho","fused"]' in html
+    assert "no usable camera frames (check a1-merged/drives and the nuScenes root)" in html
+
+
+def test_template_missing_guard_and_fallback_branch():
+    import importlib.resources as r
+
+    t = r.files("twin").joinpath("templates/label_tool.html").read_text()
+    assert 'if(DATA.missing&&DATA.missing.length)' in t
+    assert 'Array.isArray(DATA.missing)' in t
+    assert 'else if(DATA.window_fallback)showBanner("' in t
+    assert 'Site larger than 80×75 m: showing the 80×75 m centred on the extent.' in t
+
+
+def test_window_for_centre_keeps_store_default(tmp_path):
+    store = tmp_path / "store"
+    store.mkdir()
+    _mk_site_with_labels(store, "s", {"type": "Polygon", "coordinates": [[[0, 0], [20, 0], [20, 20], [0, 20], [0, 0]]]}, features_xy=[[[30, 0], [35, 0]]])
+    from twin.labeltool import window_for
+
+    wx0, wy1, info = window_for(store, "s")
+    assert wx0 == 0.0
+    assert wy1 == 20.0
+    assert info["fallback"] is False
+    wx0c, wy1c, infoc = window_for(store, "s", centre=True)
+    assert wx0c == pytest.approx(-30.0)
+    assert wy1c == pytest.approx(47.5)
+    assert infoc["fallback"] is False
+
+
+def test_window_for_centre_fallback_uses_polygon(tmp_path):
+    store = tmp_path / "store"
+    store.mkdir()
+    _mk_site_with_labels(store, "s", {"type": "Polygon", "coordinates": [[[0, 0], [100, 0], [100, 100], [0, 100], [0, 0]]]}, features_xy=[[[190.0, 50.0], [200.0, 50.0]]])
+    from twin.labeltool import window_for
+
+    wx0, wy1, info = window_for(store, "s")
+    assert wx0 == pytest.approx(60.0)
+    assert wy1 == pytest.approx(87.5)
+    assert info["fallback"] is True
+    wx0c, wy1c, infoc = window_for(store, "s", centre=True)
+    assert wx0c == pytest.approx(10.0)
+    assert wy1c == pytest.approx(87.5)
+    assert infoc["fallback"] is True
+
+
+def test_store_runs_win_over_area_build(tmp_path, monkeypatch):
+    store = tmp_path / "store"
+    store.mkdir()
+    _twin_dir, _area_def = _mk_area_source_build(tmp_path)
+    areas_root = tmp_path / "areas"
+    # create a store run
+
+    from twin.runstore import STAGE_NAMES
+    full = {n: "ok" for n in STAGE_NAMES}
+    _mk_run(store, "20261101-000000-aaaaaa", "t1", "v1.0-trainval", full)
+    # area def drives
+    data = _minimal_raster_data("s1", 0.0, 20.0)
+    cap = _patch_export_window(monkeypatch, data=data)
+    from twin.labeltool import generate
+
+    generate(store, "s1", area="a1", areas_root=areas_root)
+    assert cap["calls"][0]["runs"] == [store / "20261101-000000-aaaaaa"]
+    assert not isinstance(cap["calls"][0]["runs"][0], AreaSource)
+    assert cap["calls"][0]["x0"] == 0.0
+    assert cap["calls"][0]["y1"] == 20.0
+    html = (store / "labels" / "s1" / "tool.html").read_text()
+    assert '"unavailable"' not in html
+
+
+def test_render_marks_unavailable_backgrounds():
+    from twin.labeltool import render
+
+    data = {"site": "s1", "window": {"x0": 0, "y1": 20, "g": 0.05}, "unavailable": ["ortho", "fused"]}
+    html = render(data)
+    assert "DATA.unavailable" in html
+    assert "UNAV.has(b.dataset.bg)" in html
+    assert "b.disabled=true" in html
+    assert "b.title=" in html
+    assert "Unavailable: the area build has no 6_colour orthoimage." in html
+    assert "Ortho and Combined unavailable: the area build has no 6_colour orthoimage." in html
