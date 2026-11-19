@@ -225,15 +225,11 @@ function makeMosaicTileset(meta: MosaicMeta, dpr: number) {
         return [];
       }
       const b = bounds as [number, number, number, number];
-      const w = b[2] - b[0];
-      const h = b[3] - b[1];
-      const mx = (Number.isFinite(w) && w > 0 ? w : 0) * 0.5;
-      const my = (Number.isFinite(h) && h > 0 ? h : 0) * 0.5;
       const expanded: [number, number, number, number] = [
-        Math.max(0, b[0] - mx),
-        Math.max(0, b[1] - my),
-        Math.min(extent, b[2] + mx),
-        Math.min(extent, b[3] + my),
+        Math.max(0, b[0]),
+        Math.max(0, b[1]),
+        Math.min(extent, b[2]),
+        Math.min(extent, b[3]),
       ];
       const k = 2 ** viewport.zoom;
       const { indices } = tileRange(k, extent, meta.tile_px, dpr, expanded, meta.zmin, meta.zmax);
