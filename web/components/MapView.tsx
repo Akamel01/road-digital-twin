@@ -406,7 +406,7 @@ export default function MapView({ area, facility, element, line, onFacility, onE
   const deckLayers = useMemo(() => {
     if (!mosaic || !loaded) return [];
     return [
-      ...tileLayers({ metas: mosaic.metas, rasters, version, dpr }),
+      ...tileLayers({ metas: mosaic.metas, rasters, version, dpr, software: softwareRenderer }),
       // eslint-disable-next-line react-hooks/refs
       ...vectorLayers({
         deps: {
@@ -441,6 +441,7 @@ export default function MapView({ area, facility, element, line, onFacility, onE
     rasters,
     version,
     dpr,
+    softwareRenderer,
     overlays,
     facilityOutline,
     linesView,

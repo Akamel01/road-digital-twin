@@ -13,6 +13,7 @@ export interface TileLayersInput {
   rasters: Raster[];
   version: string;
   dpr: number;
+  software?: boolean;
 }
 
 const tileKeyCache = new WeakMap<MosaicMeta, Set<string> | null>();
@@ -37,7 +38,83 @@ function memoTileKeys(meta: MosaicMeta): Set<string> | null {
 type Pending = { resolve: (v: ImageBitmap | null) => void };
 type WState = { w: Worker; busy: number; pending: Map<number, Pending> };
 
-const WORKER_SRC = `self.onmessage=async(e)=>{const{id,url}=e.data;try{const r=await fetch(url);if(!r.ok){postMessage({id,ok:false});return}const b=await r.blob();const bmp=await createImageBitmap(b);postMessage({id,ok:true,bmp},[bmp])}catch{postMessage({id,ok:false})}}`;
+type UploadItem = {
+  bmp: ImageBitmap;
+  resolve: (v: ImageBitmap | null) => void;
+  signal?: AbortSignal;
+  settled: boolean;
+};
+const uploadQueue: UploadItem[] = [];
+let uploadRaf: number | null = null;
+
+function drainUploadQueue() {
+  uploadRaf = null;
+  let released = 0;
+  while (released < 2 && uploadQueue.length) {
+    const it = uploadQueue.shift()!;
+    if (it.settled) continue;
+    it.settled = true;
+    if (it.signal?.aborted) {
+      try { it.bmp.close?.(); } catch {}
+      it.resolve(null);
+    } else {
+      it.resolve(it.bmp);
+    }
+    released++;
+  }
+  for (let i = uploadQueue.length - 1; i >= 0; i--) {
+    const it = uploadQueue[i];
+    if (!it.signal?.aborted) continue;
+    uploadQueue.splice(i, 1);
+    if (!it.settled) {
+      it.settled = true;
+      try { it.bmp.close?.(); } catch {}
+      it.resolve(null);
+    }
+  }
+  if (uploadQueue.length) {
+    if (typeof requestAnimationFrame === "function") {
+      uploadRaf = requestAnimationFrame(drainUploadQueue);
+    } else {
+      setTimeout(drainUploadQueue, 16);
+    }
+  }
+}
+
+function staggerBitmapUpload(bmp: ImageBitmap, signal?: AbortSignal): Promise<ImageBitmap | null> {
+  if (signal?.aborted) {
+    try { bmp.close?.(); } catch {}
+    return Promise.resolve(null);
+  }
+  return new Promise((resolve) => {
+    const item: UploadItem = { bmp, resolve, signal, settled: false };
+    uploadQueue.push(item);
+    if (signal) {
+      signal.addEventListener(
+        "abort",
+        () => {
+          if (item.settled) return;
+          item.settled = true;
+          const idx = uploadQueue.indexOf(item);
+          if (idx >= 0) uploadQueue.splice(idx, 1);
+          try { item.bmp.close?.(); } catch {}
+          resolve(null);
+        },
+        { once: true },
+      );
+    }
+    if (uploadRaf == null) {
+      if (typeof requestAnimationFrame === "function") {
+        uploadRaf = requestAnimationFrame(drainUploadQueue);
+      } else {
+        setTimeout(drainUploadQueue, 16);
+      }
+    }
+  });
+}
+
+const WORKER_SRC = `self.onmessage=async(e)=>{const{id,buf,rw,rh}=e.data;try{const src=new Blob([buf]);const opts=(rw&&rh)?{resizeWidth:rw,resizeHeight:rh,resizeQuality:'low'}:undefined;const bmp=opts?await createImageBitmap(src,opts):await createImageBitmap(src);postMessage({id,ok:true,bmp},[bmp])}catch(err){postMessage({id,ok:false,err:String(err&&err.message||err)})}}`;
+function noteTileErr(msg: unknown){try{if(typeof window!=="undefined"){const w=window as any;w.__tileWorkerErrors=(w.__tileWorkerErrors||[]);w.__tileWorkerErrors.push(String(msg));}}catch{}}
 let pool: WState[] | null = null;
 let workerUrl: string | null = null;
 let reqId = 1;
@@ -65,7 +142,8 @@ function getPool(): WState[] | null {
           try { (bmp as ImageBitmap).close?.(); } catch {}
         }
       };
-      w.onerror = () => {
+      w.onerror = (ev) => {
+        noteTileErr("worker error: " + (ev && (ev as any).message || "unknown"));
         for (const [, p] of st.pending) p.resolve(null);
         st.pending.clear();
         st.busy = 0;
@@ -79,7 +157,7 @@ function getPool(): WState[] | null {
   }
 }
 
-function fetchBitmapViaWorker(url: string, signal?: AbortSignal): Promise<ImageBitmap | null> | null {
+function decodeBitmapViaWorker(buf: ArrayBuffer, signal?: AbortSignal, resize?: { rw: number; rh: number }): Promise<ImageBitmap | null> | null {
   if (signal?.aborted) return Promise.resolve(null);
   const p = getPool();
   if (!p) return null;
@@ -99,28 +177,36 @@ function fetchBitmapViaWorker(url: string, signal?: AbortSignal): Promise<ImageB
           done(null);
         }
       : undefined;
-    st.pending.set(id, { resolve: done });
+    st.pending.set(id, {
+      resolve: (v) => {
+        if (!v) noteTileErr("worker decode returned null");
+        done(v);
+      },
+    });
     st.busy++;
     if (signal && onAbort) signal.addEventListener("abort", onAbort, { once: true });
     try {
-      st.w.postMessage({ id, url });
-    } catch {
+      st.w.postMessage({ id, buf, rw: resize?.rw, rh: resize?.rh }, [buf]);
+    } catch (err) {
       st.pending.delete(id);
       st.busy = Math.max(0, st.busy - 1);
       if (signal && onAbort) signal.removeEventListener("abort", onAbort);
+      noteTileErr("worker postMessage failed: " + String((err as any)?.message || err));
       resolve(null);
     }
   });
 }
 
-async function fetchBitmapMainThread(url: string, signal?: AbortSignal): Promise<ImageBitmap | null> {
+async function decodeBitmapMainThread(buf: ArrayBuffer, signal?: AbortSignal, resize?: { rw: number; rh: number }): Promise<ImageBitmap | null> {
   try {
-    const res = await fetch(url, { signal });
-    if (!res.ok) return null;
-    const blob = await res.blob();
     if (signal?.aborted) return null;
-    return await createImageBitmap(blob);
-  } catch {
+    const src = new Blob([buf]);
+    if (resize) {
+      return await createImageBitmap(src, { resizeWidth: resize.rw, resizeHeight: resize.rh, resizeQuality: "low" });
+    }
+    return await createImageBitmap(src);
+  } catch (err) {
+    noteTileErr("main-thread decode failed: " + String((err as any)?.message || err));
     return null;
   }
 }
@@ -138,8 +224,19 @@ function makeMosaicTileset(meta: MosaicMeta, dpr: number) {
       if (!Array.isArray(bounds) || bounds.some((v: any) => !Number.isFinite(v))) {
         return [];
       }
+      const b = bounds as [number, number, number, number];
+      const w = b[2] - b[0];
+      const h = b[3] - b[1];
+      const mx = (Number.isFinite(w) && w > 0 ? w : 0) * 0.5;
+      const my = (Number.isFinite(h) && h > 0 ? h : 0) * 0.5;
+      const expanded: [number, number, number, number] = [
+        Math.max(0, b[0] - mx),
+        Math.max(0, b[1] - my),
+        Math.min(extent, b[2] + mx),
+        Math.min(extent, b[3] + my),
+      ];
       const k = 2 ** viewport.zoom;
-      const { indices } = tileRange(k, extent, meta.tile_px, dpr, bounds as [number, number, number, number], meta.zmin, meta.zmax);
+      const { indices } = tileRange(k, extent, meta.tile_px, dpr, expanded, meta.zmin, meta.zmax);
       return indices;
     }
     getTileMetadata(index: any) {
@@ -165,7 +262,7 @@ export function createMosaicTileset(meta: MosaicMeta, dpr: number) {
   return cls;
 }
 
-export function tileLayers({ metas, rasters, version, dpr }: TileLayersInput) {
+export function tileLayers({ metas, rasters, version, dpr, software }: TileLayersInput) {
   const out: any[] = [];
   for (const layer of rasters) {
     const meta = metas[layer];
@@ -200,20 +297,31 @@ export function tileLayers({ metas, rasters, version, dpr }: TileLayersInput) {
           const tag = `${layer}-${z}-${x}-${y}-${Math.random().toString(36).slice(2, 7)}`;
           try {
             if (props.signal?.aborted) return null;
-            const viaWorker = fetchBitmapViaWorker(url, props.signal);
-            if (viaWorker) {
-              pmark(`tile:${tag}:worker:start`);
-              const bmp = await viaWorker;
-              pmark(`tile:${tag}:worker:end`);
-              pmeasure(`tile:${layer}:worker`, `tile:${tag}:worker:start`, `tile:${tag}:worker:end`);
-              return bmp;
-            }
             pmark(`tile:${tag}:fetch:start`);
-            const bmp = await fetchBitmapMainThread(url, props.signal);
+            const res = await fetch(url, { signal: props.signal });
             pmark(`tile:${tag}:fetch:end`);
             pmeasure(`tile:${layer}:fetch`, `tile:${tag}:fetch:start`, `tile:${tag}:fetch:end`);
-            return bmp;
-          } catch {
+            if (!res.ok) {
+              noteTileErr(`tile fetch ${res.status} ${url}`);
+              return null;
+            }
+            const buf = await res.arrayBuffer();
+            if (props.signal?.aborted) return null;
+            const resize = software ? { rw: 128, rh: 128 } : undefined;
+            let bmp: ImageBitmap | null = null;
+            const viaWorker = decodeBitmapViaWorker(buf, props.signal, resize);
+            if (viaWorker) {
+              pmark(`tile:${tag}:worker:start`);
+              bmp = await viaWorker;
+              pmark(`tile:${tag}:worker:end`);
+              pmeasure(`tile:${layer}:worker`, `tile:${tag}:worker:start`, `tile:${tag}:worker:end`);
+            } else {
+              bmp = await decodeBitmapMainThread(buf, props.signal, resize);
+            }
+            if (!bmp) return null;
+            return await staggerBitmapUpload(bmp, props.signal);
+          } catch (err) {
+            if (!(props.signal?.aborted)) noteTileErr(`tile load failed ${url}: ${String((err as any)?.message || err)}`);
             return null;
           }
         },
@@ -229,6 +337,7 @@ export function tileLayers({ metas, rasters, version, dpr }: TileLayersInput) {
             bounds,
             coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
             pickable: false,
+            textureParameters: { minFilter: "linear", magFilter: "linear" },
           });
           if (profOn()) {
             pmark(`tile:renderSubLayers:end`);
