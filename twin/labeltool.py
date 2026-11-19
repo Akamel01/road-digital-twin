@@ -318,7 +318,7 @@ def runs_for_area(store, area, *, areas_root=None):
 
 
 def area_source(build_dir, area_def) -> AreaSource | None:
-    """The area build as one label-tool source, or None when it has no usable merged ground cloud or polygon."""
+    """Returns the area build as one label-tool source, or None when it has no merged ground cloud; frames is empty when the area definition has no usable polygon or the merged drives are missing."""
     build = Path(build_dir)
     name = build.name.removesuffix("-twin").removesuffix("-merged")
     root = build.parent
