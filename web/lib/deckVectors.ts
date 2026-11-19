@@ -41,6 +41,8 @@ export interface VectorLayersOptions {
   sights?: { key: string; facId: string; s: any; el?: string }[];
   linesView?: { id: string; path?: Point[]; at: [number, number]; label?: string }[];
   facilityRing?: Point[];
+  interactive?: boolean;
+  pickable?: boolean;
 }
 
 const ext = new PathStyleExtension({ dash: true });
@@ -68,6 +70,7 @@ export function vectorLayers(opts: VectorLayersOptions | VectorDeps, ...rest: un
     sights = (rest[2] as any) ?? [];
   }
 
+  const picking = (opts as any)?.interactive !== false && (opts as any)?.pickable !== false;
   const { tokens, phone, selectedLine, element, state, handlers } = deps;
   const facilityLevel = state.facility !== null;
   const hitEnabled = facilityLevel;
@@ -115,7 +118,7 @@ export function vectorLayers(opts: VectorLayersOptions | VectorDeps, ...rest: un
       },
       lineWidthUnits: "pixels",
       pickable: false,
-      onClick: (info: any) => handlers?.pickElement?.(info?.object?.el ?? null),
+      onClick: picking ? (info: any) => handlers?.pickElement?.(info?.object?.el ?? null) : undefined,
     }),
   );
 
@@ -150,16 +153,16 @@ export function vectorLayers(opts: VectorLayersOptions | VectorDeps, ...rest: un
   layers.push(
     new PolygonLayer({
       id: "overlay-closed-hit",
-      data: hitEnabled ? closedData : [],
+      data: picking && hitEnabled ? closedData : [],
       coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
       getPolygon: (d: any) => d.points,
       getFillColor: [0, 0, 0, 0],
       getLineColor: [0, 0, 0, 0],
       getLineWidth: 0,
       lineWidthUnits: "pixels",
-      pickable: true,
-      onClick: (info: any) => handlers?.pickElement?.(info?.object?.el ?? null),
-      onHover: (info: any) => handlers?.onHover?.(info?.object ?? null),
+      pickable: picking,
+      onClick: picking ? (info: any) => handlers?.pickElement?.(info?.object?.el ?? null) : undefined,
+      onHover: picking ? (info: any) => handlers?.onHover?.(info?.object ?? null) : undefined,
     }),
   );
 
@@ -167,15 +170,15 @@ export function vectorLayers(opts: VectorLayersOptions | VectorDeps, ...rest: un
   layers.push(
     new PathLayer({
       id: "overlay-open-hit",
-      data: hitEnabled ? openData : [],
+      data: picking && hitEnabled ? openData : [],
       coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
       getPath: (d: any) => d.points,
       getColor: [0, 0, 0, 0],
       getWidth: 10,
       widthUnits: "pixels",
-      pickable: true,
-      onClick: (info: any) => handlers?.pickElement?.(info?.object?.el ?? null),
-      onHover: (info: any) => handlers?.onHover?.(info?.object ?? null),
+      pickable: picking,
+      onClick: picking ? (info: any) => handlers?.pickElement?.(info?.object?.el ?? null) : undefined,
+      onHover: picking ? (info: any) => handlers?.onHover?.(info?.object ?? null) : undefined,
     }),
   );
 
@@ -191,9 +194,9 @@ export function vectorLayers(opts: VectorLayersOptions | VectorDeps, ...rest: un
       getLineColor: tokens.fac,
       getLineWidth: 1.4,
       lineWidthUnits: "pixels",
-      pickable: state.facility === null,
-      onClick: (info: any) => handlers?.onFacility?.(info?.object?.id ?? null),
-      onHover: (info: any) => handlers?.onHover?.(info?.object ?? null),
+      pickable: picking && state.facility === null,
+      onClick: picking ? (info: any) => handlers?.onFacility?.(info?.object?.id ?? null) : undefined,
+      onHover: picking ? (info: any) => handlers?.onHover?.(info?.object ?? null) : undefined,
     }),
   );
 
@@ -247,7 +250,7 @@ export function vectorLayers(opts: VectorLayersOptions | VectorDeps, ...rest: un
       // @ts-expect-error deck types
       filled: (d: any) => !d.ring,
       pickable: false,
-      onHover: (info: any) => handlers?.onHover?.(info?.object ?? null),
+      onHover: picking ? (info: any) => handlers?.onHover?.(info?.object ?? null) : undefined,
     }),
   );
 
@@ -271,15 +274,15 @@ export function vectorLayers(opts: VectorLayersOptions | VectorDeps, ...rest: un
   layers.push(
     new PathLayer({
       id: "sight-hits",
-      data: hitEnabled ? sightPaths : [],
+      data: picking && hitEnabled ? sightPaths : [],
       coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
       getPath: (d: any) => d.path,
       getColor: [0, 0, 0, 0],
       getWidth: 10,
       widthUnits: "pixels",
-      pickable: true,
-      onClick: (info: any) => handlers?.pickElement?.(info?.object?.el ?? null),
-      onHover: (info: any) => handlers?.onHover?.(info?.object ?? null),
+      pickable: picking,
+      onClick: picking ? (info: any) => handlers?.pickElement?.(info?.object?.el ?? null) : undefined,
+      onHover: picking ? (info: any) => handlers?.onHover?.(info?.object ?? null) : undefined,
     }),
   );
 
@@ -302,15 +305,15 @@ export function vectorLayers(opts: VectorLayersOptions | VectorDeps, ...rest: un
   layers.push(
     new PathLayer({
       id: "centreline-hits",
-      data: hitEnabled ? centreData : [],
+      data: picking && hitEnabled ? centreData : [],
       coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
       getPath: (d: any) => d.path ?? [],
       getColor: [0, 0, 0, 0],
       getWidth: phone ? 44 : 12,
       widthUnits: "pixels",
-      pickable: true,
-      onClick: (info: any) => handlers?.onLine?.(info?.object?.id ?? null),
-      onHover: (info: any) => handlers?.onHover?.(info?.object ?? null),
+      pickable: picking,
+      onClick: picking ? (info: any) => handlers?.onLine?.(info?.object?.id ?? null) : undefined,
+      onHover: picking ? (info: any) => handlers?.onHover?.(info?.object ?? null) : undefined,
     }),
   );
 

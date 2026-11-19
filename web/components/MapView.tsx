@@ -433,6 +433,7 @@ export default function MapView({ area, facility, element, line, onFacility, onE
         })),
         linesView: linesView.map((l) => ({ id: l.id, path: l.pts, at: l.at, label: l.label })),
         facilityRing: facilityOutline ?? undefined,
+        interactive: !interacting,
       }),
     ];
   }, [
@@ -457,6 +458,7 @@ export default function MapView({ area, facility, element, line, onFacility, onE
     pickElement,
     onLine,
     onHover,
+    interacting,
   ]);
 
   const sv = cur;
@@ -522,7 +524,7 @@ export default function MapView({ area, facility, element, line, onFacility, onE
       interactTimer.current = window.setTimeout(() => {
         interactTimer.current = null;
         setInteracting(false);
-      }, 300);
+      }, 1500);
       pendingView.current = { k: vv.k, tx: vv.tx, ty: vv.ty, key: fitKey };
       if (viewRaf.current === null) {
         viewRaf.current = requestAnimationFrame(() => {
@@ -552,7 +554,7 @@ export default function MapView({ area, facility, element, line, onFacility, onE
             <MapCanvas
               viewState={deckViewState}
               layers={deckLayers}
-              useDevicePixels={interacting ? (softwareRenderer ? 0.25 : 1) : 1}
+              useDevicePixels={softwareRenderer ? 0.25 : 1}
               onViewStateChange={handleViewStateChange}
               onError={handleCanvasError}
             />
