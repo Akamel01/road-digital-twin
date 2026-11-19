@@ -5,9 +5,9 @@
   "fixture_source": "live-mirror",
   "commits": {
     "before": "1d3951c7fbaba434250e8432aeb9acfa165ca5e9",
-    "after": "6a3343ed44e58a37cd980a204bbef76e21cb95d5"
+    "after": "15da318fb2f74d58bdf3a28f434777956acdc650"
   },
-  "git_head": "6a3343ed44e58a37cd980a204bbef76e21cb95d5",
+  "git_head": "15da318fb2f74d58bdf3a28f434777956acdc650",
   "git_status_porcelain_pre_run": "",
   "git_status_porcelain_now": " M docs/evidence/288/README.md\n M docs/evidence/288/after-height-area.png\n M docs/evidence/288/after-height-full.png\n M docs/evidence/288/after-lidar-area.png\n M docs/evidence/288/after-lidar-full.png\n M docs/evidence/288/after-lidar-phone.png\n M docs/evidence/288/after-ortho-area.png\n M docs/evidence/288/after-ortho-full.png\n M docs/evidence/288/metrics.json\n M docs/evidence/288/summary.md\n M web/lib/deckTiles.ts\n M web/scripts/measure-288.mjs\n",
   "publish_report": {
