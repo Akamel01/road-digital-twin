@@ -1,9 +1,10 @@
 import json
 
+import numpy as np
 import pytest
 import shapely
 
-from twin.area import make_area, resolve_tokens
+from twin.area import drive_correction, make_area, resolve_tokens
 
 A, B = "a" * 32, "b" * 32
 
@@ -83,3 +84,12 @@ def test_prefix_must_be_unique_and_long_enough():
         with pytest.raises(ValueError):
             resolve_tokens([bad], known)
     assert resolve_tokens(["aaaaaaaabb"], known) == ["aaaaaaaabbbb"]
+
+
+def test_drive_correction_centres_on_map_frame():
+    c = {"dx_m": 1, "dy_m": 2, "dz_m": 3, "yaw_deg": 90}
+    centre = np.array([100.0, 200.0, 0.0])
+    assert drive_correction(c, centre) @ np.array([100.0, 200.0, 0.0, 1.0]) == pytest.approx([101.0, 202.0, 3.0, 1.0])
+    assert drive_correction(c)[:3, 3] == pytest.approx([1.0, 2.0, 3.0])
+    assert np.allclose(drive_correction(None), np.eye(4))
+    assert np.allclose(drive_correction(None, centre), np.eye(4))
