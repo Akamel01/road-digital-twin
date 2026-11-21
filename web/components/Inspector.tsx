@@ -11,7 +11,7 @@ const FILES: [string, string][] = [
   ["Profile DXF", "profile.dxf"],
   ["LAZ", "twin.laz"],
   ["GeoJSON", "twin.geojson"],
-  ["Manifest", "manifest.json"],
+  ["Run Record", "run.json"],
 ];
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);

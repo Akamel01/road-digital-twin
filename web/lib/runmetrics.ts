@@ -1,5 +1,6 @@
-// Run-level numbers for the right column and the profile strip, read from each drive's manifest.json and
-// profile.csv in the showcase bundle. Every value comes from the run; nothing here is estimated.
+// Run-level numbers for the right column and the profile strip, read from each drive's Run Record
+// (run.json, falling back to manifest.json for old runs) and profile.csv in the showcase bundle.
+// Every value comes from the run; nothing here is estimated.
 // Loads are cached per run, so the rail and the profile strip share one fetch.
 
 export type LegStatus = "ok" | "short" | "indeterminate";
@@ -111,10 +112,18 @@ async function getText(url: string): Promise<string> {
 
 const runs = new Map<string, Promise<RunMetrics>>();
 
+async function getRunRecordText(run: string): Promise<string> {
+  try {
+    return await getText(`showcase/${run}/run.json`);
+  } catch {
+    return getText(`showcase/${run}/manifest.json`);
+  }
+}
+
 export function loadRunMetrics(run: string): Promise<RunMetrics> {
   let p = runs.get(run);
   if (!p) {
-    p = getText(`showcase/${run}/manifest.json`).then((text) => {
+    p = getRunRecordText(run).then((text) => {
       const raw = JSON.parse(text) as { run_id: string; stages: RunMetrics["stages"]; params: RunMetrics["params"]; metrics: Omit<RunMetrics, "run_id" | "stages" | "params"> };
       return {
         run_id: raw.run_id,
