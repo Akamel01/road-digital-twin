@@ -99,10 +99,22 @@ def _load_params(params_path: Path | None) -> Params:
     return Params.model_validate(data)
 
 
+def _check_value(value: Any) -> Any:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value
+    if isinstance(value, str):
+        return value
+    if value is None:
+        return "null"
+    return str(value)
+
+
 def metrics_checks(metrics: dict[str, Any], status: str) -> list[Check]:
     checks: list[Check] = []
     for key, value in flatten(metrics).items():
-        checks.append(Check(name=key, value=value, passed=True, threshold=None, unit=None))
+        checks.append(Check(name=key, value=_check_value(value), passed=True, threshold=None, unit=None))
     checks.append(
         Check(
             name="stage_ok",

@@ -101,7 +101,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     stage = sub.add_parser("stage", help="run one contract stage as a Node command")
     stage.add_argument("name", choices=STAGE_NAMES)
-    stage.add_argument("--in", dest="inputs", action="append", required=True, type=Path)
+    stage.add_argument("--in", dest="inputs", action="append", default=[], type=Path)
     stage.add_argument("--out", required=True, type=Path)
     stage.add_argument("--method")
     stage.add_argument("--params", type=Path)

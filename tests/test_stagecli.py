@@ -151,3 +151,51 @@ def test_failed_stage_returns_1_and_writes_metrics(tmp_path, monkeypatch):
     by_name = {c.name: c for c in checks}
     assert by_name["stage_ok"].passed is False
     assert by_name["reason"].value == "boom"
+
+
+def _fc(features):
+    return {"type": "FeatureCollection", "features": features}
+
+
+def _core_feature():
+    poly = [[-50, -50], [150, -50], [150, 50], [-50, 50], [-50, -50]]
+    return {
+        "type": "Feature",
+        "properties": {"id": "I-0001", "type": "intersection", "name": None},
+        "geometry": {"type": "Polygon", "coordinates": [poly]},
+    }
+
+
+def _write_accuracy_inputs(run_dir):
+    load_dir = run_dir / "1_load"
+    features_dir = run_dir / "5_features"
+    load_dir.mkdir(parents=True, exist_ok=True)
+    features_dir.mkdir(parents=True, exist_ok=True)
+    (load_dir / "reference.geojson").write_text(json.dumps(_fc([])))
+    (load_dir / "facilities.geojson").write_text(json.dumps(_fc([_core_feature()])))
+    marking = {
+        "type": "Feature",
+        "properties": {"id": "m1", "kind": "marking", "reliability": "observed", "marking_type": "other_paint"},
+        "geometry": {"type": "LineString", "coordinates": [[0, 0], [1, 0]]},
+    }
+    (features_dir / "markings.geojson").write_text(json.dumps(_fc([marking])))
+    (features_dir / "crosswalks.geojson").write_text(json.dumps(_fc([])))
+    (features_dir / "qa.json").write_text(json.dumps({"not_scanned_enough": []}))
+    return load_dir, features_dir
+
+
+def test_real_accuracy_stage_writes_core_readable_checks(tmp_path):
+    run_dir = tmp_path / "run"
+    load_dir, features_dir = _write_accuracy_inputs(run_dir)
+    out = tmp_path / "node"
+
+    rc = stage_command("accuracy", [load_dir, features_dir], out)
+
+    assert rc == 0
+    checks = read_checks(out / "checks.json")
+    by_name = {c.name: c for c in checks}
+    assert by_name["stage_ok"].passed is True
+    assert by_name["stage_ok"].value == "ok"
+    # "no map layer" branch yields None metrics; they must be core-check compatible.
+    assert by_name["marking_types.other_paint.p50_m"].value == "null"
+    assert by_name["marking_types.other_paint.reason"].value == "no map layer"
