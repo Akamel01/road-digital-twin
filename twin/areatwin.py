@@ -414,6 +414,8 @@ def _stage(ctx: StageContext, name: str, params: Params, pipeline: Pipeline) -> 
 
 def twin_area(base: Path, name: str, log: logging.Logger, check_date: str | None = None) -> dict:
     """Run the area twin. base: the run store; reads areas/<name>.json and areas/<name>-merged, writes areas/<name>-twin."""
+    from twin import areasteps
+
     t_start = time.time()
     area = json.loads((base / "areas" / f"{name}.json").read_text())
     work = base / "areas" / f"{name}-merged"
@@ -422,112 +424,65 @@ def twin_area(base: Path, name: str, log: logging.Logger, check_date: str | None
     polygon = shape(area["polygon"])
     centre = np.array([*polygon.centroid.coords[0], 0.0])
     drives = json.loads((work / "drives.json").read_text())
-    scenes = [d["scene"] for d in drives]
     dates = [d["date"] for d in drives]
     params, pipeline = Params(), Pipeline()
     pipeline.features.method = "raster"
-    with np.load(work / "merged.npz") as f:
-        x, y, z = f["x"], f["y"], f["z"]
-        intensity, drive = f["intensity"].astype(np.float32), f["drive"].astype(np.int64)
-    log.info("merged cloud: %d points, %d drives", len(x), len(drives))
 
-    # load/mask/align stand-ins: the area's facilities and map, and the drives' parked vehicles, in the merged frame
-    facilities, reference = area_inputs(drives, work, polygon)
-    parked = parked_vehicles(drives, work, centre, polygon)
-    ident = json.dumps({"poses": [{"matrix": np.eye(4).tolist()}]})
-    for st, files in {
-        "load": {"facilities.geojson": _fc(facilities), "reference.geojson": _fc(reference), "poses.json": ident},
-        "align": {"poses.json": ident, "qa.json": json.dumps({"method": "merged-icp", "fallback_used": False, "xy_drift_p95_m": None})},
-    }.items():
-        stage_dir(out, st).mkdir(exist_ok=True)
-        for fn, text in files.items():
-            (stage_dir(out, st) / fn).write_text(text)
-    stage_dir(out, "mask").mkdir(exist_ok=True)
-    np.savez_compressed(
-        stage_dir(out, "mask") / "parked.npz",
-        x=parked[:, 0], y=parked[:, 1], z=parked[:, 2],
-        intensity=np.zeros(len(parked), np.float32), sweep=np.zeros(len(parked), np.uint16),
+    log.info("merged cloud: %s", name)
+
+    # D8 order: load/mask/align stand-ins -> ground -> features -> change -> profile -> isd -> accuracy
+    load_res = areasteps.load_step(work, area, out)
+    if load_res.status != "ok":
+        raise RuntimeError(f"load: {load_res.status}")
+    mask_res = areasteps.mask_step(work, area, out)
+    if mask_res.status != "ok":
+        raise RuntimeError(f"mask: {mask_res.status}")
+    align_res = areasteps.align_step(out)
+    if align_res.status != "ok":
+        raise RuntimeError(f"align: {align_res.status}")
+
+    ground_res = areasteps.ground_step(
+        work, area, drives, stage_dir(out, "load"), stage_dir(out, "align"), out, params, log
     )
+    if ground_res.status != "ok":
+        raise RuntimeError(f"ground: {ground_res.status}")
+    seconds = {"ground": float(ground_res.metrics.get("seconds", 0.0))}
+    stage_metrics = {"ground": {k: v for k, v in ground_res.metrics.items() if k != "seconds"}}
 
-    # change detection
-    b = polygon.bounds
-    origin = np.array([b[0], b[1]])
-    shape_yx = (int((b[3] - b[1]) // CELL_M) + 2, int((b[2] - b[0]) // CELL_M) + 2)
-    inside = shapely.contains_xy(polygon, x, y)
-    lo, hi = cell_stats(x[inside], y[inside], z[inside], drive[inside], origin, shape_yx, len(drives))
-    del inside
-    road = shapely.union_all([shape(f["geometry"]) for f in reference if f["properties"]["layer"] == "drivable_area"])
-    cx = origin[0] + (np.arange(lo.shape[1]) % shape_yx[1] + 0.5) * CELL_M
-    cy = origin[1] + (np.arange(lo.shape[1]) // shape_yx[1] + 0.5) * CELL_M
-    off = ~shapely.contains_xy(road, cx, cy)
-    lo[:, off] = np.nan
-    hi[:, off] = np.nan
-    noise = noise_levels(lo, hi, dates, shape_yx)
-    det = detect_change(lo, hi, dates, noise, shape_yx)
-    regions = change_regions(det, origin, shape_yx, dates, scenes)
-    (out / "change.geojson").write_text(_fc(regions))
-    log.info("change: %d regions, noise %s", len(regions), noise)
-
-    # ground on the merged cloud; sweep = drive, so G3 is the cross-drive ground disagreement
-    t0 = time.time()
-    perm = np.random.default_rng(params.seed).permutation(len(x))  # thinning keeps the first point of a voxel: no drive wins every voxel
-    xyz = np.column_stack([x, y, z])[perm]
-    inten, drv = intensity[perm], drive[perm]
-    keep = ground.voxel_first(xyz, params.ground.voxel_m)
     ctx = StageContext(out, f"area-{name}", params.seed, log, params.facilities.min_observed)
-    res = ground.split_and_write(
-        ctx, params.ground, "ransac-tiles", lambda p, q: ground.ransac_ground(p, q, params.seed),
-        xyz[keep], inten[keep], drv[keep].astype(np.int32), None, None,
-        json.loads((stage_dir(out, "align") / "qa.json").read_text()), facilities,
-    )
-    if res.status != "ok":
-        raise RuntimeError(f"ground: {res.message}")
-    seconds = {"ground": round(time.time() - t0, 1)}
-    stage_metrics = {"ground": res.metrics}
-    del xyz, inten, drv, keep, perm
-
-    # features, then support and the changed flag, then accuracy against the unchanged map
     for st in ("features",):
         r = _stage(ctx, st, params, pipeline)
         seconds[st], stage_metrics[st] = r["seconds"], r["metrics"]
-    gz = np.nanmedian(np.where(np.isfinite(lo), lo, np.nan), axis=0)
-    cell = (np.floor((y - origin[1]) / CELL_M).astype(np.int64) * shape_yx[1] + np.floor((x - origin[0]) / CELL_M).astype(np.int64))
-    cell = np.clip(cell, 0, gz.size - 1)
-    fdir = ctx.stage_dir("features")
-    n_changed = 0
-    all_feats = {}
-    for fn in FEATURE_FILES:
-        if (fdir / fn).is_file():
-            all_feats[fn] = json.loads((fdir / fn).read_text())["features"]
-    flat = [f for v in all_feats.values() for f in v]
-    support(flat, np.column_stack([x, y, z]), drive, gz[cell], origin, shape_yx, scenes)
-    n_changed = flag_changed(flat, regions)
-    for fn, v in all_feats.items():
-        (fdir / fn).write_text(_fc(v))
-    (stage_dir(out, "load") / "reference.full.geojson").write_text(_fc(reference))
-    (stage_dir(out, "load") / "reference.geojson").write_text(_fc(mask_reference(reference, regions)))
+
+    change_res = areasteps.change_step(
+        work, area, drives, stage_dir(out, "features"), stage_dir(out, "load"), out
+    )
+    if change_res.status != "ok":
+        raise RuntimeError(f"change: {change_res.status}")
+
     for st in ("profile", "isd", "accuracy"):
         r = _stage(ctx, st, params, pipeline)
         seconds[st], stage_metrics[st] = r["seconds"], r["metrics"]
 
     mman = read_record(work)
     total = round(time.time() - t_start, 1)
+    regions = json.loads((out / "change.geojson").read_text())["features"]
     summary = {
         "area": name,
         "n_drives": len(drives),
-        "n_features": len(flat),
-        "n_features_changed": n_changed,
-        "n_change_regions": len(regions),
-        "change_area_m2": round(sum(r["properties"]["area_m2"] for r in regions), 1),
-        "noise": noise,
+        "n_features": int(change_res.metrics.get("n_features", 0)),
+        "n_features_changed": int(change_res.metrics.get("n_features_changed", 0)),
+        "n_change_regions": int(change_res.metrics.get("n_change_regions", len(regions))),
+        "change_area_m2": float(change_res.metrics.get("change_area_m2", 0.0)),
+        "noise": change_res.metrics.get("noise", {}),
         "seconds": seconds,
         "twin_seconds": total,
         "construction_check": construction_check(regions, drives, work, centre, check_date) if check_date else None,
-        "by_date": {
+        "by_date": change_res.metrics.get("by_date", {
             d: {"regions": sum(d in r["properties"]["dates"] for r in regions),
                 "area_m2": round(sum(r["properties"]["area_m2"] for r in regions if d in r["properties"]["dates"]), 1)}
             for d in sorted(set(dates))
-        },
+        }),
     }
     (out / "change.json").write_text(json.dumps(summary, indent=2))
     for f in ("merged.npz", "drives.json", "qa.json"):  # the site's latest view reads the cloud and drives from the area folder
