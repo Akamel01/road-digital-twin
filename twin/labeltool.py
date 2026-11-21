@@ -8,15 +8,18 @@ from __future__ import annotations
 
 import json
 import math
+from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import shapely
 from shapely.errors import GeometryTypeError
 from shapely.geometry import shape
 
 from twin import labels
+from twin.area import drive_correction
 from twin.area import drive_tokens as area_drive_tokens
 from twin.contracts import LabelFeature
 from twin.labels import read_labels, read_site, valid_site, write_labels
@@ -272,6 +275,22 @@ def _stages_done(run, required: tuple[str, ...]) -> bool:
     return True
 
 
+@dataclass(frozen=True)
+class FrameDrive:
+    """One merged drive's camera files and the map-frame transform that registers it."""
+    name: str
+    base: Path
+    transform: np.ndarray | None = None
+
+
+@dataclass(frozen=True)
+class AreaSource:
+    """One area build as a label-tool source: merged ground cloud plus the merged drives' cameras."""
+    name: str
+    base: Path
+    frames: tuple[FrameDrive, ...] = ()
+
+
 def runs_for_area(store, area, *, areas_root=None):
     store = Path(store)
     build_dir, area_def = labels.resolve_area(store, area, areas_root=areas_root)
@@ -298,7 +317,48 @@ def runs_for_area(store, area, *, areas_root=None):
     return out
 
 
-def window_for(store, site):
+def area_source(build_dir, area_def) -> AreaSource | None:
+    """Returns the area build as one label-tool source, or None when it has no merged ground cloud; frames is empty when the area definition has no usable polygon or the merged drives are missing."""
+    build = Path(build_dir)
+    name = build.name.removesuffix("-twin").removesuffix("-merged")
+    root = build.parent
+    twin = build if (build / "4_ground" / "ground.laz").is_file() else root / f"{name}-twin"
+    merged = build if build.name.endswith("-merged") else root / f"{name}-merged"
+    if not (twin / "4_ground" / "ground.laz").is_file():
+        return None
+    try:
+        drives = json.loads((merged / "drives.json").read_text())
+    except (OSError, ValueError):
+        drives = []
+    frames: tuple[FrameDrive, ...] = ()
+    poly = area_def.get("polygon") if isinstance(area_def, dict) else None
+    if drives and isinstance(poly, dict):
+        try:
+            centre = np.array([*shape(poly).centroid.coords[0], 0.0])
+        except (
+            GeometryTypeError,
+            shapely.errors.ShapelyError,
+            KeyError,
+            TypeError,
+            ValueError,
+            AttributeError,
+            IndexError,
+        ):
+            centre = None
+        if centre is not None:
+            frames = tuple(
+                FrameDrive(
+                    name=d["scene"],
+                    base=merged / "drives" / d["scene"],
+                    transform=drive_correction(d.get("correction"), centre),
+                )
+                for d in drives
+                if isinstance(d, dict) and d.get("scene")
+            )
+    return AreaSource(name=name, base=twin, frames=frames)
+
+
+def window_for(store, site, *, centre: bool = False):
     meta = read_site(store, site)
     fc = read_labels(store, site)
     minx = miny = math.inf
@@ -310,6 +370,12 @@ def window_for(store, site):
         miny = min(miny, pb[1])
         maxx = max(maxx, pb[2])
         maxy = max(maxy, pb[3])
+
+    if centre and pb is not None:
+        cx = (pb[0] + pb[2]) / 2.0
+        cy = (pb[1] + pb[3]) / 2.0
+    else:
+        cx = cy = None
 
     features = (fc.get("features") if isinstance(fc, dict) else None) or []
     for feat in features:
@@ -335,11 +401,15 @@ def window_for(store, site):
     w = maxx - minx
     h = maxy - miny
     if w <= W_M + FIT_TOL_M and h <= H_M + FIT_TOL_M:
+        if centre and pb is not None:
+            return (float(cx - W_M / 2.0), float(cy + H_M / 2.0), {"fallback": False, "bounds": bounds})
         return (float(minx), float(maxy), {"fallback": False, "bounds": bounds})
 
-    cx = (minx + maxx) / 2.0
-    cy = (miny + maxy) / 2.0
-    return (float(cx - W_M / 2.0), float(cy + H_M / 2.0), {"fallback": True, "bounds": bounds})
+    if centre and pb is not None:
+        return (float(cx - W_M / 2.0), float(cy + H_M / 2.0), {"fallback": True, "bounds": bounds})
+    ucx = (minx + maxx) / 2.0
+    ucy = (miny + maxy) / 2.0
+    return (float(ucx - W_M / 2.0), float(ucy + H_M / 2.0), {"fallback": True, "bounds": bounds})
 
 
 def _window_covered(area_def, x0, y1):
@@ -424,8 +494,15 @@ def generate(
     if not area_name:
         raise DraftError("area required")
 
-    _build_dir, area_def = labels.resolve_area(store, area_name, areas_root=areas_root)
+    build_dir, area_def = labels.resolve_area(store, area_name, areas_root=areas_root)
     runs = runs_for_area(store, area_name, areas_root=areas_root)
+
+    used_area = False
+    if not runs:
+        src = area_source(build_dir, area_def)
+        if src is not None:
+            runs = [src]
+            used_area = True
 
     if preexisting and not runs:
         raise DraftError(
@@ -488,7 +565,7 @@ def generate(
             import_draft(store, site, Path(import_path), replace=replace)
 
         if not explicit_window:
-            wx0, wy1, info = window_for(store, site)
+            wx0, wy1, info = window_for(store, site, centre=used_area)
             if preexisting and not reset:
                 print(
                     f"warning: auto window for existing site {site!r}; "
@@ -507,6 +584,14 @@ def generate(
         data["window_fallback"] = bool(info.get("fallback", False))
         data.setdefault("missing", [])
         data.setdefault("no_imagery", False)
+
+        if used_area:
+            data["unavailable"] = ["ortho", "fused"]
+            if data.get("no_imagery") is False and not data["frames"]:
+                source_name = runs[0].name
+                data["missing"].append(
+                    f"no usable camera frames (check {source_name}-merged/drives and the nuScenes root)"
+                )
 
         html = render(data)
         out_dir = labels.labels_dir(store, site)

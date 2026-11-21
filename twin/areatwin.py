@@ -27,6 +27,7 @@ import shapely
 from shapely.geometry import mapping, shape
 
 from twin import registry
+from twin.area import drive_correction
 from twin.contracts import Params, Pipeline, stage_dir
 from twin.runner import StageContext
 from twin.stages import ground
@@ -66,16 +67,6 @@ STAGE_ORDER = ("ground", "features", "profile", "isd", "accuracy")
 
 
 # ------------------------------------------------------------------ inputs
-
-
-def _correction(c: dict | None) -> np.ndarray:
-    """The 4x4 merge applied to a drive (yaw and translation, in the frame centred on the polygon), from drives.json."""
-    t = np.eye(4)
-    if c:
-        yaw = np.radians(c["yaw_deg"])
-        t[:2, :2] = [[np.cos(yaw), -np.sin(yaw)], [np.sin(yaw), np.cos(yaw)]]
-        t[:3, 3] = [c["dx_m"], c["dy_m"], c["dz_m"]]
-    return t
 
 
 def _fc(feats: list[dict]) -> str:
@@ -127,7 +118,7 @@ def parked_vehicles(drives: list[dict], work: Path, centre: np.ndarray, polygon)
         xyz, _, _ = ground.aligned_points(
             fields, poses(stage_dir(base, "load") / "poses.json"), poses(stage_dir(base, "align") / "poses.json")
         )
-        xyz = apply(_correction(d.get("correction")), xyz - centre) + centre
+        xyz = apply(drive_correction(d.get("correction")), xyz - centre) + centre
         out.append(xyz[shapely.contains_xy(polygon, xyz[:, 0], xyz[:, 1])])
     return np.vstack(out) if out else np.empty((0, 3))
 
@@ -380,11 +371,11 @@ def construction_check(regions: list[dict], drives: list[dict], work: Path, cent
     for d in sel:
         base = work / "drives" / d["scene"]
         ego = np.array([r["matrix"] for r in json.loads((stage_dir(base, "align") / "poses.json").read_text())["poses"]])
-        track.append(apply(_correction(d.get("correction")), ego.reshape(-1, 4, 4)[:, :3, 3] - centre) + centre)
+        track.append(apply(drive_correction(d.get("correction")), ego.reshape(-1, 4, 4)[:, :3, 3] - centre) + centre)
         boxes = json.loads((stage_dir(work / "drives" / d["scene"], "load") / "boxes.json").read_text())["sweeps"]
         c = np.array([b["center"] for sw in boxes for b in sw["boxes"] if b["category"] in cats])
         if len(c):
-            pts.append(apply(_correction(d.get("correction")), c - centre) + centre)
+            pts.append(apply(drive_correction(d.get("correction")), c - centre) + centre)
     mine = [r for r in regions if date in r["properties"]["dates"]]
     out = {
         "date": date,

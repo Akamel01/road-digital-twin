@@ -150,6 +150,23 @@ def area_define_command(
     return 0
 
 
+def drive_correction(c: dict | None, centre: np.ndarray | None = None) -> np.ndarray:
+    """4x4 merge correction for a drive: yaw rotation in XY and translation, in the map frame.
+
+    Identity when ``c`` is None. When ``centre`` is given, conjugates into the map frame
+    (equals merge.about): t[:3,3] += centre - t[:3,:3] @ centre.
+    """
+    t = np.eye(4)
+    if c:
+        yaw = np.radians(c["yaw_deg"])
+        t[:2, :2] = [[np.cos(yaw), -np.sin(yaw)], [np.sin(yaw), np.cos(yaw)]]
+        t[:3, 3] = [c["dx_m"], c["dy_m"], c["dz_m"]]
+    if centre is not None:
+        centre = np.asarray(centre, dtype=float)
+        t[:3, 3] += centre - t[:3, :3] @ centre
+    return t
+
+
 def drive_tokens(build: Path, defined: dict | None = None) -> list[str]:
     """Scene tokens of the drives an area build used (its drives.json lists scene names), in that order.
     The tokens come from the area definition <store>/areas/<area>.json, where the build folder is

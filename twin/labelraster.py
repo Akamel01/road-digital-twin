@@ -89,8 +89,9 @@ def _nuscenes_root(root):
 
 
 def _run_base(run):
-    if hasattr(run, "path"):
-        return Path(run.path)
+    for attr in ("base", "path"):
+        if hasattr(run, attr):
+            return Path(getattr(run, attr))
     return Path(run)
 
 
@@ -99,6 +100,16 @@ def _run_name(run):
         if hasattr(run, attr):
             return getattr(run, attr)
     return Path(run).name
+
+
+def _frame_drives(run):
+    """(name, base, transform) per drive whose cameras can label this source; runs without .frames yield themselves."""
+    frames = getattr(run, "frames", None)
+    if frames is None:
+        yield _run_name(run), _run_base(run), None
+        return
+    for f in frames:
+        yield f.name, Path(f.base), getattr(f, "transform", None)
 
 
 def _blur(a, sigma):
@@ -386,6 +397,7 @@ def export_window(store, runs, *, site, x0, y1, width=1600, height=1500, cell=0.
         stats = {}
         missing = []
         collected = []
+        usable = []
         cv2_ok = True
 
         for run in runs:
@@ -401,6 +413,7 @@ def export_window(store, runs, *, site, x0, y1, width=1600, height=1500, cell=0.
                 continue
 
             collected.append(rname)
+            usable.append(run)
             sI += dd["si"]
             cI += dd["cnt"]
             sZ += dd["sz"]
@@ -425,15 +438,15 @@ def export_window(store, runs, *, site, x0, y1, width=1600, height=1500, cell=0.
         frames = []
         cx = x0 + W * Gc / 2
         cy = y1 - H * Gc / 2
-        for run in runs:
-            rname = _run_name(run)
-            if rname not in collected:
-                continue
-            base = _run_base(run)
+        for rname, base, transform in (s for run in usable for s in _frame_drives(run)):
+            base = Path(base)
             try:
                 with open(base / "3_align" / "poses.json") as _f:
                     poses = json.load(_f)["poses"]
                 ego = np.array([q["matrix"] for q in poses], float).reshape(-1, 4, 4)
+                # shortcut: correction applied here assumes 3_align/poses.json is uncorrected; if merge ever bakes corrections into poses.json, remove this transform
+                if transform is not None:
+                    ego = transform @ ego
                 t = np.array([q["timestamp_us"] for q in poses], np.int64)
                 with open(base / "1_load" / "cameras.json") as _f:
                     cams = json.load(_f)["cameras"]
