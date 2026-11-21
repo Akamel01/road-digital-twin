@@ -68,7 +68,7 @@ The success signal: from the UI, a reviewer can trace one reported number back t
 
 ### Non-goals (v1)
 
-- **AuditorAI integration.** Later integration reads the output files and manifest. v1 doesn't freeze their schema for that use.
+- **AuditorAI integration.** Later integration reads the output files and Run Record. v1 doesn't freeze their schema for that use.
 - **Other methods and views:** Gaussian splatting or any learned reconstruction; an interactive 3D viewer.
 - **Other sources:** cameras-only and Vancouver lidar-only (both v1.1); drone (v2); Singapore scenes.
 - **Other features:** signs, signals, poles, sidewalks, cross-section drawings, crest-curve stopping sight distance, twin-derived access points (v1.1).
@@ -119,6 +119,7 @@ run store (box: /data/twin-runs/<run-id>/) ──► control API (twin-api.papyr
 - Each run is one folder holding `pipeline.yaml`, `params.yaml`, `run.json` (the twin Run Record) and one folder per stage. Legacy runs may still have `manifest.json`; readers fall back to it.
 - Runs are never overwritten.
 - A re-run from stage *k* hard-links the parent run's outputs for stages 1 to *k−1*.
+- Area builds can also run as a recon-core Manifest of Nodes (`twin stage <name>` / `twin area step <step>`), assembled through the Posed Capture adapter (`twin capture area`); the twin `gates.json` contract is unchanged.
 
 **Control API.** FastAPI on the box at `twin-api.papyrus-ai.net`, reached through its own Cloudflare Tunnel named `twin` (Librarian's production tunnel is never touched). Zero Trust team `papyrus`, 24 h sessions; the panel has a sign-in button (decision 39).
 - **Read routes (`/api/r/*`):** public. A signed-out viewer can see the live panel, the runs and their files.
@@ -136,7 +137,7 @@ run store (box: /data/twin-runs/<run-id>/) ──► control API (twin-api.papyr
   - GeoJSON;
   - a downsampled LAZ;
   - PDFs and DXFs;
-  - manifest.
+  - Run Record.
 - Each file is at most 25 MiB, and the build holds fewer than 20,000 files (Pages limits).
 - Public views read only these files, so the demo stays up when the box is busy or down.
 
@@ -160,7 +161,7 @@ run store (box: /data/twin-runs/<run-id>/) ──► control API (twin-api.papyr
 
 **Data licence.**
 - The code is Apache-2.0.
-- Derived outputs carry nuScenes' CC BY-NC-SA 4.0 and are never committed. The manifest and the site footer state this.
+- Derived outputs carry nuScenes' CC BY-NC-SA 4.0 and are never committed. The Run Record and the site footer state this.
 - The site is labelled "non-commercial research demo".
 
 ## 4. Contracts
@@ -262,7 +263,7 @@ The twin Run Record is `run.json` (same fields as the legacy `manifest.json`). R
 | Route | Use |
 |---|---|
 | `GET /api/r/registry` | stages, methods, parameter schema |
-| `GET /api/r/runs`, `GET /api/r/runs/{id}` | run list, manifest |
+| `GET /api/r/runs`, `GET /api/r/runs/{id}` | run list, Run Record |
 | `GET /api/r/runs/{id}/files/{path}` | one stage output |
 | `GET /api/r/compare?a=&b=` | differences between two runs |
 | `POST /api/w/runs` | new run; body `{scene_token, pipeline, params}` |
@@ -290,7 +291,7 @@ The twin Run Record is `run.json` (same fields as the legacy `manifest.json`). R
 | Crest-curve stopping sight distance | It needs a valid vertical profile, which v1 can't validate (R1). ISD at an intersection depends mainly on plan geometry. |
 | Fully static site | It can't run, re-run or compare (goal 6). |
 | Custom auth (Papyrus token check, rate limiter) | Cloudflare Access gives Google sign-in and blocks requests at the edge, with no auth code to maintain. |
-| Run-tracking tool (MLflow) | Too heavy for one scene and one user. A folder per run plus a manifest covers v1. |
+| Run-tracking tool (MLflow) | Too heavy for one scene and one user. A folder per run plus a Run Record covers v1. |
 | Potree / COPC 3D streaming viewer | A 3D viewer isn't a v1 goal. |
 | Lyft Level 5 as the v1 source | Its pose degrees of freedom are unconfirmed, and a switch costs a day. It stays in the pool for v1.1. |
 
@@ -393,7 +394,7 @@ If a scene fails the markings threshold, its runs report markings as "not extrac
 - **Facilities:** every facility in the area has a stable ID across two runs; facilities under 50% observed show "not scanned enough".
 - **Colour:** the orthoimage shows no colour where no camera saw the ground; `edge_offset_p50_m` and `edge_offset_p95_m` are reported, and `pose_corrections` is reported for `zbuffer-pose-refine`.
 - **Run:** a run on one drive finishes on the box CPU in under 30 minutes. It writes every output in section 4. The time is estimated in T4 and measured on the full run in T11.
-- **Manifest:** validates against `schemas/manifest.schema.json`.
+- **Run Record:** validates against `schemas/manifest.schema.json`.
 - **Repeatability:** two runs with the same parameters give accuracy P50 and P95 within 0.02 m for each element.
 - **Drawings:**
   - The plan and profile DXFs pass `ezdxf` audit.
@@ -458,7 +459,7 @@ Every ticket's PR includes pytest tests. CI runs them on synthetic fixtures. nuS
   - `twin select` as in section 6.
   - The operator picks the scene.
 - **T3 [scaffold]: runner and run store.**
-  - Stage registry, `requires` check, run folders and manifest writing.
+  - Stage registry, `requires` check, run folders and Run Record writing.
   - Hard-link re-run with the re-run rule.
   - `filelock` queue, cancel between stages, and the 10 GB free-disk check.
   - CLI: `run`, `rerun`, `publish`.

@@ -44,9 +44,17 @@ _Avoid_: BEV, aerial, satellite view
 One fixed step of the pipeline, which runs one of its registered methods.
 _Avoid_: node, step, task
 
+**Node**:
+One step of a recon-core Manifest: a command with declared typed inputs/outputs and its own checks. A twin pipeline step is still a Stage.
+_Avoid_: node for a twin stage
+
 **Run**:
 One execution of the pipeline on one scene, with one set of parameters, kept forever.
 _Avoid_: job, experiment, build
+
+**Run Record**:
+The file `run.json` a run writes: inputs, versions, stages, and metrics. A pre-change run's `manifest.json` is read as a fallback.
+_Avoid_: manifest for a run's output
 
 **Showcase run**:
 The single run published as static files for the public views.
