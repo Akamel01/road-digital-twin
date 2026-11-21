@@ -1,4 +1,4 @@
-"""Study area: a polygon from HD-map intersections and the nuScenes drives that pass through it.
+"""Study area: a polygon from HD-map intersections or a GeoJSON file, and the nuScenes drives that pass through it.
 
 `twin area define` writes <store>/areas/<name>.json. The run store keeps run folders
 named by run id, so the `areas` folder is never read as a run.
@@ -10,12 +10,14 @@ from pathlib import Path
 
 import numpy as np
 import shapely
+from pyproj import Transformer
 from pyquaternion import Quaternion
-from shapely.geometry import mapping
+from shapely.geometry import mapping, shape
+from shapely.validation import explain_validity
 
 import twin.area_coverage as ac
 from twin.devkit_compat import nuscenes_map_class
-from twin.stages.load import MAP_ORIGIN_LATLON, run_crs
+from twin.stages.load import CRS_EPSG, MAP_ORIGIN_LATLON, run_crs
 
 MIN_PREFIX = 8
 
@@ -83,24 +85,116 @@ def drives_through(root: Path, version: str, location: str, polygon) -> list[dic
     return sorted(rows, key=lambda r: r["scene"])
 
 
-def _to_utm(tr, coords):
+def _project(tr, coords):
     x, y = tr.transform(coords[:, 0], coords[:, 1])
     return np.column_stack([x, y])
 
 
+# DECISION (#367): --intersection and --polygon are mutually exclusive rather than unioned:
+# union would silently widen the study area and leave the record's `intersections` field ambiguous.
+# CRS is detected from the coordinate ranges (lon/lat ranges -> EPSG:4326, else EPSG:32619),
+# so --polygon needs no --crs flag.
+
+
+def _geojson_geometry(doc, path=None):
+    """The polygon geometry of a GeoJSON Polygon/MultiPolygon, Feature, or one-feature FeatureCollection."""
+    _path = path if path is not None else "<path>"
+    try:
+        t = doc.get("type") if isinstance(doc, dict) else None
+        if t == "FeatureCollection":
+            feats = doc.get("features") or []
+            if len(feats) != 1:
+                raise ValueError(f"FeatureCollection must contain exactly 1 feature, found {len(feats)}")
+            doc = feats[0]
+            t = doc.get("type") if isinstance(doc, dict) else None
+        if t == "Feature":
+            doc = doc.get("geometry")
+            t = doc.get("type") if isinstance(doc, dict) else None
+        if t == "Polygon":
+            geom = shape(doc)
+        elif t == "MultiPolygon":
+            # A MultiPolygon is one input polygon made of parts: union removes overlaps and duplicate edges.
+            geom = shapely.union_all(list(shape(doc).geoms))
+        else:
+            raise ValueError(
+                f"unsupported GeoJSON type {t!r}; need Polygon or MultiPolygon (optionally one Feature)"
+            )
+    except (KeyError, TypeError, ValueError) as e:
+        raise ValueError(f"cannot read polygon {_path}: {e}") from e
+    # M6: empty check happens in load_polygon_geojson after force_2d; but geometry must be non-empty here too.
+    if geom.is_empty:
+        raise ValueError("polygon is empty")
+    if geom.geom_type not in ("Polygon", "MultiPolygon"):
+        raise ValueError(
+            f"unsupported geometry {geom.geom_type!r}; need Polygon or MultiPolygon"
+        )
+    return geom
+
+
+def _is_wgs84(geom) -> bool:
+    """True when every coordinate is in lon/lat degrees: x in [-180, 180] and y in [-90, 90]."""
+    xy = shapely.get_coordinates(geom)
+    return bool(np.all(np.abs(xy[:, 0]) <= 180) and np.all(np.abs(xy[:, 1]) <= 90))
+
+
+def _map_from_run_crs() -> Transformer:
+    """EPSG:32619 -> map frame. Inverse of run_crs(MAP_ORIGIN_LATLON)."""
+    tr = run_crs(MAP_ORIGIN_LATLON)
+    return Transformer.from_crs(tr.target_crs, tr.source_crs, always_xy=True)
+
+
+def load_polygon_geojson(path):
+    """Read a GeoJSON polygon file and return it in the map frame (metres, local tmerc at MAP_ORIGIN_LATLON).
+
+    Accepted: Polygon, MultiPolygon, one Feature, or a FeatureCollection with exactly one feature.
+    CRS: EPSG:4326 lon/lat when every x is in [-180, 180] and every y is in [-90, 90], else EPSG:32619.
+    The result is a 2D geometry; z is dropped. Raises ValueError with a user-facing message.
+    """
+    try:
+        doc = json.loads(Path(path).read_text())
+    except (OSError, ValueError) as e:
+        raise ValueError(f"cannot read polygon {path}: {e}") from e
+    geom = shapely.force_2d(_geojson_geometry(doc))
+    if geom.is_empty:
+        raise ValueError("polygon is empty")
+    if not np.isfinite(shapely.get_coordinates(geom)).all():
+        raise ValueError("polygon has non-finite coordinates")
+    if not geom.is_valid:
+        raise ValueError(f"invalid polygon: {explain_validity(geom)}")
+    if _is_wgs84(geom):
+        clon, clat = shapely.centroid(geom).coords[0]   # GeoJSON order is (lon, lat)
+        olat, olon = MAP_ORIGIN_LATLON                    # stored as (lat, lon)
+        if abs(clon - olon) > 1.0 or abs(clat - olat) > 1.0:
+            raise ValueError("polygon is not near the map origin; check lon/lat order and --location")
+        to_utm = Transformer.from_crs("EPSG:4326", f"EPSG:{CRS_EPSG}", always_xy=True)
+        geom = shapely.transform(geom, lambda a: _project(to_utm, a))
+    geom = shapely.transform(geom, lambda a: _project(_map_from_run_crs(), a))
+    cx, cy = shapely.centroid(geom).coords[0]
+    if (cx * cx + cy * cy) ** 0.5 > 50000.0:
+        raise ValueError("polygon is not near the map origin; check lon/lat order and --location")
+    return geom
+
+
 def make_area(
-    name, polygons, prefixes, buffer_m, root, version, location, include_rain=False
+    name, polygons, prefixes, buffer_m, root, version, location, include_rain=False, *, polygon=None
 ) -> dict:
     """The area record. polygons: intersection token -> map-frame polygon.
+    polygon: a map-frame Polygon/MultiPolygon (polygon path); when given, polygons/prefixes are ignored
+    and the record's ``intersections`` is ``[]``.
 
     DECISION: the buffer is applied and poses are tested in the map frame (metres,
     local tmerc with k=1); the saved polygon is that polygon moved to EPSG:32619.
     DECISION: rain drives are listed but held out (build_input false) unless include_rain.
     """
-    tokens = resolve_tokens(prefixes, polygons)
-    poly = shapely.union_all([polygons[t] for t in tokens]).buffer(buffer_m)
+    if polygon is not None:
+        tokens = []
+        base = polygon
+    else:
+        tokens = resolve_tokens(prefixes, polygons)
+        base = shapely.union_all([polygons[t] for t in tokens])
+    poly = base.buffer(buffer_m)
     tr = run_crs(MAP_ORIGIN_LATLON)
-    utm = shapely.transform(poly, lambda a: _to_utm(tr, a))
+    utm = shapely.transform(poly, lambda a: _project(tr, a))
     drives = drives_through(Path(root), version, location, poly)
     for d in drives:
         d["build_input"] = include_rain or not d["rain"]
@@ -117,24 +211,30 @@ def make_area(
 
 
 def area_define_command(
-    name, intersections, buffer_m, location, dataroot, version, store, include_rain
+    name, intersections, buffer_m, location, dataroot, version, store, include_rain, polygon=None
 ) -> int:
     from twin.runner import default_store
 
+    if bool(intersections) == bool(polygon):
+        msg = (
+            "--intersection and --polygon are mutually exclusive"
+            if polygon
+            else "one of --intersection or --polygon is required"
+        )
+        print(msg, file=sys.stderr)
+        return 2
     root = Path(dataroot)
     if not (root / version / "scene.json").is_file():
         print(f"nuScenes {version} not found at {root}", file=sys.stderr)
         return 2
     try:
+        if polygon:
+            polygons, prefixes, base = None, [], load_polygon_geojson(polygon)
+        else:
+            polygons, prefixes, base = load_intersections(root, location), intersections, None
         area = make_area(
-            name,
-            load_intersections(root, location),
-            intersections,
-            buffer_m,
-            root,
-            version,
-            location,
-            include_rain,
+            name, polygons, prefixes, buffer_m, root, version, location, include_rain,
+            polygon=base,
         )
     except ValueError as e:
         print(e, file=sys.stderr)
@@ -204,8 +304,15 @@ def _jt(root, version, name):
 
 
 def _rebuild_poly(area_def, root):
+    if not area_def.get("intersections"):
+        # DECISION (#367): a polygon-defined area saved its buffered polygon in EPSG:32619.
+        # Rebuild the map-frame polygon by the inverse transform; the buffer is already baked in.
+        tr = _map_from_run_crs()
+        return shapely.transform(shape(area_def["polygon"]), lambda a: _project(tr, a))
     polys = load_intersections(root, area_def["location"])
-    return shapely.union_all([polys[t] for t in area_def["intersections"]]).buffer(float(area_def.get("buffer_m", 0.0)))
+    return shapely.union_all(
+        [polys[t] for t in area_def["intersections"]]
+    ).buffer(float(area_def.get("buffer_m", 0.0)))
 
 
 def _drivable_union(nusc_map, bounds):
