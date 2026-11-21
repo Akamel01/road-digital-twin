@@ -171,6 +171,10 @@ def build_parser() -> argparse.ArgumentParser:
     at.add_argument("name")
     at.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
     at.add_argument("--check-date", help="report the change layer against the construction seen on this date")
+    ab = area.add_parser("build", help="build an area twin through recon-core Manifest")
+    ab.add_argument("name")
+    ab.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
+    ab.add_argument("--check-date", help="report the change layer against the construction seen on this date")
     astep = area.add_parser("step", help="run one area pipeline step as a Node command")
     astep.add_argument("step", choices=("load", "mask", "align", "ground", "change"))
     astep.add_argument("--work", required=True, type=Path)
@@ -362,6 +366,10 @@ def main(argv: list[str] | None = None) -> int:
         from twin.areatwin import area_twin_command
 
         return area_twin_command(args.name, args.store, args.check_date)
+    if args.command == "area" and args.area_cmd == "build":
+        from twin.areabuild import area_build_command
+
+        return area_build_command(args.name, args.store, args.check_date)
     if args.command == "area" and args.area_cmd == "step":
         from twin.areasteps import area_step_command
 
