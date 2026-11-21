@@ -94,6 +94,11 @@ def build_parser() -> argparse.ArgumentParser:
     box_rep = box.add_parser("report", help="utilisation and idle report")
     box_rep.add_argument("--hours", type=float, default=24.0)
     box_rep.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
+    capture = sub.add_parser("capture", help="build a recon-core Posed Capture").add_subparsers(dest="capture_cmd")
+    cap_area = capture.add_parser("area", help="build a Posed Capture from an area merge")
+    cap_area.add_argument("name")
+    cap_area.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS or /data/twin-runs)")
+
     area = sub.add_parser("area", help="study areas").add_subparsers(dest="area_cmd")
     define = area.add_parser(
         "define", help="polygon from intersections or a GeoJSON polygon, and the drives through it"
@@ -338,6 +343,10 @@ def main(argv: list[str] | None = None) -> int:
         from twin.areatwin import area_twin_command
 
         return area_twin_command(args.name, args.store, args.check_date)
+    if args.command == "capture" and args.capture_cmd == "area":
+        from twin.capture import capture_area_command
+
+        return capture_area_command(args.name, args.store)
     if args.command == "box":
         from twin.telemetry import box_command
 
