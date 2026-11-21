@@ -116,7 +116,7 @@ run store (box: /data/twin-runs/<run-id>/) ──► control API (twin-api.papyr
 - The panel only chooses among registered methods. It cannot upload code.
 
 **Run store.**
-- Each run is one folder holding `pipeline.yaml`, `params.yaml`, `manifest.json` and one folder per stage.
+- Each run is one folder holding `pipeline.yaml`, `params.yaml`, `run.json` (the twin Run Record) and one folder per stage. Legacy runs may still have `manifest.json`; readers fall back to it.
 - Runs are never overwritten.
 - A re-run from stage *k* hard-links the parent run's outputs for stages 1 to *k−1*.
 
@@ -243,7 +243,9 @@ Notes:
 
 **Re-run rule:** a re-run from stage *k* may change only the parameters and methods of stage *k* and later stages. If a change touches an earlier stage *j*, the request is refused with "re-run from stage *j*".
 
-### Manifest (`manifest.json`)
+### Run Record (`run.json`)
+
+The twin Run Record is `run.json` (same fields as the legacy `manifest.json`). Readers accept `run.json` first and fall back to `manifest.json` for old runs.
 
 - `run_id` (`YYYYMMDD-HHMMSS-<6 hex>`), `parent` (`{run_id, from_stage}` or null)
 - `code`: `git_sha`, `dirty`, `lockfile_sha256`
@@ -253,7 +255,7 @@ Notes:
 - `stages[]`: `name`, `method`, `status`, `started`, `seconds`, `files[]`
 - `metrics`: accuracy P50/P95/coverage per element and facility; ISD available and required per leg; ground `rmse_m` and `z_disagreement_p95_m`; `height_valid`; colour `edge_offset_p50_m`, `edge_offset_p95_m`, `pose_corrections` (`n_cameras`, `rotation_deg_p50`, `rotation_deg_p95`, `rotation_deg_max`, `translation_m_p50`, `translation_m_p95`, `translation_m_max`, `n_flagged`, `drive_flagged`, `by_channel`, `applied`, `reason`, `hit_bound`, `reasons`, `n_applied`, plus `n_refined`, `n_skipped` and `n_reverted`); `observed_core` per facility
 
-**Compare** shows the differences in `pipeline`, `params` and `metrics` between two manifests.
+**Compare** shows the differences in `pipeline`, `params` and `metrics` between two run records. Core recon-core Run Records are also accepted by `twin eval`; their dotted check names map into nested metrics for gate evaluation.
 
 ### API routes
 
