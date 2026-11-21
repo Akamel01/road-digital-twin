@@ -96,18 +96,23 @@ def build_parser() -> argparse.ArgumentParser:
     box_rep.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
     area = sub.add_parser("area", help="study areas").add_subparsers(dest="area_cmd")
     define = area.add_parser(
-        "define", help="polygon from intersections, and the drives through it"
+        "define", help="polygon from intersections or a GeoJSON polygon, and the drives through it"
     )
     define.add_argument("name")
     define.add_argument(
         "--intersection",
         action="append",
-        required=True,
         metavar="TOKEN",
-        help="HD-map intersection token or 8+ char prefix; repeat",
+        help="HD-map intersection token or 8+ char prefix; repeat; exclusive with --polygon",
     )
     define.add_argument(
-        "--buffer", type=float, default=0.0, help="metres around the intersections"
+        "--polygon",
+        type=Path,
+        metavar="FILE",
+        help="GeoJSON Polygon; CRS auto-detected (all x in [-180,180] and y in [-90,90] -> EPSG:4326 lon/lat, else EPSG:32619); exclusive with --intersection",
+    )
+    define.add_argument(
+        "--buffer", type=float, default=0.0, help="metres around the intersections or polygon"
     )
     define.add_argument("--location", default="boston-seaport")
     define.add_argument("--version", default="v1.0-trainval")
@@ -301,6 +306,7 @@ def main(argv: list[str] | None = None) -> int:
             args.version,
             args.store,
             args.include_rain,
+            polygon=args.polygon,
         )
     if args.command == "area" and args.area_cmd == "suggest-drives":
         from twin.area import suggest_drives_command
