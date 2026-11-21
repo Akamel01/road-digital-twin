@@ -216,7 +216,7 @@ def test_area_runs_maps_drive_names_to_tokens_and_skips_unpublishable(tmp_path, 
     good, partial = tmp_path / "r-good", tmp_path / "r-partial"
     for run in (good, partial):
         run.mkdir()
-        (run / "manifest.json").write_text("{}")
+        (run / "run.json").write_text("{}")
     out = publish._stage(good, "outputs")
     out.mkdir(parents=True)
     for name in publish.PUBLIC_FILES:

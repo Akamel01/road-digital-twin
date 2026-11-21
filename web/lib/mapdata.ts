@@ -99,7 +99,9 @@ const pt = (c: unknown): Point => {
 export async function loadDrive(run: string): Promise<DriveData> {
   const [geo, man] = await Promise.all([
     getJson<GeoJson>(`showcase/${run}/twin.geojson`),
-    getJson<Manifest>(`showcase/${run}/manifest.json`),
+    getJson<Manifest>(`showcase/${run}/run.json`).catch(() =>
+      getJson<Manifest>(`showcase/${run}/manifest.json`),
+    ),
   ]);
   const lines: Overlay[] = [];
   const facilities: FacilityGeo[] = [];

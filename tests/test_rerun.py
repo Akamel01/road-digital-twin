@@ -32,7 +32,7 @@ def stubs(monkeypatch):
 
 
 def _manifest(run_dir):
-    return Manifest.model_validate_json((run_dir / "manifest.json").read_text())
+    return Manifest.model_validate_json((run_dir / "run.json").read_text())
 
 
 def _snapshot(path):

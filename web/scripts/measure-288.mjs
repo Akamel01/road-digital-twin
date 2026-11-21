@@ -198,7 +198,7 @@ async function mirrorShowcase(dest) {
   writeFileSync(join(dest, "publish_report.json"), reportText);
   report.mirrored_bytes += areaText.length + reportText.length;
   report.drives = (area.drives || []).map((d) => d.run_id);
-  const runFiles = ["manifest.json", "twin.geojson", "profile.csv", "centrelines.geojson"];
+  const runFiles = ["run.json", "manifest.json", "twin.geojson", "profile.csv", "centrelines.geojson"];
   for (const d of (area.drives || [])) {
     const rid = d.run_id;
     mkdirSync(join(dest, rid), { recursive: true });

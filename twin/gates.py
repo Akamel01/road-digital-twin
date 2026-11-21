@@ -8,6 +8,7 @@ from pathlib import Path
 import yaml
 
 from twin.runner import default_store
+from twin.runrecord import eval_document, is_core_record, read_record
 
 GATES_FILE = Path(__file__).with_name("gates.yaml")
 GO, NO_GO, NOT_MEASURED = "go", "no-go", "not measured"
@@ -313,13 +314,15 @@ def render_markdown(report: dict) -> str:
 def eval_command(
     run: str, baseline: str | None, rerun: str | None, store: Path | None
 ) -> int:
-    def manifest(r: str) -> dict:
-        return json.loads((run_dir(r, store) / "manifest.json").read_text())
+    def load(r: str) -> dict:
+        rd = run_dir(r, store)
+        doc = read_record(rd)
+        return eval_document(doc, rd.name) if is_core_record(doc) else doc
 
     report = evaluate(
-        manifest(run),
-        manifest(baseline) if baseline else None,
-        manifest(rerun) if rerun else None,
+        load(run),
+        load(baseline) if baseline else None,
+        load(rerun) if rerun else None,
     )
     out = run_dir(run, store)
     (out / "gates.json").write_text(json.dumps(report, indent=2) + "\n")

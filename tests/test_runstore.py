@@ -8,7 +8,7 @@ from twin.runstore import RunStore
 MINI = "v1.0-mini"
 
 
-def _run(store, name, scene="s1", status="ok", stages=None, version=MINI, parent=None, gates=False):
+def _run(store, name, scene="s1", status="ok", stages=None, version=MINI, parent=None, gates=False, legacy=False):
     d = store / name
     d.mkdir()
     doc = {
@@ -17,7 +17,7 @@ def _run(store, name, scene="s1", status="ok", stages=None, version=MINI, parent
     }
     if parent:
         doc["parent"] = {"run_id": parent, "from_stage": STAGE_NAMES[1]}
-    (d / "manifest.json").write_text(json.dumps(doc))
+    (d / ("manifest.json" if legacy else "run.json")).write_text(json.dumps(doc))
     if gates:
         (d / "gates.json").write_text("{}")
 
@@ -31,7 +31,7 @@ def test_runs_newest_first_and_filters(tmp_path):
     _run(tmp_path, "20261102-000000-bbbbbb", scene="s2")
     _run(tmp_path, "20261103-000000-cccccc", version="v1.0-trainval")
     _run(tmp_path, "20261104-000000-dddddd", parent="20261101-000000-aaaaaa")
-    (tmp_path / "20261105-000000-eeeeee").mkdir()  # no manifest: not a run
+    (tmp_path / "20261105-000000-eeeeee").mkdir()  # no record: not a run
     (tmp_path / "notes").mkdir()
     store = RunStore(tmp_path)
     assert _ids(store.runs()) == [
@@ -79,3 +79,11 @@ def test_newest_baseline(tmp_path, monkeypatch):
     assert store.newest_baseline("other") is None
     monkeypatch.setenv("NUSCENES_VERSION", "v1.0-trainval")
     assert store.newest_baseline("s1").id == "20261104-000000-dddddd"
+
+
+def test_legacy_manifest_still_loads(tmp_path):
+    _run(tmp_path, "20261101-000000-aaaaaa", legacy=True, gates=True)
+    store = RunStore(tmp_path)
+    run = store.get("20261101-000000-aaaaaa")
+    assert run.status == "ok"
+    assert _ids(store.runs(full_chain=True, with_gates=True)) == ["20261101-000000-aaaaaa"]

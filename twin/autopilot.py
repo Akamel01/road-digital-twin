@@ -29,6 +29,7 @@ from twin.contracts import Params
 from twin.reload import CodeWatch
 from twin.runner import REPO as REPO_ROOT
 from twin.runner import dataset_version
+from twin.runrecord import read_record
 from twin.runstore import RunStore
 
 TAGS = {"tags": ["autopilot"]}
@@ -287,7 +288,7 @@ def p2_area(store: Path, state: dict) -> int:
             newest = prgate.pick_baseline(store, scene=scene)
             if newest is not None:
                 try:
-                    m = json.loads((newest / "manifest.json").read_text())
+                    m = read_record(newest)
                     if m.get("code", {}).get("git_sha") == commit:
                         continue
                 except (OSError, ValueError):

@@ -1,16 +1,16 @@
 """The run store: one place that decides which runs exist and which count (complete, failed, a baseline).
 
-A run is a folder named by its run id, holding manifest.json. Manifests are read as plain JSON so a
-partial or hand-made one still answers; a folder without a readable manifest is not a run.
+A run is a folder named by its run id, holding run.json (legacy manifest.json). Records are read as plain JSON so a
+partial or hand-made one still answers; a folder without a readable record is not a run.
 """
 
-import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
 
 from twin.contracts import STAGE_NAMES
 from twin.dataset import DatasetConfig
+from twin.runrecord import read_record
 
 RUN_ID_RE = r"\d{8}-\d{6}-[0-9a-f]{6}"
 DONE = ("ok", "skipped")  # a stage that finished; skipped is a stage that is off by default
@@ -49,9 +49,9 @@ class RunStore:
         self.store = Path(store)
 
     def get(self, run_id: str) -> Run:
-        """One run by id. Raises OSError or ValueError when its manifest is missing or unreadable."""
+        """One run by id. Raises OSError or ValueError when its record is missing or unreadable."""
         path = self.store / run_id
-        return Run(run_id, path, json.loads((path / "manifest.json").read_text()))
+        return Run(run_id, path, read_record(path))
 
     def runs(
         self,

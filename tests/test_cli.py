@@ -178,7 +178,7 @@ def test_labels_tool_reset_refuses_frozen_exit_2(tmp_path, capsys, monkeypatch):
             {"name": "ground", "status": "ok"},
         ],
     }
-    (run / "manifest.json").write_text(json.dumps(manifest))
+    (run / "run.json").write_text(json.dumps(manifest))
     from twin import labels
 
     labels.draft(store, "s1", "a1", areas_root=areas)

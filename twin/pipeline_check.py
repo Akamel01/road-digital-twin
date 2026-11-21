@@ -24,6 +24,7 @@ import numpy as np
 from twin import fake_run, gpulease, jobqueue, merge, registry, runner, scheduler, site
 from twin import fixtures as fx
 from twin.contracts import STAGE_NAMES, STAGES, Params, StageResult
+from twin.runrecord import record_path
 
 AREA = "seaport"
 FAKE_AREA_HALF_M = (
@@ -62,7 +63,7 @@ def check_job(store: Path | str, job: dict) -> None:
             jobqueue._load(job.get("params")),
         )  # fmt: skip
     elif kind in ("eval", "publish"):
-        if not (store / job["run_id"] / "manifest.json").is_file():
+        if not record_path(store / job["run_id"]).is_file():
             raise ValueError(f"{kind} job: run {job['run_id']} not found in {store}")
         if kind == "publish" and not (store / job["run_id"] / "gates.json").is_file():
             raise ValueError(f"publish job: run {job['run_id']} has no gates.json")

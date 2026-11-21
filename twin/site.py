@@ -19,6 +19,7 @@ from twin.area import drive_tokens
 from twin.gates import GO, GateReport
 from twin.publish import PublishReport
 from twin.runner import default_store
+from twin.runrecord import read_record, record_path
 
 WEB = Path(__file__).resolve().parents[1] / "web"
 WRANGLER = "wrangler@4.151.2"
@@ -188,11 +189,11 @@ def area_runs(store: Path, area) -> list[str]:
             print(f"publish: skip drive scene {scene}: no baseline", file=sys.stderr)
             continue
         run_dir = Path(base)
-        manifest_file = run_dir / "manifest.json"
+        manifest_file = record_path(run_dir)
         public_ok = manifest_file.exists()
         if public_ok:
             try:
-                json.loads(manifest_file.read_text())
+                read_record(run_dir)
             except (OSError, ValueError):
                 public_ok = False
         if public_ok:

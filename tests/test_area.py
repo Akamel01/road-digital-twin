@@ -385,8 +385,8 @@ def test_polygon_area_merge_and_twin(tmp_path, monkeypatch):
     out = store / "areas" / "a3-merged"
     assert (out / "merged.npz").exists()
     assert (out / "drives.json").exists()
-    assert (out / "manifest.json").exists()
-    manifest = json.loads((out / "manifest.json").read_text())
+    assert (out / "run.json").exists()
+    manifest = json.loads((out / "run.json").read_text())
     assert manifest["data"]["nuscenes_version"] == "v1.0-test"
     drives_json = json.loads((out / "drives.json").read_text())
     assert isinstance(drives_json, list)
@@ -427,4 +427,4 @@ def test_polygon_area_merge_and_twin(tmp_path, monkeypatch):
     change = json.loads((twin_out / "change.json").read_text())
     assert change["area"] == "a3"
     assert change["n_drives"] == 2
-    assert (twin_out / "manifest.json").exists()
+    assert (twin_out / "run.json").exists()

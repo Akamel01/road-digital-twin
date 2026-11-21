@@ -94,6 +94,19 @@ def build_parser() -> argparse.ArgumentParser:
     box_rep = box.add_parser("report", help="utilisation and idle report")
     box_rep.add_argument("--hours", type=float, default=24.0)
     box_rep.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
+    capture = sub.add_parser("capture", help="build a recon-core Posed Capture").add_subparsers(dest="capture_cmd")
+    cap_area = capture.add_parser("area", help="build a Posed Capture from an area merge")
+    cap_area.add_argument("name")
+    cap_area.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS or /data/twin-runs)")
+
+    stage = sub.add_parser("stage", help="run one contract stage as a Node command")
+    stage.add_argument("name", choices=STAGE_NAMES)
+    stage.add_argument("--in", dest="inputs", action="append", default=[], type=Path)
+    stage.add_argument("--out", required=True, type=Path)
+    stage.add_argument("--method")
+    stage.add_argument("--params", type=Path)
+    stage.add_argument("--scene")
+
     area = sub.add_parser("area", help="study areas").add_subparsers(dest="area_cmd")
     define = area.add_parser(
         "define", help="polygon from intersections or a GeoJSON polygon, and the drives through it"
@@ -158,6 +171,21 @@ def build_parser() -> argparse.ArgumentParser:
     at.add_argument("name")
     at.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
     at.add_argument("--check-date", help="report the change layer against the construction seen on this date")
+    ab = area.add_parser("build", help="build an area twin through recon-core Manifest")
+    ab.add_argument("name")
+    ab.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
+    ab.add_argument("--check-date", help="report the change layer against the construction seen on this date")
+    astep = area.add_parser("step", help="run one area pipeline step as a Node command")
+    astep.add_argument("step", choices=("load", "mask", "align", "ground", "change"))
+    astep.add_argument("--work", required=True, type=Path)
+    astep.add_argument("--area", required=True, type=Path)
+    astep.add_argument("--drives", type=Path)
+    astep.add_argument("--features", type=Path)
+    astep.add_argument("--load", type=Path)
+    astep.add_argument("--align", type=Path)
+    astep.add_argument("--capture", type=Path)
+    astep.add_argument("--params", type=Path)
+    astep.add_argument("--out", required=True, type=Path)
     ev = sub.add_parser("eval", help="go/no-go report for a run against the gates")
     ev.add_argument("run", help="run id (or run folder)")
     ev.add_argument("--baseline", help="run to compare every metric with")
@@ -338,6 +366,40 @@ def main(argv: list[str] | None = None) -> int:
         from twin.areatwin import area_twin_command
 
         return area_twin_command(args.name, args.store, args.check_date)
+    if args.command == "area" and args.area_cmd == "build":
+        from twin.areabuild import area_build_command
+
+        return area_build_command(args.name, args.store, args.check_date)
+    if args.command == "area" and args.area_cmd == "step":
+        from twin.areasteps import area_step_command
+
+        return area_step_command(
+            args.step,
+            work=args.work,
+            area=args.area,
+            drives=args.drives,
+            features=args.features,
+            load=args.load,
+            align=args.align,
+            out=args.out,
+            params=args.params,
+            capture=args.capture,
+        )
+    if args.command == "capture" and args.capture_cmd == "area":
+        from twin.capture import capture_area_command
+
+        return capture_area_command(args.name, args.store)
+    if args.command == "stage":
+        from twin.stagecli import stage_command
+
+        return stage_command(
+            args.name,
+            args.inputs,
+            args.out,
+            method=args.method,
+            params_path=args.params,
+            scene=args.scene,
+        )
     if args.command == "box":
         from twin.telemetry import box_command
 

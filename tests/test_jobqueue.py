@@ -58,7 +58,7 @@ def test_run_job_finishes(tmp_path, stubs):
     assert jobqueue.process_one(tmp_path, no_hold).startswith("done")
     assert _states(tmp_path)["done"] == 1
     done = jobqueue.list_jobs(tmp_path)[0]
-    assert (tmp_path / done["run_id"] / "manifest.json").is_file()
+    assert (tmp_path / done["run_id"] / "run.json").is_file()
     assert jobqueue.process_one(tmp_path, no_hold) is None
 
 
