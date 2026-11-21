@@ -6,7 +6,7 @@ import numpy as np
 from twin import areabuild
 from twin.cli import main
 from twin.gates import evaluate
-from twin.runrecord import write_document
+from twin.runrecord import eval_document, write_document
 
 
 def _make_store(tmp_path: Path, name: str = "a1") -> Path:
@@ -23,7 +23,13 @@ def _make_store(tmp_path: Path, name: str = "a1") -> Path:
     return base
 
 
-def _fake_core_run(core_dir: Path, node_metrics: dict[str, dict], *, fail_node: str | None = None):
+def _fake_core_run(
+    core_dir: Path,
+    node_metrics: dict[str, dict],
+    *,
+    fail_node: str | None = None,
+    durations: list[float] | None = None,
+):
     core_dir = Path(core_dir)
     nodes_dir = core_dir / "nodes"
     nodes = []
@@ -38,7 +44,10 @@ def _fake_core_run(core_dir: Path, node_metrics: dict[str, dict], *, fail_node: 
         status = "failed" if n == fail_node else "done"
         metrics = node_metrics.get(n, {})
         (nd / "metrics.json").write_text(json.dumps(metrics))
-        (nd / "checks.json").write_text(json.dumps({"version": 1, "checks": [{"name": "stage_ok", "value": status, "pass": status == "done"}]}))
+        checks = [{"name": "stage_ok", "value": status, "pass": status == "done"}]
+        for ck, cv in _flatten_metric_checks(metrics):
+            checks.append({"name": ck, "value": cv, "pass": True})
+        (nd / "checks.json").write_text(json.dumps({"version": 1, "checks": checks}))
         if n == "change":
             (nd / "change.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": []}))
             (nd / "1_load").mkdir(parents=True, exist_ok=True)
@@ -50,17 +59,27 @@ def _fake_core_run(core_dir: Path, node_metrics: dict[str, dict], *, fail_node: 
         else:
             od = nd / out_map[n]
             od.mkdir(parents=True, exist_ok=True)
-            # minimal files some code may expect
             if n == "ground":
                 (od / "qa.json").write_text("{}")
-        nodes.append({"name": n, "status": status, "duration_s": float(i + 1), "checks": [{"name": "stage_ok", "value": status, "pass": status == "done"}], "outputs": {}, "error": (f"{n} failed" if n == fail_node else None)})
+        duration = float(durations[i]) if durations is not None else float(i + 1)
+        nodes.append({"name": n, "status": status, "duration_s": duration, "checks": checks, "outputs": {}, "error": (f"{n} failed" if n == fail_node else None)})
         if n == fail_node:
-            # include remaining nodes as not_run? core would; keep simple
             for m in order[i + 1:]:
                 nodes.append({"name": m, "status": "not_run", "duration_s": 0.0, "checks": [], "outputs": {}})
             break
     (core_dir / "run.json").write_text(json.dumps({"version": 1, "pipeline": "area-twin", "manifest_hash": "h", "core_version": "0.1.0", "status": "failed" if fail_node else "succeeded", "nodes": nodes}))
     return 1 if fail_node else 0
+
+
+def _flatten_metric_checks(tree: dict, prefix: str = "") -> list[tuple[str, object]]:
+    out: list[tuple[str, object]] = []
+    for key, val in tree.items():
+        name = f"{prefix}{key}"
+        if isinstance(val, dict):
+            out.extend(_flatten_metric_checks(val, name + "."))
+        else:
+            out.append((name, val))
+    return out
 
 
 def test_manifest_wraps_area_flow_in_core_nodes(tmp_path):
@@ -121,22 +140,31 @@ def test_area_build_gates_match_todays_twin_metrics(tmp_path, monkeypatch):
     expected = evaluate(twin_doc)
 
     node_metrics = {
+        # align is a twin-level metric not produced by a core node; include it so
+        # eval_document(core_record) can express G2 like the hand-written twin record.
+        "align": {"cross_drive_ground_p95_m": 0.03},
         "ground": {"z_disagreement_p95_m": 0.05},
         "change": {"n_features": 1, "n_features_changed": 0, "n_change_regions": 0, "change_area_m2": 0.0, "noise": {}, "by_date": {}},
         "accuracy": twin_doc["metrics"]["accuracy"],
     }
 
     def fake_core_run(manifest_path, core_dir):
-        return _fake_core_run(core_dir, node_metrics)
+        # Durations sum to 1.0s so eval_document(runtime) matches twin_doc stages.
+        return _fake_core_run(core_dir, node_metrics, durations=[0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.2])
 
     monkeypatch.setattr(areabuild, "core_run", fake_core_run)
     monkeypatch.setattr("twin.capture.build_area_capture", lambda *a, **k: Path(a[1]))
 
     summary = areabuild.area_build(base, name, __import__("logging").getLogger("t"))
     gates = json.loads((base / "areas" / f"{name}-twin" / "gates.json").read_text())
-    for g in ["G2", "G3", "G5"]:
-        assert gates["gates"][g]["status"] == expected["gates"][g]["status"]
-    assert gates["verdict"] == expected["verdict"]
+    core_record = json.loads((base / "areas" / f"{name}-twin" / "core-run.json").read_text())
+    from_core = evaluate(eval_document(core_record, f"area-{name}-twin"))
+
+    assert set(gates["gates"].keys()) == set(from_core["gates"].keys()) == set(expected["gates"].keys())
+    for gid in gates["gates"]:
+        assert gates["gates"][gid]["checks"] == from_core["gates"][gid]["checks"] == expected["gates"][gid]["checks"]
+        assert gates["gates"][gid]["status"] == from_core["gates"][gid]["status"] == expected["gates"][gid]["status"]
+    assert gates["verdict"] == from_core["verdict"] == expected["verdict"]
     assert summary["gates_verdict"] == gates["verdict"]
 
 
