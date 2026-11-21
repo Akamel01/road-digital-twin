@@ -10,6 +10,25 @@ export type Point = [number, number];
 export const ELEMENTS: readonly ElementKey[] = ["markings", "crosswalks", "curbs"];
 export const RASTERS: readonly Raster[] = ["lidar", "ortho", "coverage", "height"];
 
+export interface RasterMeta {
+  bbox: number[];
+  zmin?: number;
+  zmax: number;
+  tile_px?: number;
+  cell_m_at_zmax?: number;
+  tiles?: [number, number, number][];
+}
+
+export async function loadRasterMeta(run: string, raster: Raster): Promise<RasterMeta> {
+  // Prefer per-run tiles if present (legacy); fall back to mosaic meta.
+  try {
+    return await getJson<RasterMeta>(`showcase/tiles/${run}/${raster}/meta.json`);
+  } catch {
+    return await getJson<RasterMeta>(`showcase/tiles/${raster}/meta.json`);
+  }
+}
+
+
 export function isElement(s: string | null): s is ElementKey {
   return s !== null && (ELEMENTS as readonly string[]).includes(s);
 }
@@ -43,11 +62,6 @@ export interface DriveData {
   legs: Record<string, Record<string, LegMetric>>;
 }
 
-export interface RasterMeta {
-  bbox: number[];
-  zmax: number;
-}
-
 // Error bands from the mockup: <= 0.20 m green, <= 0.40 m amber, above that red.
 export const ERR_COL = { good: "#9CC7A4", fair: "#E0A94F", poor: "#E0704F" } as const;
 
@@ -55,7 +69,7 @@ export function errCol(e: number): string {
   return e <= 0.2 ? ERR_COL.good : e <= 0.4 ? ERR_COL.fair : ERR_COL.poor;
 }
 
-async function getJson<T>(url: string): Promise<T> {
+export async function getJson<T>(url: string): Promise<T> {
   const res = await fetch(url, { cache: "no-cache" });
   if (!res.ok) throw new Error(`Could not load ${url}`);
   return (await res.json()) as T;
@@ -141,6 +155,4 @@ export async function loadCentrelines(run: string, facility: string): Promise<Ce
     }));
 }
 
-export function loadRasterMeta(run: string, raster: Raster): Promise<RasterMeta> {
-  return getJson<RasterMeta>(`showcase/tiles/${run}/${raster}/meta.json`);
-}
+

@@ -4,9 +4,8 @@ import { useState } from "react";
 import { ERR_COL } from "@/lib/mapdata";
 import { PHONE, useMedia } from "@/lib/media";
 
-export type Layer = "height" | "lidar" | "ortho" | "markings" | "crosswalks" | "curbs";
-export type Analysis = "accuracy" | "safety" | "coverage";
-export type Layers = Record<Layer, boolean>;
+import type { Analysis, Layer, Layers } from "@/lib/layers";
+export type { Analysis, Layer, Layers };
 
 const LAYERS: [Layer, string, string][] = [
   ["height", "Height", "#26b38c"],

@@ -8,7 +8,13 @@ import pytest
 from twin.cli import main
 from twin.contracts import AreaIndex
 from twin.fake_run import FACILITIES, write_fake_runs
-from twin.publish import _rasters, _thin_laz, publish_runs
+from twin.publish import (
+    _bincount_intensity,
+    _grid_from_points,
+    _thin_laz,
+    _tile_version,
+    publish_runs,
+)
 
 SCHEMAS = Path(__file__).resolve().parents[1] / "schemas"
 
@@ -24,7 +30,7 @@ def runs(tmp_path_factory):
 def _site(runs, tmp_path, **limits):
     store, run_ids = runs
     site = tmp_path / "site"
-    publish_runs(run_ids, site, store, mosaic=True, **limits)
+    publish_runs(run_ids, site, store, **limits)
     return site, run_ids
 
 
@@ -47,6 +53,10 @@ def test_layout_and_area_validate(runs, tmp_path):
             json.loads((SCHEMAS / "area_index.schema.json").read_text()),
         )
     assert [d.run_id for d in area.drives] == run_ids
+    for rid in run_ids:
+        assert not (site / "tiles" / rid).exists()
+    report = json.loads((site / "publish_report.json").read_text())
+    assert re.fullmatch(r"[0-9a-f]{12}", report["tile_version"])
 
 
 def test_best_run_is_highest_coverage(runs, tmp_path):
@@ -92,51 +102,80 @@ def test_cli_publish(runs, tmp_path, capsys):
     code = main(["publish", *run_ids, "--out", str(site), "--store", str(store)])
     assert code == 0
     assert (site / "area.json").is_file()
+    assert (site / "tiles" / "lidar" / "meta.json").is_file()
     assert re.search("area.json", capsys.readouterr().out)
 
 
 
 
 def test_lidar_intensity_white_point(tmp_path):
-    store = tmp_path / "runs"
-    folders = write_fake_runs(store, drives=1)
-    run_dir = folders[0]
-
-    import laspy
     import numpy as np
 
     xs = np.array([0.0, 50.0, 0.0, 50.0])
     ys = np.array([0.0, 0.0, 50.0, 50.0])
-    zs = np.zeros(4)
-    xyz = np.column_stack([xs, ys, zs])
-    header = laspy.LasHeader(point_format=6)
-    header.scales = np.array([0.001, 0.001, 0.001])
-    header.offsets = xyz.min(axis=0)
-    las = laspy.LasData(header)
-    las.x = xs
-    las.y = ys
-    las.z = zs
-    las.intensity = np.array([0, 30, 60, 110], dtype=np.uint16)
-    las.write(run_dir / "4_ground" / "ground.laz")
-
-    from twin.contracts import Manifest
-
-    manifest = Manifest.model_validate_json((run_dir / "manifest.json").read_text())
-    rasters, _zoom, _bbox, _grid = _rasters(run_dir, manifest)
-    lidar = rasters["lidar"]
+    intensity = np.array([0.0, 30.0 / 60.0, 60.0 / 60.0, 110.0 / 60.0])
+    intensity = np.clip(intensity, 0.0, 1.0)
+    grid = _grid_from_points(xs, ys, 0.05)
+    lidar = _bincount_intensity(xs, ys, intensity, grid)
     filled = lidar[..., 3] == 255
     assert sorted(lidar[filled, 0].tolist()) == [0, 127, 255, 255]
 
 
-def test_per_drive_tiles_present(tmp_path):
-    store = tmp_path / "runs"
-    folders = write_fake_runs(store, drives=2)
-    showcase = store / "showcase"
-    rasters = {"lidar", "ortho", "height", "coverage"}
-    for folder in folders:
-        run = folder.name
-        for raster in rasters:
-            meta_path = showcase / "tiles" / run / raster / "meta.json"
-            assert meta_path.is_file(), meta_path
-            tile_dir = showcase / "tiles" / run / raster
-            assert any(p.suffix == ".webp" for p in tile_dir.rglob("*")), tile_dir
+def test_stale_tiles_removed(runs, tmp_path):
+    store, run_ids = runs
+    site = tmp_path / "stale"
+    # pre-create stale per-drive and high-z tiles
+    stale1 = site / "tiles" / run_ids[0] / "lidar" / "meta.json"
+    stale2 = site / "tiles" / "lidar" / "9" / "0" / "0.webp"
+    stale1.parent.mkdir(parents=True, exist_ok=True)
+    stale2.parent.mkdir(parents=True, exist_ok=True)
+    stale1.write_text("{}")
+    stale2.write_bytes(b"x")
+    publish_runs(run_ids, site, store)
+    assert not stale1.exists()
+    assert not stale2.exists()
+
+
+def test_tile_version_changes_on_same_size_content(tmp_path):
+    out = tmp_path / "out"
+    out.mkdir()
+    p = out / "tiles" / "lidar" / "0" / "0" / "0.webp"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(b"aaaa")
+    v1 = _tile_version(out)
+    p.write_bytes(b"bbbb")
+    v2 = _tile_version(out)
+    assert v1 != v2
+    assert len(v1) == 12 and all(c in "0123456789abcdef" for c in v1)
+
+
+def test_bad_run_id_preserves_previous_tiles(runs, tmp_path):
+    site, run_ids = _site(runs, tmp_path)
+    sentinel = site / "tiles" / "lidar" / "sentinel.txt"
+    sentinel.write_text("keep")
+    before_files = sorted(
+        p.relative_to(site / "tiles").as_posix()
+        for p in (site / "tiles").rglob("*")
+        if p.is_file()
+    )
+    with pytest.raises(FileNotFoundError):
+        publish_runs([*run_ids, "no-such-run"], site, runs[0])
+    assert sentinel.read_text() == "keep"
+    after_files = sorted(
+        p.relative_to(site / "tiles").as_posix()
+        for p in (site / "tiles").rglob("*")
+        if p.is_file()
+    )
+    assert before_files == after_files
+    assert not (site / "tiles.new").exists()
+
+
+def test_successful_publish_replaces_tiles(runs, tmp_path):
+    site, run_ids = _site(runs, tmp_path)
+    stale = site / "tiles" / "stale" / "old.txt"
+    stale.parent.mkdir(parents=True, exist_ok=True)
+    stale.write_text("old")
+    publish_runs(run_ids, site, runs[0])
+    assert not stale.exists()
+    assert not (site / "tiles.new").exists()
+    assert (site / "tiles" / "lidar" / "meta.json").is_file()

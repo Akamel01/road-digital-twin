@@ -170,14 +170,12 @@ def build_parser() -> argparse.ArgumentParser:
     publish.add_argument(
         "--store", type=Path, help="run store (default: $TWIN_RUNS or /data/twin-runs)"
     )
-    publish.add_argument("--mosaic", action="store_true", help="also write area mosaics (sparse XYZ)")
     site = sub.add_parser("site", help="publish a run to the public site, or roll back")
     site.add_argument("action", choices=("publish", "rollback", "history", "redeploy"))
     site.add_argument("run_id", nargs="?", help="run to publish (for publish)")
     site.add_argument("--latest", metavar="AREA", help="publish the area's latest build (any verdict)")
     site.add_argument("--dry-run", action="store_true", help="build, do not deploy")
     site.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
-    site.add_argument("--mosaic", action="store_true", help="also write area mosaics (sparse XYZ)")
     fake = sub.add_parser("fake-run", help="write synthetic runs and a showcase bundle")
     fake.add_argument("--out", type=Path, default=Path("runs"))
     fake.add_argument("--drives", type=int, choices=(1, 2), default=2)
@@ -349,11 +347,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "publish":
         from twin.publish import publish_command
 
-        return publish_command(args.run_ids, args.out, args.store, getattr(args, "mosaic", False))
+        return publish_command(args.run_ids, args.out, args.store)
     if args.command == "site":
         from twin.site import site_command
 
-        return site_command(args.action, args.run_id, args.dry_run, args.store, args.latest, getattr(args, "mosaic", False))
+        return site_command(args.action, args.run_id, args.dry_run, args.store, args.latest)
     if args.command == "fake-run":
         from twin.fake_run import write_fake_runs
         for path in write_fake_runs(args.out, args.drives):

@@ -1,90 +1,67 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+
+let __mvRenders = 0;
+function bumpRender() {
+  __mvRenders++;
+  if (typeof window !== "undefined") (window as Window & { __renders?: number }).__renders = __mvRenders;
+}
+import dynamic from "next/dynamic";
 import MapPanel, { type Analysis, type Layer, type Layers } from "@/components/MapPanel";
+import MapLabels, { type LabelItem } from "@/components/MapLabels";
 import {
   type Centreline,
-  errCol,
   isElement,
   loadCentrelines,
   loadDrive,
-  loadRasterMeta,
-  RASTERS,
   type DriveData,
   type ElementKey,
   type FacilityGeo,
   type Point,
   type Raster,
-  type RasterMeta,
 } from "@/lib/mapdata";
 import { sightsOf, type Sight } from "@/lib/sight";
 import { typeLabel, type AreaFacility, type AreaIndex, type FacilityType } from "@/lib/showcase";
 import { PHONE, useMedia } from "@/lib/media";
 import {
-  fitView,
+  fitState,
   frameOf,
   localRect,
-  tileLevel,
-  visibleTiles,
+  minZoomOf,
+  viewOf,
+  viewStateOf,
   type Frame,
   type Rect,
   type Size,
-  type Tile,
   type View,
+  type ViewState,
+  MAX_K,
+  MAX_VIEW_ZOOM,
 } from "@/lib/tiles";
+import { loadMosaics, loadTileVersion, mosaicFrame, type MosaicMeta } from "@/lib/mosaic";
+import { DEFAULT_LAYERS, applyTrioToggle, applySafetyLayers, rastersFor } from "@/lib/layers";
+import { FALLBACK_TOKENS, readTokens, type Tokens } from "@/lib/colors";
+import { tileLayers } from "@/lib/deckTiles";
+import { vectorLayers, type OverlayIn } from "@/lib/deckVectors";
 
-const MAX_K = 40; // screen px per metre
+const MapCanvas = dynamic(() => import("@/components/MapCanvas"), { ssr: false });
+
 const LABEL_ZOOM_THRESHOLD = 4;
 const TYPE_RANK: Record<FacilityType, number> = { intersection: 0, segment: 1, access_point: 2 };
-// Trio {height, ortho, lidar}: at most one fully opaque background at a time.
-const DEFAULT_LAYERS: Layers = {
-  height: false,
-  lidar: true,
-  ortho: false,
-  markings: true,
-  crosswalks: true,
-  curbs: true,
-};
-const TRIO: Layer[] = ["height", "ortho", "lidar"];
-
-function applyTrioToggle(prev: Layers, k: Layer): Layers {
-  if (!TRIO.includes(k)) return { ...prev, [k]: !prev[k] };
-  const nextOn = !prev[k];
-  if (!nextOn) return { ...prev, [k]: false };
-  return {
-    ...prev,
-    height: k === "height",
-    ortho: k === "ortho",
-    lidar: k === "lidar",
-  };
-}
-
-function applySafetyLayers(prev: Layers): Layers {
-  return { ...prev, ortho: true, lidar: false, height: false };
-}
 
 interface LoadedDrive {
   run: string;
   data: DriveData;
-  meta: Record<Raster, RasterMeta>;
 }
 
 interface StoredView extends View {
-  key: string; // the fit key the view was set under; a new fit key drops it
+  key: string;
 }
 
 interface GeoEntry {
   geo: FacilityGeo;
   drive: LoadedDrive;
-}
-
-async function loadAll(run: string): Promise<LoadedDrive> {
-  const [data, metas] = await Promise.all([
-    loadDrive(run),
-    Promise.all(RASTERS.map((r) => loadRasterMeta(run, r))),
-  ]);
-  const meta = Object.fromEntries(RASTERS.map((r, i) => [r, metas[i]])) as Record<Raster, RasterMeta>;
-  return { run, data, meta };
 }
 
 const toLocal = (f: Frame, p: Point): Point => [p[0] - f.ox, f.top - p[1]];
@@ -95,55 +72,92 @@ function rectOf(pts: Point[]): Rect {
   return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
 }
 
-const ptsAttr = (pts: Point[]) => pts.map(([x, y]) => `${x},${y}`).join(" ");
+function clamp(n: number, lo: number, hi: number): number {
+  return Math.min(hi, Math.max(lo, n));
+}
 
-/** The first vertex inside the facility rectangle, where a line meets the core. Falls back to the middle vertex. */
-function entryOf(pts: Point[], r: Rect | null): Point {
-  const inside = r && pts.find(([x, y]) => x >= r.x0 && x <= r.x1 && y >= r.y0 && y <= r.y1);
-  return inside || pts[Math.floor(pts.length / 2)];
+function labelAt(pts: Point[], r: Rect | null): Point {
+  if (!pts.length) return [0, 0];
+  if (!r) return pts[Math.floor(pts.length / 2)];
+  const cx = (r.x0 + r.x1) / 2;
+  const cy = (r.y0 + r.y1) / 2;
+  let best = pts[0];
+  let bestD = Infinity;
+  for (const p of pts) {
+    const px = clamp(p[0], r.x0, r.x1);
+    const py = clamp(p[1], r.y0, r.y1);
+    const dx = px - cx;
+    const dy = py - cy;
+    const d = dx * dx + dy * dy;
+    if (d < bestD) {
+      bestD = d;
+      best = [px, py];
+    }
+  }
+  return best;
+}
+
+function openRing(pts: Point[]): Point[] {
+  if (pts.length > 1) {
+    const a = pts[0];
+    const b = pts[pts.length - 1];
+    if (a[0] === b[0] && a[1] === b[1]) return pts.slice(0, -1);
+  }
+  return pts;
 }
 
 interface Props {
   area: AreaIndex;
   facility: AreaFacility | null;
   element: string | null;
-  line: string | null; // the selected centreline id; owned by the shell, shared with the profile strip
+  line: string | null;
   onFacility: (id: string) => void;
   onElement: (e: string) => void;
   onLine: (id: string) => void;
 }
 
 export default function MapView({ area, facility, element, line, onFacility, onElement, onLine }: Props) {
+  bumpRender();
   const phone = useMedia(PHONE);
+  const [mosaic, setMosaic] = useState<{ metas: Record<Raster, MosaicMeta>; frame: Frame } | null>(null);
+  const [version, setVersion] = useState("");
+  const [tokens, setTokens] = useState<Tokens>(FALLBACK_TOKENS);
   const [loaded, setLoaded] = useState<LoadedDrive[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [layers, setLayers] = useState<Layers>(DEFAULT_LAYERS);
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [size, setSize] = useState<Size>({ w: 0, h: 0 });
   const [view, setView] = useState<StoredView | null>(null);
-  const [fly, setFly] = useState(false);
-  const [dragging, setDragging] = useState(false);
+  const [interacting, setInteracting] = useState(false);
+  const [softwareRenderer, setSoftwareRenderer] = useState(false);
+  const interactTimer = useRef<number | null>(null);
   const panRef = useRef<HTMLDivElement>(null);
-  const drag = useRef<{ x: number; y: number; view: View; moved: number } | null>(null);
-  // Touch: every active pointer, and the pinch that two of them start (distance and midpoint at the start).
-  const pointers = useRef(new Map<number, { x: number; y: number }>());
-  const pinch = useRef<{ d: number; mx: number; my: number; view: View } | null>(null);
+  const [centre, setCentre] = useState<{ key: string; lines: Centreline[] } | null>(null);
+  const pendingView = useRef<StoredView | null>(null);
+  const viewRaf = useRef<number | null>(null);
 
-  const frame = useMemo(
-    () => frameOf(area.drives.flatMap((d) => (d.bbox ? [d.bbox] : []))),
-    [area],
-  );
+  const frame = mosaic?.frame ?? null;
 
+  // Load mosaics + drives
   useEffect(() => {
     let live = true;
-    Promise.all(area.drives.map((d) => loadAll(d.run_id))).then(
-      (drives) => {
-        if (live) setLoaded(drives);
-      },
-      (e: unknown) => {
+    (async () => {
+      try {
+        const [metas, v, drives] = await Promise.all([
+          loadMosaics(),
+          loadTileVersion(),
+          Promise.all(area.drives.map((d) => loadDrive(d.run_id).then((data) => ({ run: d.run_id, data })))),
+        ]);
+        const fr = mosaicFrame(metas);
+        if (!fr) throw new Error("showcase mosaic has no bbox");
+        if (!live) return;
+        setMosaic({ metas, frame: fr });
+        setVersion(v);
+        setLoaded(drives);
+      } catch (e) {
         if (live) setError(e instanceof Error ? e.message : String(e));
-      },
-    );
+      }
+    })();
     return () => {
       live = false;
     };
@@ -152,7 +166,6 @@ export default function MapView({ area, facility, element, line, onFacility, onE
   useEffect(() => {
     const el = panRef.current;
     if (!el) return;
-    // Measure now, then on every change. Some browsers skip the observer's first callback.
     const measure = () => setSize({ w: el.clientWidth, h: el.clientHeight });
     measure();
     const ro = new ResizeObserver(measure);
@@ -160,15 +173,37 @@ export default function MapView({ area, facility, element, line, onFacility, onE
     return () => ro.disconnect();
   }, []);
 
-  // The facility's road lines come from its best drive, the same run the profile strip reads.
-  const [centre, setCentre] = useState<{ key: string; lines: Centreline[] } | null>(null);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (typeof window !== "undefined") setTokens(readTokens());
+  }, []);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const c = document.createElement("canvas");
+    const gl = c.getContext("webgl2") || c.getContext("webgl");
+    if (!gl) return;
+    const ext = gl.getExtension("WEBGL_debug_renderer_info");
+    const renderer = ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) || "") : "";
+    const software = /SwiftShader|llvmpipe|software/i.test(renderer);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSoftwareRenderer(software);
+    gl.getExtension("WEBGL_lose_context")?.loseContext();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (viewRaf.current !== null) cancelAnimationFrame(viewRaf.current);
+      if (interactTimer.current !== null) window.clearTimeout(interactTimer.current);
+    };
+  }, []);
+
   const clRun = facility?.best_run ?? null;
   const clFid = facility?.id ?? null;
   useEffect(() => {
     if (!clRun || !clFid) return;
     const key = `${clRun}|${clFid}`;
     let live = true;
-    // A bundle with no centrelines file just has no lines to draw.
     loadCentrelines(clRun, clFid).then(
       (lines) => {
         if (live) setCentre({ key, lines });
@@ -182,7 +217,6 @@ export default function MapView({ area, facility, element, line, onFacility, onE
     };
   }, [clRun, clFid]);
 
-  // Each facility's geometry comes from its best drive (first run that has it).
   const geoIndex = useMemo(() => {
     const m = new Map<string, GeoEntry>();
     for (const f of area.facilities) {
@@ -198,142 +232,63 @@ export default function MapView({ area, facility, element, line, onFacility, onE
     return m;
   }, [area, loaded]);
 
-  // The view is refit whenever the facility or the viewport size changes. A user pan or zoom
-  // stores a view under the current key, so it survives until the next refit.
-  const areaRect: Rect | null = frame && { x0: 0, y0: 0, x1: frame.w, y1: frame.h };
-  const runRect = (run: string | null): Rect | null => {
-    const b = area.drives.find((d) => d.run_id === run)?.bbox;
-    return frame && b ? localRect(b, frame) : null;
-  };
+  const shown = useMemo(
+    () => loaded?.filter((d) => !facility || facility.runs.includes(d.run)) ?? [],
+    [loaded, facility],
+  );
+
+  const areaFacilities = useMemo(
+    () =>
+      frame
+        ? area.facilities.flatMap((f) => {
+            const entry = geoIndex.get(f.id);
+            return entry ? [{ f, ring: entry.geo.ring.map((p) => toLocal(frame, p)) }] : [];
+          })
+        : [],
+    [frame, area, geoIndex],
+  );
+
+  const union = useMemo(() => frameOf(area.drives.flatMap((d) => (d.bbox ? [d.bbox] : []))), [area]);
+  const areaRect: Rect | null =
+    frame && union
+      ? localRect([union.ox, union.top - union.h, union.ox + union.w, union.top], frame)
+      : null;
+
+  const runRect = useCallback(
+    (run: string | null): Rect | null => {
+      const b = area.drives.find((d) => d.run_id === run)?.bbox;
+      return frame && b ? localRect(b, frame) : null;
+    },
+    [area, frame],
+  );
+
   const facEntry = facility ? geoIndex.get(facility.id) : undefined;
-  const facRect = frame && facEntry ? rectOf(facEntry.geo.ring.map((p) => toLocal(frame, p))) : null;
+  const facRect = useMemo(
+    () => (frame && facEntry ? rectOf(facEntry.geo.ring.map((p) => toLocal(frame, p))) : null),
+    [frame, facEntry],
+  );
+
   const target = facRect ?? (facility ? runRect(facility.best_run) : null) ?? areaRect;
   const fitKey = `${facility?.id ?? ""}|${size.w}x${size.h}`;
-  const fitted = target && size.w && size.h ? fitView(target, size, facility ? 1.5 : 1.02, MAX_K) : null;
-  const cur = view && view.key === fitKey ? view : fitted;
-  const minK = areaRect && size.w && size.h ? fitView(areaRect, size, 1.02).k * 0.8 : 0;
-
-  function commit(next: View, animate = false) {
-    setFly(animate);
-    setView({ ...next, key: fitKey });
-    if (animate) window.setTimeout(() => setFly(false), 320);
-  }
-
-  // Wheel needs passive:false to stop the page scrolling. No deps: it re-binds with the latest view.
-  useEffect(() => {
-    const el = panRef.current;
-    if (!el || !cur) return;
-    function onWheel(e: WheelEvent) {
-      e.preventDefault();
-      const r = el!.getBoundingClientRect();
-      const mx = e.clientX - r.left;
-      const my = e.clientY - r.top;
-      const k = Math.min(MAX_K, Math.max(minK, cur!.k * Math.exp(-e.deltaY * 0.0015)));
-      commit({ k, tx: mx - ((mx - cur!.tx) * k) / cur!.k, ty: my - ((my - cur!.ty) * k) / cur!.k });
-    }
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
-  });
+  const fitted = target && size.w && size.h ? fitState(target, size, facility ? 1.5 : 1.02, MAX_K) : null;
+  const fittedView = fitted ? viewOf(fitted, size) : null;
+  const cur = (view && view.key === fitKey ? view : fittedView) as View | null;
+  const minZoom = areaRect && size.w && size.h ? minZoomOf(areaRect, size) : 0;
 
   function zoomBy(m: number) {
     if (!cur) return;
     const cx = size.w / 2;
     const cy = size.h / 2;
-    const k = Math.min(MAX_K, Math.max(minK, cur.k * m));
-    commit({ k, tx: cx - ((cx - cur.tx) * k) / cur.k, ty: cy - ((cy - cur.ty) * k) / cur.k }, true);
+    const k = Math.min(MAX_K, Math.max(2 ** minZoom, cur.k * m));
+    setView({ k, tx: cx - ((cx - cur.tx) * k) / cur.k, ty: cy - ((cy - cur.ty) * k) / cur.k, key: fitKey });
   }
 
   function fitAll() {
-    if (target && size.w && size.h) commit(fitView(target, size, facility ? 1.5 : 1.02, MAX_K), true);
-  }
-
-  // Pointer position inside the map box, the frame the view's translation is in.
-  function local(clientX: number, clientY: number): [number, number] {
-    const r = panRef.current?.getBoundingClientRect();
-    return [clientX - (r?.left ?? 0), clientY - (r?.top ?? 0)];
-  }
-
-  function onPointerDown(e: ReactPointerEvent) {
-    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (!cur || pointers.current.size > 2) return;
-    if (pointers.current.size === 2) {
-      const [a, b] = [...pointers.current.values()];
-      const [mx, my] = local((a.x + b.x) / 2, (a.y + b.y) / 2);
-      pinch.current = { d: Math.hypot(a.x - b.x, a.y - b.y), mx, my, view: cur };
-      drag.current = null; // a pinch is not a tap, and it does not pan
-      setDragging(false);
-      return;
+    if (target && size.w && size.h) {
+      const vs = fitState(target, size, facility ? 1.5 : 1.02, MAX_K);
+      const vv = viewOf(vs, size);
+      setView({ k: vv.k, tx: vv.tx, ty: vv.ty, key: fitKey });
     }
-    drag.current = { x: e.clientX, y: e.clientY, view: cur, moved: 0 };
-    setDragging(true);
-  }
-
-  function onPointerMove(e: ReactPointerEvent) {
-    const p = pointers.current.get(e.pointerId);
-    if (p) {
-      p.x = e.clientX;
-      p.y = e.clientY;
-    }
-    const pv = pinch.current;
-    if (pv && pointers.current.size === 2) {
-      // Zoom by the finger spacing. The world point under the starting midpoint follows the current midpoint, so the pinch also pans.
-      const [a, b] = [...pointers.current.values()];
-      const [mx, my] = local((a.x + b.x) / 2, (a.y + b.y) / 2);
-      const k = Math.min(MAX_K, Math.max(minK, pv.view.k * (Math.hypot(a.x - b.x, a.y - b.y) / pv.d)));
-      const wx = (pv.mx - pv.view.tx) / pv.view.k;
-      const wy = (pv.my - pv.view.ty) / pv.view.k;
-      commit({ k, tx: mx - wx * k, ty: my - wy * k });
-      return;
-    }
-    const d = drag.current;
-    if (!d) return;
-    const dx = e.clientX - d.x;
-    const dy = e.clientY - d.y;
-    d.moved = Math.max(d.moved, Math.hypot(dx, dy));
-    commit({ k: d.view.k, tx: d.view.tx + dx, ty: d.view.ty + dy });
-  }
-
-  // A press that did not move is a click. It opens a facility (area level) or selects an element (facility level).
-  function onPointerUp(e: ReactPointerEvent) {
-    pointers.current.delete(e.pointerId);
-    const wasPinch = pinch.current !== null;
-    if (pointers.current.size < 2) pinch.current = null;
-    if (wasPinch) {
-      drag.current = null;
-      setDragging(false);
-      return;
-    }
-    const d = drag.current;
-    drag.current = null;
-    setDragging(false);
-    if (!d || d.moved > 4 || !(e.target instanceof Element)) return;
-    const hit = e.target.closest("[data-el],[data-fac],[data-line]");
-    if (!hit) return;
-    const fac = hit.getAttribute("data-fac");
-    if (fac && !facility) {
-      onFacility(fac);
-      return;
-    }
-    const ln = hit.getAttribute("data-line");
-    if (ln && facility) {
-      onLine(ln);
-      return;
-    }
-    const el = hit.getAttribute("data-el");
-    if (el && facility) {
-      if (isElement(el)) setAnalysis("accuracy"); // the map shows the analysis behind the number
-      else if (el.startsWith("isd-")) enterSafetyAnalysis();
-      onElement(el);
-    }
-  }
-
-  function toggleLayer(k: Layer) {
-    setLayers((v) => applyTrioToggle(v, k));
-  }
-
-  function enterSafetyAnalysis() {
-    setAnalysis("safety");
-    setLayers((v) => applySafetyLayers(v));
   }
 
   function pickAnalysis(a: Analysis) {
@@ -348,34 +303,37 @@ export default function MapView({ area, facility, element, line, onFacility, onE
     setAnalysis((prev) => (prev === a ? null : a));
   }
 
+  const toggleLayer = useCallback((k: Layer) => {
+    setLayers((v) => applyTrioToggle(v, k));
+  }, []);
+
+  const pickElement = useCallback(
+    (el: string | null) => {
+      if (!el) return;
+      if (isElement(el)) setAnalysis("accuracy");
+      else if (el.startsWith("isd-")) {
+        setAnalysis("safety");
+        setLayers((v) => applySafetyLayers(v));
+      }
+      onElement(el);
+    },
+    [onElement],
+  );
+
+  const onHover = useCallback((obj: { kind: string; id: string } | null) => {
+    if (panRef.current) panRef.current.style.cursor = obj ? "pointer" : "";
+  }, []);
+
+  const handleCanvasError = useCallback((e: Error) => {
+    setError(e.message);
+  }, []);
+
   const dpr = typeof window === "undefined" ? 1 : window.devicePixelRatio;
 
-  const tiles: { tile: Tile; opacity: number }[] = [];
-  if (cur && frame && loaded) {
-    // Trio {height, ortho, lidar}: render only selected at opacity 1.0 (never unselected).
-    const rasters: Raster[] = [];
-    if (layers.height) rasters.push("height");
-    if (layers.ortho) rasters.push("ortho");
-    if (layers.lidar) rasters.push("lidar");
-    if (analysis === "coverage") rasters.push("coverage");
-    for (const r of rasters) {
-      for (const d of loaded) {
-        const meta = d.meta[r];
-        if (!meta) continue;
-        const rect = localRect(meta.bbox, frame);
-        const z = tileLevel(cur.k, dpr, rect.x1 - rect.x0, meta.zmax);
-        for (const tile of visibleTiles(r, d.run, rect, z, cur, size)) {
-          tiles.push({ tile, opacity: 1 });
-        }
-      }
-    }
-  }
-
-  // Vector overlays: at area level every drive, at facility level only the drives that cover it.
-  const shown = loaded?.filter((d) => !facility || facility.runs.includes(d.run)) ?? [];
-  const overlays =
-    frame &&
-    shown.flatMap((d) =>
+  // Adapters
+  const overlays: OverlayIn[] = useMemo(() => {
+    if (!frame) return [];
+    return shown.flatMap((d) =>
       d.data.lines
         .filter((l) => layers[l.element])
         .map((l, i) => ({
@@ -383,316 +341,226 @@ export default function MapView({ area, facility, element, line, onFacility, onE
           el: l.element,
           closed: l.closed,
           p95: d.data.p95[l.element],
-          pts: ptsAttr(l.points.map((p) => toLocal(frame, p))),
+          pts: l.points.map((p) => toLocal(frame, p)),
         })),
     );
+  }, [frame, shown, layers]);
 
-  function overlayStyle(el: ElementKey, closed: boolean, p95: number | undefined) {
-    const sel = element === el;
-    const dimmed = element !== null && !sel;
-    const accuracy = analysis === "accuracy" && p95 !== undefined ? errCol(p95) : null;
-    const stroke = accuracy ?? (el === "markings" ? "var(--feat-mark)" : el === "curbs" ? "var(--feat-curb)" : "var(--feat-cross)");
-    let width = el === "markings" ? 1.2 : el === "curbs" ? 1.4 : 1.2;
-    if (accuracy) width = 2;
-    if (sel) width += closed ? 1 : 1.2;
-    return {
-      stroke,
-      width,
-      fill: closed ? stroke : "none",
-      fillOpacity: closed ? (sel ? 0.35 : 0.18) : 0,
-      dash: el === "curbs" && !closed ? "5 3" : undefined,
-      opacity: dimmed ? 0.4 : 1,
-    };
-  }
-
-  // Sight lines, from the facility's best drive. Area level draws all facilities; facility level draws its own.
-  const k = cur?.k ?? 1;
-  const sights: { key: string; facId: string; s: Sight }[] = [];
-  if (frame && analysis === "safety") {
+  // sights
+  const sightsRaw = useMemo(() => {
+    if (!frame || analysis !== "safety") return [];
+    const out: { key: string; s: Sight }[] = [];
     for (const f of area.facilities) {
       if (facility && f.id !== facility.id) continue;
       const entry = geoIndex.get(f.id);
       if (!entry) continue;
       for (const s of sightsOf(entry.geo, entry.drive.data.legs[f.id])) {
-        sights.push({ key: `${f.id}-${s.approach}-${s.side}`, facId: f.id, s });
+        out.push({ key: `${f.id}-${s.approach}-${s.side}`, s });
       }
     }
-  }
+    return out;
+  }, [frame, analysis, area, facility, geoIndex]);
+
+  const sights = useMemo(
+    () =>
+      frame
+        ? sightsRaw.map(({ key, s }) => ({
+            key,
+            el: `isd-${s.approach}`,
+            eye: toLocal(frame, s.eye),
+            end: s.end ? toLocal(frame, s.end) : null,
+            status: s.status,
+          }))
+        : [],
+    [sightsRaw, frame],
+  );
+
+  const facilityRingLocal = useMemo(
+    () => (frame && facEntry ? facEntry.geo.ring.map((p) => toLocal(frame, p)) : null),
+    [frame, facEntry],
+  );
+  const facilityOutline = useMemo(
+    () => (facilityRingLocal ? openRing(facilityRingLocal) : null),
+    [facilityRingLocal],
+  );
+
+  const clKey = `${clRun}|${clFid}`;
+  const lines = useMemo(
+    () => (facility && frame && centre?.key === clKey ? centre.lines : []),
+    [facility, frame, centre, clKey],
+  );
+  const selId = lines.find((l) => l.id === line)?.id ?? lines[0]?.id ?? null;
+  const linesView = useMemo(
+    () =>
+      facility && frame
+        ? lines.map((l) => {
+            const pts = l.points.map((p) => toLocal(frame, p));
+            return { id: l.id, label: l.label, points: l.points, pts, at: labelAt(pts, facRect) };
+          })
+        : [],
+    [facility, frame, lines, facRect],
+  );
+
+  const rasters = useMemo(() => rastersFor(layers, analysis), [layers, analysis]);
+
+  const deckLayers = useMemo(() => {
+    if (!mosaic || !loaded) return [];
+    return [
+      ...tileLayers({ metas: mosaic.metas, rasters, version, dpr, software: softwareRenderer }),
+      // eslint-disable-next-line react-hooks/refs
+      ...vectorLayers({
+        deps: {
+          state: { facility: facility?.id ?? null },
+          tokens,
+          phone,
+          selectedLine: selId,
+          element: element as ElementKey | null,
+          analysis,
+          handlers: {
+            onFacility: onFacility as (id: string | null) => void,
+            pickElement: pickElement as (el: ElementKey | null) => void,
+            onLine: onLine as (id: string | null) => void,
+            onHover,
+          },
+        },
+        overlays,
+        facilities: areaFacilities.map(({ f, ring }) => ({ f: { id: f.id }, ring })),
+        sights: sights.map((s) => ({
+          key: s.key,
+          facId: facility?.id ?? "",
+          el: s.el,
+          s: { eye: s.eye, end: s.end, status: s.status },
+        })),
+        linesView: linesView.map((l) => ({ id: l.id, path: l.pts, at: l.at, label: l.label })),
+        facilityRing: facilityOutline ?? undefined,
+        interactive: !interacting,
+      }),
+    ];
+  }, [
+    mosaic,
+    loaded,
+    rasters,
+    version,
+    dpr,
+    softwareRenderer,
+    overlays,
+    facilityOutline,
+    linesView,
+    selId,
+    sights,
+    tokens,
+    element,
+    analysis,
+    facility,
+    phone,
+    areaFacilities,
+    onFacility,
+    pickElement,
+    onLine,
+    onHover,
+    interacting,
+  ]);
+
+  const sv = cur;
+  const labelK = sv ? Math.round(sv.k * 100) / 100 : 1;
+  const labelTx = sv ? Math.round(sv.tx) : 0;
+  const labelTy = sv ? Math.round(sv.ty) : 0;
+  const labelItems: LabelItem[] = useMemo(() => {
+    const zoom = labelK;
+    const items: LabelItem[] = [];
+    const emitted: { x0: number; y0: number; x1: number; y1: number }[] = [];
+    const charW = 7 / labelK;
+    const charH = 12 / labelK;
+
+    if (!facility) {
+      const sorted = [...areaFacilities].sort((a, b) => {
+        const ra = TYPE_RANK[a.f.type] ?? 9;
+        const rb = TYPE_RANK[b.f.type] ?? 9;
+        if (ra !== rb) return ra - rb;
+        return a.f.id < b.f.id ? -1 : a.f.id > b.f.id ? 1 : 0;
+      });
+      for (const { f, ring } of sorted) {
+        if (f.type !== "intersection" && zoom < LABEL_ZOOM_THRESHOLD) continue;
+        const r = rectOf(ring);
+        const text = phone ? f.id : `${f.id} · ${typeLabel(f.type)}`;
+        const x = r.x0;
+        const y = r.y0 - 2 / labelK;
+        const box = { x0: x, y0: y - charH, x1: x + text.length * charW, y1: y };
+        const overlaps = emitted.some((b) => !(box.x1 < b.x0 || box.x0 > b.x1 || box.y1 < b.y0 || box.y0 > b.y1));
+        if (overlaps) continue;
+        emitted.push(box);
+        items.push({ id: `lbl-${f.id}`, x, y, text });
+      }
+    }
+
+    if (facility) {
+      for (const l of linesView) {
+        const text = l.label ?? l.id;
+        const x = l.at[0] + 4 / labelK;
+        const y = l.at[1] - 4 / labelK;
+        const box = { x0: x, y0: y - charH, x1: x + text.length * charW, y1: y };
+        const overlaps = emitted.some((b) => !(box.x1 < b.x0 || box.x0 > b.x1 || box.y1 < b.y0 || box.y0 > b.y1));
+        if (overlaps) continue;
+        emitted.push(box);
+        items.push({ id: `cll-${l.id}`, x, y, text });
+      }
+    }
+    return items;
+  }, [facility, areaFacilities, linesView, labelK, phone]);
 
   const scaleM = cur ? [5, 10, 20, 50, 100, 200].find((v) => v * cur.k >= 60) ?? 200 : 0;
 
-  // Road lines of the open facility. The selected one (or the first, when none is picked) is highlighted.
-  const clKey = `${clRun}|${clFid}`;
-  const lines = facility && frame && centre?.key === clKey ? centre.lines : [];
-  const selId = lines.find((l) => l.id === line)?.id ?? lines[0]?.id ?? null;
-  const linesView = lines.map((l) => {
-    const pts = l.points.map((p) => toLocal(frame!, p));
-    return { ...l, pts, at: entryOf(pts, facRect) };
-  });
-
-  const areaFacilities = useMemo(
-    () =>
-      frame
-        ? area.facilities.flatMap((f) => {
-            const entry = geoIndex.get(f.id);
-            return entry ? [{ f, ring: entry.geo.ring.map((p) => toLocal(frame, p)) }] : [];
-          })
-        : [],
-    [frame, area, geoIndex],
+  const handleViewStateChange = useCallback(
+    (v: ViewState) => {
+      if (!v || !Number.isFinite(v.zoom) || !size.w || !size.h) return;
+      const z = Math.min(MAX_VIEW_ZOOM, Math.max(minZoom, v.zoom));
+      const t0 = v.target?.[0];
+      const t1 = v.target?.[1];
+      if (!Number.isFinite(t0) || !Number.isFinite(t1)) return;
+      const vv = viewOf({ target: [t0, t1, 0], zoom: z }, size);
+      if (!Number.isFinite(vv.k) || !Number.isFinite(vv.tx) || !Number.isFinite(vv.ty)) return;
+      setInteracting((prev) => (prev ? prev : true));
+      if (interactTimer.current !== null) window.clearTimeout(interactTimer.current);
+      interactTimer.current = window.setTimeout(() => {
+        interactTimer.current = null;
+        setInteracting(false);
+      }, 1500);
+      pendingView.current = { k: vv.k, tx: vv.tx, ty: vv.ty, key: fitKey };
+      if (viewRaf.current === null) {
+        viewRaf.current = requestAnimationFrame(() => {
+          viewRaf.current = null;
+          if (pendingView.current) setView(pendingView.current);
+        });
+      }
+    },
+    [minZoom, size, fitKey],
   );
 
-  const visibleLabels = useMemo(() => {
-    if (!frame) return [];
-    const zoom = cur?.k ?? 1;
-    const tx = cur?.tx ?? 0;
-    const ty = cur?.ty ?? 0;
-    const sorted = [...areaFacilities].sort((a, b) => {
-      const ra = TYPE_RANK[a.f.type] ?? 9;
-      const rb = TYPE_RANK[b.f.type] ?? 9;
-      if (ra !== rb) return ra - rb;
-      return a.f.id < b.f.id ? -1 : a.f.id > b.f.id ? 1 : 0;
-    });
-    const emitted: { x0: number; y0: number; x1: number; y1: number }[] = [];
-    const out: typeof areaFacilities = [];
-    for (const item of sorted) {
-      if (item.f.type !== "intersection" && zoom < LABEL_ZOOM_THRESHOLD) continue;
-      const r = rectOf(item.ring);
-      const label = phone ? item.f.id : `${item.f.id} · ${typeLabel(item.f.type)}`;
-      const sx = tx + zoom * r.x0;
-      const sy = ty + zoom * r.y0 - 2;
-      const box = { x0: sx, y0: sy - 12, x1: sx + label.length * 7, y1: sy };
-      const overlaps = emitted.some(
-        (b) => !(box.x1 < b.x0 || box.x0 > b.x1 || box.y1 < b.y0 || box.y0 > b.y1),
-      );
-      if (overlaps) continue;
-      emitted.push(box);
-      out.push(item);
-    }
-    return out;
-  }, [areaFacilities, cur, phone, frame]);
+  const deckViewState: ViewState | null = cur ? viewStateOf(cur as unknown as View, size) : null;
+  const ready = !!mosaic && loaded !== null;
+  const noData = ready && (!frame || area.drives.length === 0);
 
   return (
     <>
       <div
         ref={panRef}
-        className={`pan${dragging ? " drag" : ""}`}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerLeave={(e) => {
-          pointers.current.delete(e.pointerId);
-          if (pointers.current.size < 2) pinch.current = null;
-          drag.current = null;
-          setDragging(false);
-        }}
+        className="pan"
+        data-centreline-count={linesView.length}
+        data-label-count={labelItems.length}
+        data-facility-count={areaFacilities.length}
       >
-        <svg className={`world${fly ? " fly" : ""}`} width={size.w} height={size.h} aria-label="Plan map">
-          {cur && frame && (
-            <g style={{ transform: `translate(${cur.tx}px, ${cur.ty}px) scale(${cur.k})` }}>
-              {tiles.map(({ tile, opacity }) => (
-                <image
-                  key={tile.url}
-                  href={tile.url}
-                  x={tile.left}
-                  y={tile.top}
-                  width={tile.w}
-                  height={tile.h}
-                  opacity={opacity}
-                  preserveAspectRatio="none"
-                />
-              ))}
-              {frame && (
-                <>
-              {!facility &&
-                areaFacilities.map(({ f, ring }) => (
-                  <polygon
-                    key={`fac-${f.id}`}
-                    className="fac"
-                    data-fac={f.id}
-                    points={ptsAttr(ring)}
-                    stroke="var(--fac)"
-                    strokeWidth={1.4}
-                    strokeDasharray="5 4"
-                    vectorEffect="non-scaling-stroke"
-                  />
-                ))}
-              {!facility &&
-                visibleLabels.map(({ f, ring }) => {
-                  const r = rectOf(ring);
-                  return (
-                    <text
-                      key={`lbl-${f.id}`}
-                      className="flabel"
-                      x={r.x0}
-                      y={r.y0 - 2 / k}
-                      fontSize={12 / k}
-                    >
-                      {/* Phone: the code only, so the labels do not collide when the area is fitted. */}
-                      {phone ? f.id : `${f.id} · ${typeLabel(f.type)}`}
-                    </text>
-                  );
-                })}
-              {facility && facEntry && (
-                <polygon
-                  points={ptsAttr(facEntry.geo.ring.map((p) => toLocal(frame, p)))}
-                  fill="none"
-                  stroke="var(--fac)"
-                  strokeWidth={1}
-                  strokeDasharray="3 4"
-                  opacity={0.6}
-                  vectorEffect="non-scaling-stroke"
-                />
-              )}
-              {overlays &&
-                overlays.map((o) => {
-                  const s = overlayStyle(o.el, o.closed, o.p95);
-                  if (o.closed) {
-                    return (
-                      <polygon
-                        key={o.key}
-                        points={o.pts}
-                        fill={s.fill}
-                        fillOpacity={s.fillOpacity}
-                        stroke={s.stroke}
-                        strokeWidth={s.width}
-                        opacity={s.opacity}
-                        vectorEffect="non-scaling-stroke"
-                      />
-                    );
-                  }
-                  return (
-                    <polyline
-                      key={o.key}
-                      points={o.pts}
-                      fill="none"
-                      stroke={s.stroke}
-                      strokeWidth={s.width}
-                      strokeDasharray={s.dash}
-                      opacity={s.opacity}
-                      vectorEffect="non-scaling-stroke"
-                    />
-                  );
-                })}
-              {sights.map(({ key, s }) => {
-                const el = `isd-${s.approach}`;
-                const sel = element === el;
-                const dimmed = element !== null && !sel;
-                const eye = toLocal(frame, s.eye);
-                const end = s.end && toLocal(frame, s.end);
-                return (
-                  <g key={key} opacity={dimmed ? 0.35 : 1}>
-                    <circle cx={eye[0]} cy={eye[1]} r={4 / k} fill="var(--sight)" />
-                    {end ? (
-                      <>
-                        <line
-                          x1={eye[0]}
-                          y1={eye[1]}
-                          x2={end[0]}
-                          y2={end[1]}
-                          stroke="var(--sight)"
-                          strokeWidth={sel ? 2.6 : 1.5}
-                          vectorEffect="non-scaling-stroke"
-                        />
-                        {s.status === "short" && (
-                          <circle
-                            cx={end[0]}
-                            cy={end[1]}
-                            r={5 / k}
-                            fill="none"
-                            stroke="var(--danger)"
-                            strokeWidth={2}
-                            vectorEffect="non-scaling-stroke"
-                          />
-                        )}
-                      </>
-                    ) : (
-                      // Indeterminate: a dashed white stub from the eye, as in the mockup.
-                      <line
-                        x1={eye[0]}
-                        y1={eye[1]}
-                        x2={eye[0]}
-                        y2={eye[1] + 50}
-                        stroke="rgb(255 255 255 / .7)"
-                        strokeWidth={1.4}
-                        strokeDasharray="2 4"
-                        vectorEffect="non-scaling-stroke"
-                      />
-                    )}
-                    {facility && (
-                      <line
-                        className="hit"
-                        data-el={el}
-                        x1={eye[0]}
-                        y1={eye[1]}
-                        x2={end ? end[0] : eye[0]}
-                        y2={end ? end[1] : eye[1] + 50}
-                        strokeWidth={10}
-                        vectorEffect="non-scaling-stroke"
-                      />
-                    )}
-                  </g>
-                );
-              })}
-              {facility &&
-                overlays &&
-                overlays.map((o) =>
-                  o.closed ? (
-                    <polygon key={`hit-${o.key}`} className="hitpoly" data-el={o.el} points={o.pts} />
-                  ) : (
-                    <polyline
-                      key={`hit-${o.key}`}
-                      className="hit"
-                      data-el={o.el}
-                      points={o.pts}
-                      strokeWidth={10}
-                      vectorEffect="non-scaling-stroke"
-                    />
-                  ),
-                )}
-                  {/* Road lines last, so their wide hit strokes sit above the element hits. Phone: 44 px targets. */}
-                  {facility &&
-                    linesView.map((l) => {
-                      const sel = l.id === selId;
-                      return (
-                        <polyline
-                          key={`cl-${l.id}`}
-                          points={ptsAttr(l.pts)}
-                          fill="none"
-                          stroke={sel ? "var(--fac)" : "rgb(255 255 255 / .6)"}
-                          strokeWidth={sel ? 2.4 : 1.2}
-                          vectorEffect="non-scaling-stroke"
-                        />
-                      );
-                    })}
-                  {facility &&
-                    linesView.map((l) => (
-                      <text
-                        key={`cll-${l.id}`}
-                        className="flabel"
-                        x={l.at[0] + 4 / k}
-                        y={l.at[1] - 4 / k}
-                        fontSize={12 / k}
-                      >
-                        {l.label}
-                      </text>
-                    ))}
-                  {facility &&
-                    linesView.map((l) => (
-                      <polyline
-                        key={`clh-${l.id}`}
-                        className="hit"
-                        data-line={l.id}
-                        points={ptsAttr(l.pts)}
-                        fill="none"
-                        strokeWidth={phone ? 44 : 12}
-                        vectorEffect="non-scaling-stroke"
-                      />
-                    ))}
-                </>
-              )}
-            </g>
+        <div className="gl" role="img" aria-label="Plan map">
+          {cur && deckViewState && size.w > 0 && size.h > 0 && Number.isFinite(cur.k) && Number.isFinite(cur.tx) && Number.isFinite(cur.ty) && (
+            <MapCanvas
+              viewState={deckViewState}
+              layers={deckLayers}
+              useDevicePixels={softwareRenderer ? 0.25 : 1}
+              onViewStateChange={handleViewStateChange}
+              onError={handleCanvasError}
+            />
           )}
-        </svg>
+        </div>
+        {cur && sv && Number.isFinite(sv.k) && Number.isFinite(sv.tx) && Number.isFinite(sv.ty) && <MapLabels items={labelItems} k={labelK} tx={labelTx} ty={labelTy} />}
       </div>
 
       {frame && (
@@ -732,8 +600,8 @@ export default function MapView({ area, facility, element, line, onFacility, onE
         </div>
       )}
       {error && <p className="msg" role="alert">{error}</p>}
-      {!error && !loaded && <p className="msg">Loading tiles…</p>}
-      {!frame && !error && <p className="msg">No drives in the showcase.</p>}
+      {!error && !ready && <p className="msg">Loading tiles…</p>}
+      {!error && noData && <p className="msg">No drives in the showcase.</p>}
     </>
   );
 }

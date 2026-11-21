@@ -132,7 +132,7 @@ run store (box: /data/twin-runs/<run-id>/) ──► control API (twin-api.papyr
 
 **Static showcase.**
 - `twin publish <run-id>…` copies the public files of one run per drive into the Pages build, plus an area index (`area.json`: drives, facilities, best-covered run per facility):
-  - plan rasters (lidar intensity, orthoimage, coverage), as 256 px WebP tile pyramids (decision 41);
+  - plan rasters (lidar intensity, orthoimage, height, coverage), as per-layer mosaic sparse XYZ WebP tiles (showcase/tiles/<layer>/<z>/<x>/<y>.webp + meta.json);
   - GeoJSON;
   - a downsampled LAZ;
   - PDFs and DXFs;
@@ -272,7 +272,7 @@ Notes:
 - `twin select [--min-density N]`: prints a table of scenes. Exits 0.
 - `twin run --scene <token> [--pipeline f] [--params f]`: prints the run ID. Exits 0 on success, 1 if a stage failed, 2 if the input is invalid.
 - `twin rerun <run-id> --from <stage> [--params f]`: starts a re-run from that stage.
-- `twin publish <run-id>... --out web/public/showcase`: copies the public files of one run per drive, tiles the rasters and writes `area.json`.
+- `twin publish <run-id>... --out web/public/showcase`: copies the public files of one run per drive, writes one area mosaic per layer (`tiles/<layer>/<z>/<x>/<y>.webp` + `meta.json`) and `area.json`.
 - `twin fake-run --out <dir>`: writes a synthetic run that matches the contracts, for UI and outputs work.
 
 ## 5. Alternatives considered
@@ -365,7 +365,7 @@ If a scene fails the markings threshold, its runs report markings as "not extrac
 
 **Outputs.**
 - `laspy[lazrs]` writes LAZ, with the CRS set via `header.add_crs()`.
-- Rasters for publishing are cut into 256 px WebP tile pyramids (decision 41), so every file stays far under 25 MiB; the run keeps the full PNG and world file.
+- Rasters for publishing are mosaicked into per-layer sparse XYZ WebP tiles (showcase/tiles/<layer>/<z>/<x>/<y>.webp + meta.json); the run keeps the full PNG and world file.
 - ezdxf writes DXF. The PDF is drawn from the same DXF with the ezdxf `drawing` add-on (matplotlib backend).
 
 ## 7. Risks and limits
@@ -496,7 +496,7 @@ Every ticket's PR includes pytest tests. CI runs them on synthetic fixtures. nuS
     - with curbs off, the curb element is skipped.
 - **T8 [scaffold]: stage 10.**
   - `twin/stages/outputs.py`: LAZ, GeoJSON, DXF, and PDF via the ezdxf drawing add-on.
-  - `twin publish` adds the tiled rasters, the downsampled LAZ and `area.json`.
+  - `twin publish` adds one area mosaic per layer (`tiles/<layer>/<z>/<x>/<y>.webp` + `meta.json`), the downsampled LAZ and `area.json`.
   - Tests:
     - DXF audit is clean;
     - every published file is at most 25 MiB.
