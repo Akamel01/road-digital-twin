@@ -909,7 +909,8 @@ def _write_run(out: Path, index: int) -> str:
         stages=stages,
         metrics=metrics,
     )
-    (run_dir / "manifest.json").write_text(manifest.model_dump_json(indent=2))
+    from twin.runrecord import write_record
+    write_record(run_dir, manifest)
     (run_dir / "pipeline.yaml").write_text(
         yaml.safe_dump(pipeline.model_dump(mode="json"), sort_keys=False)
     )

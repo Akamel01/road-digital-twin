@@ -30,6 +30,7 @@ from twin import registry
 from twin.area import drive_correction
 from twin.contracts import Params, Pipeline, stage_dir
 from twin.runner import StageContext
+from twin.runrecord import read_record, write_document
 from twin.stages import ground
 
 # ---- change detection
@@ -509,7 +510,7 @@ def twin_area(base: Path, name: str, log: logging.Logger, check_date: str | None
         r = _stage(ctx, st, params, pipeline)
         seconds[st], stage_metrics[st] = r["seconds"], r["metrics"]
 
-    mman = json.loads((work / "manifest.json").read_text())
+    mman = read_record(work)
     total = round(time.time() - t_start, 1)
     summary = {
         "area": name,
@@ -532,14 +533,14 @@ def twin_area(base: Path, name: str, log: logging.Logger, check_date: str | None
     for f in ("merged.npz", "drives.json", "qa.json"):  # the site's latest view reads the cloud and drives from the area folder
         (out / f).unlink(missing_ok=True)
         (out / f).symlink_to((work / f).resolve())
-    # a minimal manifest so `twin eval <folder>` reads G2 (from merge), G3 and G5
+    # a minimal Run Record so `twin eval <folder>` reads G2 (from merge), G3 and G5
     acc = stage_metrics["accuracy"]
-    (out / "manifest.json").write_text(json.dumps({
+    write_document(out, {
         "run_id": f"area-{name}-twin",
         "data": mman.get("data", {}),
         "metrics": {"align": mman["metrics"]["align"], "ground": stage_metrics["ground"], "accuracy": acc},
         "stages": [{"seconds": v} for v in seconds.values()],
-    }, indent=2))
+    })
     return summary
 
 

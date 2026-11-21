@@ -41,6 +41,7 @@ from twin.runner import (
     rerun_async,
     start_run_async,
 )
+from twin.runrecord import read_manifest
 from twin.runstore import RunStore
 
 ALLOWED_ORIGIN = "https://twin.papyrus-ai.net"
@@ -60,10 +61,11 @@ def _check_id(run_id: str) -> None:
 
 def _load(store: Path, run_id: str) -> Manifest:
     _check_id(run_id)
-    path = store / run_id / "manifest.json"
-    if not path.is_file():
-        raise HTTPException(404, "run not found")
-    return Manifest.model_validate_json(path.read_text())
+    rd = store / run_id
+    try:
+        return read_manifest(rd)
+    except (OSError, ValueError) as exc:
+        raise HTTPException(404, "run not found") from exc
 
 
 def _safe_file(run_dir: Path, rel: str) -> Path:
@@ -112,8 +114,10 @@ def _loopback(request: Request) -> None:
 
 def _known_run(store: Path, run_id: str) -> None:
     _check_id(run_id)
-    if not (store / run_id / "manifest.json").is_file():
-        raise HTTPException(404, "run not found")
+    try:
+        read_manifest(store / run_id)
+    except (OSError, ValueError) as exc:
+        raise HTTPException(404, "run not found") from exc
 
 
 def _refusal(exc: ValueError) -> HTTPException:
