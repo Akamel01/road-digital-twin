@@ -1,7 +1,7 @@
 """The run store: one place that decides which runs exist and which count (complete, failed, a baseline).
 
-A run is a folder named by its run id, holding manifest.json. Manifests are read as plain JSON so a
-partial or hand-made one still answers; a folder without a readable manifest is not a run.
+A run is a folder named by its run id, holding run.json (legacy manifest.json). Records are read as plain JSON so a
+partial or hand-made one still answers; a folder without a readable record is not a run.
 """
 
 import re

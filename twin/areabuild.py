@@ -13,7 +13,7 @@ from typing import Any
 import recon_core.runner
 
 from twin.contracts import Params
-from twin.runrecord import write_document
+from twin.runrecord import read_record, write_document
 
 TWIN = ["twin"] if shutil.which("twin") else [sys.executable, "-m", "twin.cli"]
 
@@ -284,10 +284,10 @@ def assemble_area_twin(base: Path, name: str, core_dir: Path, manifest: dict[str
     shutil.copy2(core_dir / "run.json", out / "core-run.json")
 
     # twin run record
-    merged_record_path = merged_dir / "run.json"
-    if not merged_record_path.exists():
-        merged_record_path = merged_dir / "manifest.json"
-    merged_record = _read_json(merged_record_path) if merged_record_path.exists() else {}
+    try:
+        merged_record = read_record(merged_dir)
+    except (OSError, ValueError):
+        merged_record = {}
     ground_metrics = _read_json(ground_node / "metrics.json")
     accuracy_metrics = _read_json(accuracy_node / "metrics.json")
     write_document(out, {
