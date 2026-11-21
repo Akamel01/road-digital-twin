@@ -99,6 +99,14 @@ def build_parser() -> argparse.ArgumentParser:
     cap_area.add_argument("name")
     cap_area.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS or /data/twin-runs)")
 
+    stage = sub.add_parser("stage", help="run one contract stage as a Node command")
+    stage.add_argument("name", choices=STAGE_NAMES)
+    stage.add_argument("--in", dest="inputs", action="append", required=True, type=Path)
+    stage.add_argument("--out", required=True, type=Path)
+    stage.add_argument("--method")
+    stage.add_argument("--params", type=Path)
+    stage.add_argument("--scene")
+
     area = sub.add_parser("area", help="study areas").add_subparsers(dest="area_cmd")
     define = area.add_parser(
         "define", help="polygon from intersections or a GeoJSON polygon, and the drives through it"
@@ -347,6 +355,17 @@ def main(argv: list[str] | None = None) -> int:
         from twin.capture import capture_area_command
 
         return capture_area_command(args.name, args.store)
+    if args.command == "stage":
+        from twin.stagecli import stage_command
+
+        return stage_command(
+            args.name,
+            args.inputs,
+            args.out,
+            method=args.method,
+            params_path=args.params,
+            scene=args.scene,
+        )
     if args.command == "box":
         from twin.telemetry import box_command
 
