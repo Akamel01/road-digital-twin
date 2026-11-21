@@ -544,10 +544,12 @@ def test_template_fileof_guards_failed_boot():
 # --- M6b1: resolution/window/coverage ---
 
 from twin.labeltool import (
-    FIT_TOL_M,
-    H_M,
-    W_M,
+    CELL,
+    MAX_WINDOW_PX,
+    MAX_WINDOW_SIDE_PX,
+    WINDOW_MARGIN_M,
     _window_covered,
+    fit_window,
     runs_for_area,
     window_for,
 )
@@ -631,37 +633,42 @@ def test_window_for_fits_union(tmp_path):
     _mk_site_with_labels(store, "s", poly, features_xy=[[[35, 25], [55, 45]]])
     x0, y1, info = window_for(store, "s")
     assert info["fallback"] is False
-    assert info["bounds"] == [10, 10, 55, 45]
-    assert x0 == 10
-    assert y1 == 45
+    assert x0 == 8.0
+    assert y1 == 47.0
+    assert info["cell"] == 0.05
+    assert info["downsampled"] is False
+    assert_window_covers(info, 10, 10, 55, 45)
 
 
-def test_window_for_centres_when_union_too_large(tmp_path):
+def test_window_for_downsamples_union_above_limit(tmp_path):
     store = tmp_path / "store"
     poly = {"type": "Polygon", "coordinates": [[[0, 0], [40, 0], [40, 40], [0, 40], [0, 0]]]}
-    # label far outside polygon makes union exceed fit size -> fallback centered on union
+    # union exceeds fit size -> downsampled to stay within budget
     _mk_site_with_labels(store, "s", poly, features_xy=[[[150, 150], [180, 180]]])
     x0, y1, info = window_for(store, "s")
-    assert info["fallback"] is True
-    assert info["bounds"] == [0, 0, 180, 180]
-    cx, cy = 90.0, 90.0
-    assert x0 == pytest.approx(cx - W_M / 2)
-    assert y1 == pytest.approx(cy + H_M / 2)
+    assert info["fallback"] is False
+    assert x0 == -2.0
+    assert y1 == 182.0
+    assert info["cell"] > 0.05
+    assert info["width"] * info["height"] <= MAX_WINDOW_PX
+    assert max(info["width"], info["height"]) <= MAX_WINDOW_SIDE_PX
+    assert info["downsampled"] is True
+    assert_window_covers(info, 0, 0, 180, 180)
 
 
-def test_window_tolerance_accepts_80_05_m(tmp_path):
+def test_window_fits_slightly_over_80x75_at_5cm(tmp_path):
     store = tmp_path / "store"
-    # polygon near limit, label nudges union to 80.05m x 75.05m (within tolerance)
+    # polygon near limit, label nudges union to 80.05m x 75.05m; fit at 5cm if within budget
     minx, miny = 0.0, 0.0
     poly = {"type": "Polygon", "coordinates": [[[minx, miny], [80.0, miny], [80.0, 75.0], [minx, 75.0], [minx, miny]]]}
     _mk_site_with_labels(store, "s", poly, features_xy=[[[79.0, 74.0], [80.05, 75.05]]])
     x0, y1, info = window_for(store, "s")
     assert info["fallback"] is False
-    assert info["bounds"] == [0.0, 0.0, 80.05, 75.05]
-    assert x0 == 0.0
-    assert y1 == 75.05
-    assert info["bounds"][2] - info["bounds"][0] <= W_M + FIT_TOL_M
-    assert info["bounds"][3] - info["bounds"][1] <= H_M + FIT_TOL_M
+    assert x0 == -2.0
+    assert y1 == 77.05
+    assert info["cell"] == 0.05
+    assert info["downsampled"] is False
+    assert_window_covers(info, 0, 0, 80.05, 75.05)
 
 
 def test_runs_for_area_newest_per_token(tmp_path):
@@ -758,17 +765,17 @@ def test_window_for_skips_malformed_polygon_and_uses_label_coords(tmp_path):
     _mk_site_with_labels(store, "badtype", bad, features_xy=[[[5, 5], [25, 35]]])
     x0, y1, info = window_for(store, "badtype")
     assert info["fallback"] is False
-    assert info["bounds"] == [5, 5, 25, 35]
-    assert x0 == 5
-    assert y1 == 35
+    assert x0 == 3.0
+    assert y1 == 37.0
+    assert_window_covers(info, 5, 5, 25, 35)
 
     missing = {"type": "Polygon"}  # missing coordinates
     _mk_site_with_labels(store, "missing", missing, features_xy=[[[1, 2], [11, 12]]])
     x0, y1, info = window_for(store, "missing")
     assert info["fallback"] is False
-    assert info["bounds"] == [1, 2, 11, 12]
-    assert x0 == 1
-    assert y1 == 12
+    assert x0 == -1.0
+    assert y1 == 14.0
+    assert_window_covers(info, 1, 2, 11, 12)
 
 
 def test_window_for_handles_features_null(tmp_path):
@@ -781,9 +788,9 @@ def test_window_for_handles_features_null(tmp_path):
     )
     x0, y1, info = window_for(store, "s")
     assert info["fallback"] is False
-    assert info["bounds"] == [0, 0, 20, 20]
-    assert x0 == 0
-    assert y1 == 20
+    assert x0 == -2.0
+    assert y1 == 22.0
+    assert_window_covers(info, 0, 0, 20, 20)
 
 
 def test_window_for_raises_on_empty_union(tmp_path):
@@ -843,16 +850,31 @@ def _patch_export_window(monkeypatch, capture=None, data=None):
             return data(site=site, x0=x0, y1=y1, runs=runs, **kwargs)
         if data is not None:
             out = dict(data)
+            # fake window intentionally differs from the 1600x1500 fixture images; real dimensions are pinned by tests/test_labelraster.py
             out.setdefault("site", site)
-            out.setdefault("window", {"x0": x0, "y1": y1, "g": 0.05, "w": 1600, "h": 1500})
+            out.setdefault("window", {"x0": x0, "y1": y1, "g": kwargs.get("cell", 0.05), "w": kwargs.get("width", 1600), "h": kwargs.get("height", 1500)})
             return out
-        return _minimal_raster_data(site=site, x0=x0, y1=y1)
+        out = _minimal_raster_data(site=site, x0=x0, y1=y1)
+        # fake window intentionally differs from the 1600x1500 fixture images; real dimensions are pinned by tests/test_labelraster.py
+        out["window"] = {"x0": x0, "y1": y1, "g": kwargs.get("cell", 0.05), "w": kwargs.get("width", 1600), "h": kwargs.get("height", 1500)}
+        return out
 
     # generate does lazy `from twin import labelraster` and calls export_window
     import twin.labelraster as lr
 
     monkeypatch.setattr(lr, "export_window", fake_export_window)
     return capture
+
+
+def assert_window_covers(info, minx, miny, maxx, maxy, margin=WINDOW_MARGIN_M):
+    x0, y1 = info["x0"], info["y1"]
+    g = info.get("cell", info.get("g"))
+    w = info.get("width", info.get("w"))
+    h = info.get("height", info.get("h"))
+    assert x0 <= minx - margin + 1e-9
+    assert y1 >= maxy + margin - 1e-9
+    assert x0 + w * g >= maxx + margin - 1e-9
+    assert y1 - h * g <= miny - margin + 1e-9
 
 
 def _write_draft(path, site, n=15):
@@ -905,7 +927,17 @@ def test_generate_accepts_explicit_window(tmp_path, monkeypatch):
     call = cap["calls"][0]
     assert call["x0"] == 5.0
     assert call["y1"] == 80.0
+    assert call["width"] == 1600
+    assert call["height"] == 1500
+    assert call["cell"] == pytest.approx(0.05)
     html = out.read_text()
+    m = re.search(r"const DATA=(.*?);", html, re.DOTALL)
+    assert m
+    d = json.loads(m.group(1))
+    window = d["window"]
+    assert window["w"] == 1600
+    assert window["h"] == 1500
+    assert window["g"] == pytest.approx(0.05)
     assert '"window_fallback":false' in html
 
 
@@ -1012,9 +1044,11 @@ def test_generate_imports_before_window(tmp_path, monkeypatch):
     generate(store, "s1", area="a1", import_path=dpath, replace=True)
     assert cap["calls"]
     # imported geometry reaches 160,160 so auto window must be computed after import
-    # union bounds 0,0,160,160 -> fallback centered 80,80 -> x0 40 y1 117.5
-    assert cap["calls"][0]["x0"] == pytest.approx(40.0)
-    assert cap["calls"][0]["y1"] == pytest.approx(117.5)
+    assert cap["calls"][0]["x0"] == pytest.approx(-2.0)
+    assert cap["calls"][0]["y1"] == pytest.approx(162.0)
+    assert cap["calls"][0]["width"] == 3200
+    assert cap["calls"][0]["height"] == 3200
+    assert cap["calls"][0]["cell"] == pytest.approx(0.05125)
     assert labels.read_labels(store, "s1")["features"][0]["properties"]["id"] == "far"
 
 
@@ -1547,7 +1581,7 @@ def test_generate_area_build_marks_ortho_unavailable(tmp_path, monkeypatch):
     # place areas under store/areas? _mk_area_source_build created under tmp_path/areas
     # move? Instead set areas_root
     areas_root = tmp_path / "areas"
-    data = _minimal_raster_data("s1", -30.0, 47.5)
+    data = _minimal_raster_data("s1", -2.0, 22.0)
     data["no_imagery"] = False
     data["frames"] = []
     cap = _patch_export_window(monkeypatch, data=data)
@@ -1555,8 +1589,8 @@ def test_generate_area_build_marks_ortho_unavailable(tmp_path, monkeypatch):
 
     generate(store, "s1", area="a1", areas_root=areas_root)
     assert isinstance(cap["calls"][0]["runs"][0], AreaSource)
-    assert cap["calls"][0]["x0"] == pytest.approx(-30.0)
-    assert cap["calls"][0]["y1"] == pytest.approx(47.5)
+    assert cap["calls"][0]["x0"] == pytest.approx(-2.0)
+    assert cap["calls"][0]["y1"] == pytest.approx(22.0)
     html = (store / "labels" / "s1" / "tool.html").read_text()
     assert '"unavailable":["ortho","fused"]' in html
     assert "no usable camera frames (check a1-merged/drives and the nuScenes root)" in html
@@ -1569,39 +1603,21 @@ def test_template_missing_guard_and_fallback_branch():
     assert 'if(DATA.missing&&DATA.missing.length)' in t
     assert 'Array.isArray(DATA.missing)' in t
     assert 'else if(DATA.window_fallback)showBanner("' in t
-    assert 'Site larger than 80×75 m: showing the 80×75 m centred on the extent.' in t
+    assert 'Site larger than 80×75 m: showing the 80×75 m centred on the extent.' not in t
+    assert 'Window does not cover the whole site.' in t
 
 
-def test_window_for_centre_keeps_store_default(tmp_path):
+def test_window_for_store_fit_uses_margin(tmp_path):
     store = tmp_path / "store"
     store.mkdir()
     _mk_site_with_labels(store, "s", {"type": "Polygon", "coordinates": [[[0, 0], [20, 0], [20, 20], [0, 20], [0, 0]]]}, features_xy=[[[30, 0], [35, 0]]])
     from twin.labeltool import window_for
 
     wx0, wy1, info = window_for(store, "s")
-    assert wx0 == 0.0
-    assert wy1 == 20.0
+    assert wx0 == -2.0
+    assert wy1 == 22.0
     assert info["fallback"] is False
-    wx0c, wy1c, infoc = window_for(store, "s", centre=True)
-    assert wx0c == pytest.approx(-30.0)
-    assert wy1c == pytest.approx(47.5)
-    assert infoc["fallback"] is False
-
-
-def test_window_for_centre_fallback_uses_polygon(tmp_path):
-    store = tmp_path / "store"
-    store.mkdir()
-    _mk_site_with_labels(store, "s", {"type": "Polygon", "coordinates": [[[0, 0], [100, 0], [100, 100], [0, 100], [0, 0]]]}, features_xy=[[[190.0, 50.0], [200.0, 50.0]]])
-    from twin.labeltool import window_for
-
-    wx0, wy1, info = window_for(store, "s")
-    assert wx0 == pytest.approx(60.0)
-    assert wy1 == pytest.approx(87.5)
-    assert info["fallback"] is True
-    wx0c, wy1c, infoc = window_for(store, "s", centre=True)
-    assert wx0c == pytest.approx(10.0)
-    assert wy1c == pytest.approx(87.5)
-    assert infoc["fallback"] is True
+    assert_window_covers(info, 0, 0, 35, 20)
 
 
 def test_store_runs_win_over_area_build(tmp_path, monkeypatch):
@@ -1622,8 +1638,8 @@ def test_store_runs_win_over_area_build(tmp_path, monkeypatch):
     generate(store, "s1", area="a1", areas_root=areas_root)
     assert cap["calls"][0]["runs"] == [store / "20261101-000000-aaaaaa"]
     assert not isinstance(cap["calls"][0]["runs"][0], AreaSource)
-    assert cap["calls"][0]["x0"] == 0.0
-    assert cap["calls"][0]["y1"] == 20.0
+    assert cap["calls"][0]["x0"] == -2.0
+    assert cap["calls"][0]["y1"] == 22.0
     html = (store / "labels" / "s1" / "tool.html").read_text()
     assert '"unavailable"' not in html
 
@@ -1639,3 +1655,120 @@ def test_render_marks_unavailable_backgrounds():
     assert "b.title=" in html
     assert "Unavailable: the area build has no 6_colour orthoimage." in html
     assert "Ortho and Combined unavailable: the area build has no 6_colour orthoimage." in html
+
+
+def test_fit_window_covers_polygon_with_margin():
+    fit = fit_window(0, 0, 120, 110)
+    assert fit["x0"] == -2.0
+    assert fit["y1"] == 112.0
+    assert fit["cell"] == 0.05
+    assert fit["downsampled"] is False
+    assert_window_covers(fit, 0, 0, 120, 110)
+
+
+def test_fit_window_keeps_5cm_at_limit():
+    fit = fit_window(0, 0, 156, 156)
+    assert fit["width"] == 3200
+    assert fit["height"] == 3200
+    assert fit["cell"] == 0.05
+    assert fit["width"] * fit["height"] == MAX_WINDOW_PX
+    assert fit["downsampled"] is False
+
+
+def test_fit_window_downsamples_above_limit():
+    fit = fit_window(0, 0, 300, 300)
+    assert fit["cell"] > CELL
+    assert fit["width"] * fit["height"] <= MAX_WINDOW_PX
+    assert max(fit["width"], fit["height"]) <= MAX_WINDOW_SIDE_PX
+    assert fit["downsampled"] is True
+    assert_window_covers(fit, 0, 0, 300, 300)
+
+
+def test_fit_window_long_thin_uses_side_cap():
+    fit = fit_window(0, 0, 1000, 10)
+    assert max(fit["width"], fit["height"]) <= 8192
+    assert fit["cell"] > CELL
+    assert_window_covers(fit, 0, 0, 1000, 10)
+
+
+def test_window_for_fits_large_area_polygon(tmp_path):
+    store = tmp_path / "store"
+    store.mkdir()
+    poly = {"type": "Polygon", "coordinates": [[[0, 0], [120, 0], [120, 110], [0, 110], [0, 0]]]}
+    _mk_site_with_labels(store, "s", poly)
+    x0, y1, info = window_for(store, "s")
+    assert x0 == -2.0
+    assert y1 == 112.0
+    assert info["cell"] == 0.05
+    assert info["fallback"] is False
+    assert_window_covers(info, 0, 0, 120, 110)
+
+
+def test_generate_fits_large_area_polygon(tmp_path, monkeypatch):
+    store = tmp_path / "store"
+    store.mkdir()
+    areas = store / "areas"
+    areas.mkdir()
+    build = areas / "a1-twin"
+    (build / "5_features").mkdir(parents=True)
+    poly = {"type": "Polygon", "coordinates": [[[0, 0], [120, 0], [120, 110], [0, 110], [0, 0]]]}
+    (areas / "a1.json").write_text(json.dumps({"name": "a1", "polygon": poly, "drives": [{"scene": "s1", "scene_token": "t1"}]}))
+    (build / "drives.json").write_text(json.dumps([{"scene": "s1"}]))
+    cap = _patch_export_window(monkeypatch)
+    from twin.labeltool import generate
+    generate(store, "s1", area="a1", areas_root=areas)
+    call = cap["calls"][0]
+    assert call["x0"] == pytest.approx(-2.0)
+    assert call["y1"] == pytest.approx(112.0)
+    assert call["cell"] == pytest.approx(0.05)
+    assert_window_covers(call, 0, 0, 120, 110)
+    html = (store / "labels" / "s1" / "tool.html").read_text()
+    m = re.search(r"const DATA=(.*?);", html, re.DOTALL)
+    data = json.loads(m.group(1))
+    assert data["window_fallback"] is False
+    w = data["window"]
+    assert w["g"] == pytest.approx(0.05)
+    assert_window_covers(w, 0, 0, 120, 110)
+    for (x, y) in [(0, 0), (120, 0), (120, 110), (0, 110)]:
+        assert 0 <= (x - w["x0"]) / w["g"] <= w["w"]
+        assert 0 <= (w["y1"] - y) / w["g"] <= w["h"]
+    assert "Site larger than 80×75 m" not in html
+
+
+def test_generate_downsamples_area_polygon(tmp_path, monkeypatch):
+    store = tmp_path / "store"
+    store.mkdir()
+    areas = store / "areas"
+    areas.mkdir()
+    build = areas / "a1-twin"
+    (build / "5_features").mkdir(parents=True)
+    poly = {"type": "Polygon", "coordinates": [[[0, 0], [300, 0], [300, 300], [0, 300], [0, 0]]]}
+    (areas / "a1.json").write_text(json.dumps({"name": "a1", "polygon": poly, "drives": [{"scene": "s1", "scene_token": "t1"}]}))
+    (build / "drives.json").write_text(json.dumps([{"scene": "s1"}]))
+    cap = _patch_export_window(monkeypatch)
+    from twin.labeltool import generate
+    generate(store, "s1", area="a1", areas_root=areas)
+    call = cap["calls"][0]
+    assert call["x0"] == pytest.approx(-2.0)
+    assert call["y1"] == pytest.approx(302.0)
+    assert call["cell"] > 0.05
+    assert call["width"] * call["height"] <= MAX_WINDOW_PX
+    assert_window_covers(call, 0, 0, 300, 300)
+    html = (store / "labels" / "s1" / "tool.html").read_text()
+    m = re.search(r"const DATA=(.*?);", html, re.DOTALL)
+    data = json.loads(m.group(1))
+    assert_window_covers(data["window"], 0, 0, 300, 300)
+    assert "Site larger than 80×75 m" not in html
+
+
+def test_template_large_window_keeps_native_snap_and_height():
+    from pathlib import Path
+    t = Path("twin/templates/label_tool.html").read_text()
+    assert "Site larger than 80×75 m: showing the 80×75 m centred on the extent." not in t
+    assert "Window does not cover the whole site." in t
+    assert "80×75 m at 5 cm" not in t
+    assert "W.g" in t
+    assert "W.g>0.05+1e-9" in t
+    assert "Math.max(0.02" in t
+    assert "bd=10/view.k" in t
+    assert "c.width=W.w;c.height=W.h" in t

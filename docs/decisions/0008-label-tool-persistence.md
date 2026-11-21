@@ -20,3 +20,10 @@ Status: accepted (ticket #324; area build sources added for #339).
 - Area window: `window_for(..., centre=True)` centres the window on the polygon bounds; the union (polygon ∪ labels) still decides fit/size; labels outside the polygon can fall outside the window.
 - >80×75 m sites show the fixed 80×75 m window centred on the polygon bounds with the neutral sentence `Site larger than 80×75 m: showing the 80×75 m centred on the extent.`.
 - Ortho and Combined backgrounds are disabled for area builds (no `6_colour` orthoimage); `no_imagery` stays `False`.
+
+## Addendum (#366) — the auto window fits the area polygon
+
+- The auto window is the union bbox of the site polygon and saved label geometry plus a 2.0 m margin (`WINDOW_MARGIN_M`); no centring and no fixed crop.
+- Keep the 5 cm cell up to 10,240,000 px (3200 × 3200) and 8192 px per side; above either bound the whole window is uniformly downsampled by raising `g` (never cropped, never a hard error). The page reports the effective cm, and the snap grid equals the reported `g`, not necessarily 5 cm.
+- Explicit `--x0/--y1` is unchanged: 1600 × 1500 px at 5 cm (80 × 75 m), still checked by `_window_covered`.
+- Supersedes the window bullets in the #339 addendum above (`centre=True`, `FIT_TOL_M`, and the `Site larger than 80×75 m` centred-window banner sentence).

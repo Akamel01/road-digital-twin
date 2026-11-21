@@ -25,12 +25,17 @@ from twin.contracts import LabelFeature
 from twin.labels import read_labels, read_site, valid_site, write_labels
 from twin.runstore import DONE, RunStore
 
+# Size limit for the auto window (ticket #366 §3):
+# full 5 cm up to 10,240,000 px (3200 x 3200) and 8192 px per side; above either
+# bound the whole window is uniformly downsampled by raising g (never crop/error).
 W_M = 80.0
 H_M = 75.0
 CELL = 0.05
 W_PX = 1600
 H_PX = 1500
-FIT_TOL_M = 0.1
+WINDOW_MARGIN_M = 2.0
+MAX_WINDOW_PX = 10_240_000
+MAX_WINDOW_SIDE_PX = 8192
 
 _FULL_STAGES = ("load", "align", "ground", "colour")
 _FALLBACK_STAGES = ("load", "align", "ground")
@@ -358,7 +363,26 @@ def area_source(build_dir, area_def) -> AreaSource | None:
     return AreaSource(name=name, base=twin, frames=frames)
 
 
-def window_for(store, site, *, centre: bool = False):
+def fit_window(minx, miny, maxx, maxy, *, margin=WINDOW_MARGIN_M, cell=CELL,
+              max_px=MAX_WINDOW_PX, max_side=MAX_WINDOW_SIDE_PX):
+    w_m = (maxx - minx) + 2 * margin
+    h_m = (maxy - miny) + 2 * margin
+    g = cell
+    width = max(1, math.ceil(w_m / g - 1e-9))
+    height = max(1, math.ceil(h_m / g - 1e-9))
+    if width * height > max_px or max(width, height) > max_side:
+        g = max(cell, cell * math.sqrt(width * height / max_px), max(w_m, h_m) / max_side)
+        width = max(1, math.ceil(w_m / g - 1e-9))
+        height = max(1, math.ceil(h_m / g - 1e-9))
+        while (width * height > max_px or max(width, height) > max_side):
+            g += cell / 200.0
+            width = max(1, math.ceil(w_m / g - 1e-9))
+            height = max(1, math.ceil(h_m / g - 1e-9))
+    return {"x0": minx - margin, "y1": maxy + margin, "cell": g,
+            "width": width, "height": height, "downsampled": g > cell}
+
+
+def window_for(store, site):
     meta = read_site(store, site)
     fc = read_labels(store, site)
     minx = miny = math.inf
@@ -370,12 +394,6 @@ def window_for(store, site, *, centre: bool = False):
         miny = min(miny, pb[1])
         maxx = max(maxx, pb[2])
         maxy = max(maxy, pb[3])
-
-    if centre and pb is not None:
-        cx = (pb[0] + pb[2]) / 2.0
-        cy = (pb[1] + pb[3]) / 2.0
-    else:
-        cx = cy = None
 
     features = (fc.get("features") if isinstance(fc, dict) else None) or []
     for feat in features:
@@ -397,19 +415,8 @@ def window_for(store, site, *, centre: bool = False):
     if not (math.isfinite(minx) and math.isfinite(miny) and math.isfinite(maxx) and math.isfinite(maxy)):
         raise DraftError(f"site {site!r} has no finite polygon or label geometry for window")
 
-    bounds = [minx, miny, maxx, maxy]
-    w = maxx - minx
-    h = maxy - miny
-    if w <= W_M + FIT_TOL_M and h <= H_M + FIT_TOL_M:
-        if centre and pb is not None:
-            return (float(cx - W_M / 2.0), float(cy + H_M / 2.0), {"fallback": False, "bounds": bounds})
-        return (float(minx), float(maxy), {"fallback": False, "bounds": bounds})
-
-    if centre and pb is not None:
-        return (float(cx - W_M / 2.0), float(cy + H_M / 2.0), {"fallback": True, "bounds": bounds})
-    ucx = (minx + maxx) / 2.0
-    ucy = (miny + maxy) / 2.0
-    return (float(ucx - W_M / 2.0), float(ucy + H_M / 2.0), {"fallback": True, "bounds": bounds})
+    fit = fit_window(minx, miny, maxx, maxy)
+    return (fit["x0"], fit["y1"], {"fallback": False, **fit})
 
 
 def _window_covered(area_def, x0, y1):
@@ -511,7 +518,7 @@ def generate(
         )
 
     explicit_window = x0 is not None and y1 is not None
-    info = {"fallback": False}
+    info = {"fallback": False, "cell": CELL, "width": W_PX, "height": H_PX, "downsampled": False}
     if explicit_window:
         _window_covered(area_def, float(x0), float(y1))
         wx0, wy1 = float(x0), float(y1)
@@ -565,7 +572,7 @@ def generate(
             import_draft(store, site, Path(import_path), replace=replace)
 
         if not explicit_window:
-            wx0, wy1, info = window_for(store, site, centre=used_area)
+            wx0, wy1, info = window_for(store, site)
             if preexisting and not reset:
                 print(
                     f"warning: auto window for existing site {site!r}; "
@@ -578,7 +585,8 @@ def generate(
 
         nuscenes_root = DatasetConfig.from_env().root
         data = labelraster.export_window(
-            store, runs, site=site, x0=wx0, y1=wy1, nuscenes_root=nuscenes_root
+            store, runs, site=site, x0=wx0, y1=wy1, nuscenes_root=nuscenes_root,
+            width=info["width"], height=info["height"], cell=info["cell"]
         )
         data["site"] = site
         data["window_fallback"] = bool(info.get("fallback", False))
