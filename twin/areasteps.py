@@ -279,10 +279,13 @@ def change_step(
     if features_stage.resolve() != out_feat.resolve():
         for p in features_stage.iterdir():
             if p.is_file():
-                shutil.copy2(p, out_feat / p.name)
+                target = out_feat / p.name
+                if p.resolve() != target.resolve():
+                    shutil.copy2(p, target)
     qa_src = features_stage / "qa.json"
-    if qa_src.is_file():
-        shutil.copy2(qa_src, out_feat / "qa.json")
+    qa_dst = out_feat / "qa.json"
+    if qa_src.is_file() and qa_src.resolve() != qa_dst.resolve():
+        shutil.copy2(qa_src, qa_dst)
 
     all_feats: dict[str, list[dict]] = {}
     for fn in at.FEATURE_FILES:
@@ -299,8 +302,10 @@ def change_step(
     out_load = stage_dir(out, "load")
     copied = _copy_tree_files(load_stage, out_load)
     # ensure reference.full.geojson present
-    if (load_stage / "reference.full.geojson").is_file() and "reference.full.geojson" not in copied:
-        shutil.copy2(load_stage / "reference.full.geojson", out_load / "reference.full.geojson")
+    ref_full_src = load_stage / "reference.full.geojson"
+    ref_full_dst = out_load / "reference.full.geojson"
+    if ref_full_src.is_file() and "reference.full.geojson" not in copied and ref_full_src.resolve() != ref_full_dst.resolve():
+        shutil.copy2(ref_full_src, ref_full_dst)
     (out_load / "reference.geojson").write_text(_fc(at.mask_reference(reference_full, regions)))
 
     metrics = {

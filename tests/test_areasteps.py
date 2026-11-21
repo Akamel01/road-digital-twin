@@ -183,3 +183,36 @@ def test_area_step_cli_load(tmp_path, monkeypatch):
     assert (out / "1_load" / "reference.geojson").is_file()
     checks = json.loads((out / "checks.json").read_text())
     assert any(c["name"] == "stage_ok" and c["pass"] is True for c in checks["checks"])
+
+
+def test_change_step_same_features_dir_and_out(tmp_path, monkeypatch):
+    from twin import areatwin as at
+
+    area, work = _write_area(tmp_path)
+    np.savez(work / "merged.npz", x=np.array([1.0]), y=np.array([1.0]), z=np.array([0.0]), intensity=np.array([1.0]), drive=np.array([0]))
+    drives = [{"scene": "s1", "date": "d1"}]
+
+    out = tmp_path / "out"
+    features_stage = out / "5_features"
+    features_stage.mkdir(parents=True)
+    (features_stage / "qa.json").write_text(json.dumps({"qa": 1}))
+    feat = {"type": "FeatureCollection", "features": [{"type": "Feature", "properties": {"id": "m1"}, "geometry": mapping(box(1, 1, 2, 2))}]}
+    (features_stage / "markings.geojson").write_text(json.dumps(feat))
+
+    load_stage = out / "1_load"
+    load_stage.mkdir(parents=True, exist_ok=True)
+    ref = _fc([{"type": "Feature", "properties": {"layer": "drivable_area"}, "geometry": mapping(box(0, 0, 10, 10))}])
+    (load_stage / "reference.full.geojson").write_text(json.dumps(ref))
+    (load_stage / "facilities.geojson").write_text(json.dumps(_fc([])))
+    (load_stage / "reference.geojson").write_text(json.dumps(ref))
+    (load_stage / "poses.json").write_text(json.dumps({"poses": []}))
+
+    monkeypatch.setattr(at, "support", lambda *a, **k: None)
+    monkeypatch.setattr(at, "flag_changed", lambda *a, **k: 0)
+    monkeypatch.setattr(at, "mask_reference", lambda reference, regions: reference)
+
+    # features_dir == out/"5_features" is the SameFileError case
+    res = areasteps.change_step(work, area, drives, features_stage, load_stage, out)
+    assert res.status == "ok"
+    assert (out / "change.geojson").is_file()
+    assert json.loads((out / "5_features" / "qa.json").read_text())["qa"] == 1
