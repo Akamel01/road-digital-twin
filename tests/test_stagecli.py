@@ -153,6 +153,25 @@ def test_failed_stage_returns_1_and_writes_metrics(tmp_path, monkeypatch):
     assert by_name["reason"].value == "boom"
 
 
+def test_stage_load_no_input_dispatch(tmp_path, monkeypatch):
+    out = tmp_path / "node"
+
+    def fake_lookup(stage, method):
+        assert stage == "load"
+
+        def _ok(ctx, params):
+            return StageResult(status="ok", metrics={"loaded": True})
+
+        return _ok
+
+    monkeypatch.setattr("twin.stagecli.registry.lookup", fake_lookup)
+    rc = main(["stage", "load", "--out", str(out), "--scene", "scene-0000"])
+    assert rc == 0
+    assert (out / "metrics.json").is_file()
+    metrics = json.loads((out / "metrics.json").read_text())
+    assert metrics["loaded"] is True
+
+
 def _fc(features):
     return {"type": "FeatureCollection", "features": features}
 

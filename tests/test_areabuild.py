@@ -178,3 +178,65 @@ def test_area_build_node_failure_returns_1(tmp_path, monkeypatch):
 def test_area_build_command_rejects_unknown_area(tmp_path):
     rc = main(["area", "build", "missing", "--store", str(tmp_path / "store")])
     assert rc == 2
+
+
+def _make_core_dir_for_assemble(base: Path, name: str) -> tuple[Path, dict]:
+    merged = base / "areas" / f"{name}-merged"
+    merged.mkdir(parents=True, exist_ok=True)
+    np.savez(merged / "merged.npz", x=np.array([1.0]), y=np.array([1.0]), z=np.array([0.0]), intensity=np.array([1.0]), drive=np.array([0]))
+    (merged / "drives.json").write_text(json.dumps([{"scene": "s1", "date": "d1"}]))
+    write_document(merged, {"run_id": "merged", "data": {"scene_token": "s1"}, "metrics": {"align": {}}})
+    (merged / "qa.json").write_text("{}\n")
+    (base / "areas" / f"{name}.json").write_text(json.dumps({"name": name, "polygon": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]]}}))
+
+    core_dir = base / "areas" / f"{name}-twin-core"
+    nodes_dir = core_dir / "nodes"
+    for n, outd in [("mask", "2_mask"), ("align", "3_align"), ("ground", "4_ground"), ("profile", "7_profile"), ("isd", "8_isd"), ("accuracy", "9_accuracy")]:
+        nd = nodes_dir / n / outd
+        nd.mkdir(parents=True, exist_ok=True)
+        (nodes_dir / n / "metrics.json").write_text(json.dumps({"z_disagreement_p95_m": 0.1} if n == "ground" else {"elements": {}} if n == "accuracy" else {}))
+        (nodes_dir / n / "checks.json").write_text('{"version":1,"checks":[]}')
+
+    change_node = nodes_dir / "change"
+    (change_node / "1_load").mkdir(parents=True, exist_ok=True)
+    (change_node / "5_features").mkdir(parents=True, exist_ok=True)
+    (change_node / "change.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": []}))
+    (change_node / "metrics.json").write_text(json.dumps({"n_features": 0, "n_features_changed": 0, "n_change_regions": 0, "change_area_m2": 0.0, "noise": {}, "by_date": {}}))
+    (change_node / "checks.json").write_text('{"version":1,"checks":[]}')
+    # minimal required files copied/symlinked by assemble
+    for p in ["1_load/reference.geojson", "1_load/facilities.geojson", "1_load/poses.json", "5_features/markings.geojson"]:
+        (change_node / p).write_text("{}")
+
+    nodes = []
+    for n in ["load", "mask", "align", "ground", "features", "change", "profile", "isd", "accuracy"]:
+        nodes.append({"name": n, "status": "done", "duration_s": 1.0, "checks": [], "outputs": {}, "error": None})
+    (core_dir / "run.json").write_text(json.dumps({"version": 1, "status": "succeeded", "nodes": nodes}))
+    manifest = areabuild.area_manifest(base, name)
+    return core_dir, manifest
+
+
+def test_assemble_area_twin_threads_check_date(tmp_path, monkeypatch):
+    base = tmp_path / "store"
+    base.mkdir()
+    name = "a1"
+    core_dir, manifest = _make_core_dir_for_assemble(base, name)
+
+    monkeypatch.setattr("twin.areabuild.construction_check", lambda *a, **k: {"ok": True}, raising=False)
+    monkeypatch.setattr("twin.areatwin.construction_check", lambda *a, **k: {"ok": True})
+
+    summary = areabuild.assemble_area_twin(base, name, core_dir, manifest, check_date="2018-08-01")
+    assert summary["construction_check"] == {"ok": True}
+    change = json.loads((base / "areas" / f"{name}-twin" / "change.json").read_text())
+    assert change["construction_check"] == {"ok": True}
+
+
+def test_assemble_area_twin_check_date_none(tmp_path, monkeypatch):
+    base = tmp_path / "store"
+    base.mkdir()
+    name = "a1"
+    core_dir, manifest = _make_core_dir_for_assemble(base, name)
+
+    summary = areabuild.assemble_area_twin(base, name, core_dir, manifest, check_date=None)
+    assert summary["construction_check"] is None
+    change = json.loads((base / "areas" / f"{name}-twin" / "change.json").read_text())
+    assert change["construction_check"] is None

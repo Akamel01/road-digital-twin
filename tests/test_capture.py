@@ -100,6 +100,19 @@ def test_capture_loads_through_core(tmp_path):
         assert list(out.rglob(ext)) == []
 
 
+def test_colmap_image_names_end_with_jpg(tmp_path):
+    merged = _write_merged(tmp_path)
+    out = tmp_path / "areas" / "demo-capture"
+    build_area_capture(merged, out, "demo")
+
+    from recon_core.capture import load_capture
+
+    cap = load_capture(out)
+    assert cap.colmap.images
+    for img in cap.colmap.images.values():
+        assert img.name.endswith(".jpg")
+
+
 def test_lidar_capture_index_matches_drives(tmp_path):
     merged = _write_merged(tmp_path)
     out = tmp_path / "areas" / "demo-capture"
