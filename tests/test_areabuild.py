@@ -5,6 +5,7 @@ import numpy as np
 
 from twin import areabuild
 from twin.cli import main
+from twin.contracts import Params
 from twin.gates import evaluate
 from twin.runrecord import eval_document, write_document
 
@@ -206,6 +207,48 @@ def test_area_build_node_failure_returns_1(tmp_path, monkeypatch):
 def test_area_build_command_rejects_unknown_area(tmp_path):
     rc = main(["area", "build", "missing", "--store", str(tmp_path / "store")])
     assert rc == 2
+
+
+def test_area_build_preserves_existing_user_params(tmp_path, monkeypatch):
+    base = _make_store(tmp_path)
+    name = "a1"
+    params_path = base / "areas" / f"{name}-params.json"
+    user_params = Params().model_dump(mode="json")
+    user_params["ground"]["voxel_m"] = 0.2
+    user_params["seed"] = 7
+    user_text = json.dumps(user_params, indent=2, sort_keys=True) + "\n"
+    params_path.write_text(user_text)
+
+    seen = {}
+
+    def fake_core_run(manifest_path, core_dir):
+        seen["manifest"] = json.loads(Path(manifest_path).read_text())
+        seen["params"] = json.loads(params_path.read_text())
+        return _fake_core_run(
+            core_dir,
+            {
+                "ground": {"z_disagreement_p95_m": 0.1},
+                "change": {
+                    "n_features": 0,
+                    "n_features_changed": 0,
+                    "n_change_regions": 0,
+                    "change_area_m2": 0.0,
+                    "noise": {},
+                    "by_date": {},
+                },
+                "accuracy": {"elements": {}},
+            },
+        )
+
+    monkeypatch.setattr(areabuild, "core_run", fake_core_run)
+    monkeypatch.setattr("twin.capture.build_area_capture", lambda *a, **k: Path(a[1]))
+
+    areabuild.area_build(base, name, __import__("logging").getLogger("t"))
+
+    assert params_path.read_text() == user_text
+    assert seen["params"]["ground"]["voxel_m"] == 0.2
+    assert seen["params"]["seed"] == 7
+    assert seen["manifest"]["inputs"]["params"] == f"../{name}-params.json"
 
 
 def _make_core_dir_for_assemble(base: Path, name: str) -> tuple[Path, dict]:

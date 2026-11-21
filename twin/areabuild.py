@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import recon_core.runner
+import yaml
 
 from twin.contracts import Params
 from twin.runrecord import read_record, write_document
@@ -351,7 +352,12 @@ def area_build(base: Path, name: str, log: logging.Logger, check_date: str | Non
         build_area_capture(merged_dir, capture_dir, name)
 
     params_path = areas / f"{name}-params.json"
-    params_path.write_text(json.dumps(Params().model_dump(mode="json"), indent=2, sort_keys=True) + "\n")
+    if params_path.exists():
+        Params.model_validate(yaml.safe_load(params_path.read_text()) or {})
+    else:
+        params_path.write_text(
+            json.dumps(Params().model_dump(mode="json"), indent=2, sort_keys=True) + "\n"
+        )
 
     manifest_path = write_area_manifest(base, name)
     manifest = _read_json(manifest_path)
