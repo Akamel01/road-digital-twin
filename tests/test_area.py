@@ -9,16 +9,7 @@ import shapely
 from pyproj import Transformer
 from shapely.geometry import box, mapping
 
-# open3d may be unavailable in this container (missing libEGL/libusb); inject a minimal
-# fake so twin.merge imports, while register_drives is stubbed deterministically in tests.
-try:
-    import open3d  # noqa: F401
-except ImportError:
-    fake = types.ModuleType("open3d")
-    sys.modules["open3d"] = fake
-
 import twin.area as area_mod
-from twin import areatwin, merge
 from twin.area import (
     _rebuild_poly,
     drive_correction,
@@ -29,11 +20,6 @@ from twin.area import (
 from twin.cli import main
 from twin.contracts import StageResult
 from twin.stages.load import MAP_ORIGIN_LATLON, run_crs
-
-# Avoid leaking the fake open3d into other test modules collected in the same run;
-# twin.merge/areatwin are already imported above.
-if "open3d" in sys.modules and getattr(sys.modules["open3d"], "__file__", None) is None and not hasattr(sys.modules["open3d"], "geometry"):
-    del sys.modules["open3d"]
 
 A, B = "a" * 32, "b" * 32
 
@@ -202,12 +188,12 @@ def test_load_polygon_geojson_accepted_inputs(tmp_path):
     g1 = load_polygon_geojson(fc_file)
     assert g1.equals_exact(BASE, 1e-6)
 
-    # MultiPolygon disjoint (UTM-range coords so it is not read as WGS84)
-    mp = shapely.MultiPolygon([shapely.box(330000, 4680000, 330001, 4680001), shapely.box(330010, 4680010, 330011, 4680011)])
+    # MultiPolygon: unioned into one map-frame polygon
+    small_mp = shapely.MultiPolygon([box(0, 0, 1, 1), box(2, 2, 3, 3)])
     mp_file = tmp_path / "mp.geojson"
-    write_geojson(mp_file, mp, wrapper=True)
+    write_geojson(mp_file, utm_of(small_mp), wrapper=True)
     g2 = load_polygon_geojson(mp_file)
-    assert g2.geom_type in ("Polygon", "MultiPolygon")
+    assert g2.equals_exact(small_mp, 1e-6)
 
     # rebuild round-trips a MultiPolygon saved in EPSG:32619
     small_mp = shapely.MultiPolygon([shapely.box(0, 0, 1, 1), shapely.box(2, 2, 3, 3)])
@@ -293,6 +279,12 @@ def test_load_polygon_geojson_validates(tmp_path):
     with pytest.raises(ValueError, match=re.escape("invalid polygon")):
         load_polygon_geojson(bad)
 
+    # structural error reports the actual file path
+    short = tmp_path / "short.geojson"
+    short.write_text(json.dumps({"type": "Polygon", "coordinates": [[[0, 0], [1, 1]]]}))
+    with pytest.raises(ValueError, match=re.escape(str(short))):
+        load_polygon_geojson(short)
+
     # malformed JSON
     mj = tmp_path / "malformed.geojson"
     mj.write_text("{not json")
@@ -360,6 +352,10 @@ def test_suggest_drives_command_polygon_area(tmp_path, monkeypatch):
 
 
 def test_polygon_area_merge_and_twin(tmp_path, monkeypatch):
+    # isolate the open3d fake to this test so it does not leak into other modules
+    fake = types.ModuleType("open3d")
+    monkeypatch.setitem(sys.modules, "open3d", fake)
+    from twin import areatwin, merge
     write_tables(tmp_path, {"scene-1": [(100, 100), (5, 5)], "scene-2": [(0, 5)], "scene-3": [(100, 100)]})
     store = tmp_path / "store"
     (store / "areas").mkdir(parents=True, exist_ok=True)
@@ -400,10 +396,8 @@ def test_polygon_area_merge_and_twin(tmp_path, monkeypatch):
     from shapely.geometry import shape as _shape
     poly = _shape(area["polygon"])
     xs, ys = merged["x"], merged["y"]
-    # if empty, skip
-    if len(xs) > 0:
-        inside = shapely.contains_xy(poly, xs, ys)
-        assert np.all(inside)
+    assert len(xs) == 2
+    assert np.all(shapely.contains_xy(poly, xs, ys))
 
     # twin part
     monkeypatch.setattr(areatwin, "parked_vehicles", lambda drives, work, centre, polygon: np.empty((0, 3)))

@@ -114,14 +114,21 @@ def _geojson_geometry(doc, path=None):
             geom = shape(doc)
         elif t == "MultiPolygon":
             # A MultiPolygon is one input polygon made of parts: union removes overlaps and duplicate edges.
-            geom = shapely.union_all(list(shape(doc).geoms))
+            # Fold with .union() (not union_all) so vertex order of the parts is preserved.
+            geoms = list(shape(doc).geoms)
+            if geoms:
+                geom = geoms[0]
+                for _g in geoms[1:]:
+                    geom = geom.union(_g)
+            else:
+                geom = shape(doc)
         else:
             raise ValueError(
                 f"unsupported GeoJSON type {t!r}; need Polygon or MultiPolygon (optionally one Feature)"
             )
     except (KeyError, TypeError, ValueError) as e:
-        raise ValueError(f"cannot read polygon {_path}: {e}") from e
-    # M6: empty check happens in load_polygon_geojson after force_2d; but geometry must be non-empty here too.
+        raise ValueError(f"cannot read polygon {path}: {e}") from e
+    # Invariant: a parsed geometry must be non-empty before force_2d and CRS handling.
     if geom.is_empty:
         raise ValueError("polygon is empty")
     if geom.geom_type not in ("Polygon", "MultiPolygon"):
@@ -154,7 +161,7 @@ def load_polygon_geojson(path):
         doc = json.loads(Path(path).read_text())
     except (OSError, ValueError) as e:
         raise ValueError(f"cannot read polygon {path}: {e}") from e
-    geom = shapely.force_2d(_geojson_geometry(doc))
+    geom = shapely.force_2d(_geojson_geometry(doc, path))
     if geom.is_empty:
         raise ValueError("polygon is empty")
     if not np.isfinite(shapely.get_coordinates(geom)).all():
