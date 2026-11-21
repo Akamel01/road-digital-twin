@@ -192,7 +192,7 @@ def colmap_model(drives: list[dict], merged_dir: Path, origin: np.ndarray):
             T_world_cam = T_world_cam.copy()
             T_world_cam[:3, 3] -= origin
             qvec, tvec = _colmap_w2c(T_world_cam)
-            name = f"{scene}/{cam['channel']}/{t_us}"
+            name = f"{scene}/{cam['channel']}/{t_us}.jpg"
             if any(ch.isspace() for ch in name):
                 raise ValueError(f"image name has whitespace: {name!r}")
             images[image_id] = Image(

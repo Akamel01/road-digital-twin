@@ -230,7 +230,9 @@ def _read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text())
 
 
-def assemble_area_twin(base: Path, name: str, core_dir: Path, manifest: dict[str, Any]) -> dict[str, Any]:
+def assemble_area_twin(
+    base: Path, name: str, core_dir: Path, manifest: dict[str, Any], check_date: str | None = None
+) -> dict[str, Any]:
     base = Path(base)
     core_dir = Path(core_dir)
     out = base / "areas" / f"{name}-twin"
@@ -301,6 +303,19 @@ def assemble_area_twin(base: Path, name: str, core_dir: Path, manifest: dict[str
         "stages": [{"seconds": seconds[n]} for n in ["load", "mask", "align", "ground", "features", "change", "profile", "isd", "accuracy"]],
     })
 
+    construction = None
+    if check_date:
+        import numpy as np
+        from shapely.geometry import shape
+
+        from twin.areatwin import construction_check
+
+        area_doc = _read_json(base / "areas" / f"{name}.json")
+        polygon = shape(area_doc["polygon"])
+        centre = np.array([*polygon.centroid.coords[0], 0.0])
+        regions = _read_json(change_node / "change.geojson").get("features", [])
+        construction = construction_check(regions, merged_doc, merged_dir, centre, check_date)
+
     summary = {
         "area": name,
         "n_drives": len(merged_doc),
@@ -311,6 +326,7 @@ def assemble_area_twin(base: Path, name: str, core_dir: Path, manifest: dict[str
         "noise": change_metrics.get("noise", {}),
         "seconds": seconds,
         "twin_seconds": round(sum(seconds.values()), 1),
+        "construction_check": construction,
         "by_date": change_metrics.get("by_date", {}),
     }
     (out / "change.json").write_text(json.dumps(summary, indent=2) + "\n")
@@ -352,7 +368,7 @@ def area_build(base: Path, name: str, log: logging.Logger, check_date: str | Non
     if rc != 0:
         raise RuntimeError(f"core run failed with exit code {rc}")
 
-    summary = assemble_area_twin(base, name, core_dir, manifest)
+    summary = assemble_area_twin(base, name, core_dir, manifest, check_date=check_date)
     eval_command(str(base / "areas" / f"{name}-twin"), None, None, None)
     gates = _read_json(base / "areas" / f"{name}-twin" / "gates.json")
     summary["gates_verdict"] = gates.get("verdict")
