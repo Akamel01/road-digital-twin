@@ -112,11 +112,49 @@ def test_cli_exit_codes_and_files(tmp_path, capsys):
     for name, doc in (("a", GOOD),):
         d = tmp_path / name
         d.mkdir()
-        (d / "manifest.json").write_text(json.dumps(doc))
+        (d / "run.json").write_text(json.dumps(doc))
     assert main(["eval", str(tmp_path / "a"), "--rerun", str(tmp_path / "a")]) == 0
     assert (tmp_path / "a" / "gates.json").exists()
     assert (tmp_path / "a" / "gates.md").exists()
     assert main(["eval", "a", "--store", str(tmp_path)]) == 1  # G1 not measured
+
+
+def test_eval_reads_run_json_and_core_record(tmp_path):
+    d = tmp_path / "r"
+    d.mkdir()
+    core = {
+        "version": 1,
+        "pipeline": "area-twin",
+        "manifest_hash": "h",
+        "core_version": "0.1.0",
+        "nodes": [
+            {"name": "ground", "duration_s": 60, "checks": [{"name": "z_disagreement_p95_m", "value": 0.05, "pass": True}]},
+            {"name": "align", "duration_s": 60, "checks": [{"name": "cross_drive_ground_p95_m", "value": 0.03, "pass": True}]},
+            {"name": "accuracy", "duration_s": 60, "checks": [
+                {"name": "elements.markings.p95_m", "value": 0.2, "pass": True},
+                {"name": "elements.markings.matched_p95_m", "value": 0.2, "pass": True},
+                {"name": "elements.markings.false_positive_rate", "value": 0.05, "pass": True},
+                {"name": "elements.markings.p50_m", "value": 0.1, "pass": True},
+                {"name": "elements.markings.coverage", "value": 0.8, "pass": True},
+                {"name": "elements.crosswalks.p95_m", "value": 0.4, "pass": True},
+                {"name": "elements.crosswalks.matched_p95_m", "value": 0.4, "pass": True},
+                {"name": "elements.crosswalks.false_positive_rate", "value": 0.05, "pass": True},
+                {"name": "elements.crosswalks.p50_m", "value": 0.1, "pass": True},
+                {"name": "elements.crosswalks.coverage", "value": 0.8, "pass": True},
+                {"name": "elements.curbs.p95_m", "value": 0.4, "pass": True},
+                {"name": "elements.curbs.matched_p95_m", "value": 0.4, "pass": True},
+                {"name": "elements.curbs.false_positive_rate", "value": 0.05, "pass": True},
+                {"name": "elements.curbs.p50_m", "value": 0.1, "pass": True},
+                {"name": "elements.curbs.coverage", "value": 0.8, "pass": True},
+            ]},
+        ],
+    }
+    (d / "run.json").write_text(json.dumps(core))
+    assert main(["eval", str(d)]) == 1  # G1 not measured, others go
+    rep = json.loads((d / "gates.json").read_text())
+    assert rep["gates"]["G2"]["status"] == "go"
+    assert rep["gates"]["G3"]["status"] == "go"
+    assert rep["gates"]["G5"]["status"] == "go"
 
 
 def _report(*checks):

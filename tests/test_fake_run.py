@@ -45,7 +45,7 @@ def test_run_folder_layout(out):
     assert len(runs) == 2
     for run in runs:
         assert RUN_ID.match(run.name)
-        for f in ("pipeline.yaml", "params.yaml", "manifest.json"):
+        for f in ("pipeline.yaml", "params.yaml", "run.json"):
             assert (run / f).is_file()
         for name in STAGE_NAMES:
             folder = run / f"{STAGES[name].number}_{name}"
@@ -55,7 +55,7 @@ def test_run_folder_layout(out):
 
 def test_manifest_valid_all_stages_ok(out):
     for run in _runs(out):
-        m = Manifest.model_validate_json((run / "manifest.json").read_text())
+        m = Manifest.model_validate_json((run / "run.json").read_text())
         assert m.run_id == run.name
         assert [s.name for s in m.stages] == list(STAGE_NAMES)
         assert all(s.status == "ok" for s in m.stages)
@@ -88,7 +88,7 @@ def test_fake_accuracy_matches_real_stage(out, tmp_path):
     )
     result = registry.lookup("accuracy", "one-way")(ctx, AccuracyParams())
     real = result.metrics
-    fake = json.loads((run / "manifest.json").read_text())["metrics"]["accuracy"]
+    fake = json.loads((run / "run.json").read_text())["metrics"]["accuracy"]
 
     assert set(fake) == set(real)
     assert fake["method"] == real["method"] and fake["buffer_m"] == real["buffer_m"]
@@ -111,7 +111,7 @@ def test_pipeline_and_params_yaml_round_trip(out):
 
 def test_outputs_validate_against_schemas(out):
     for run in _runs(out):
-        manifest = json.loads((run / "manifest.json").read_text())
+        manifest = json.loads((run / "run.json").read_text())
         for name in STAGE_NAMES:
             folder = run / f"{STAGES[name].number}_{name}"
             StageResult.model_validate_json((folder / "stage_result.json").read_text())
@@ -240,7 +240,7 @@ def test_real_outputs_stage_end_to_end_with_colour(tmp_path):
 def test_showcase_has_profile_and_downloads(out):
     for run in _runs(out):
         for f in (
-            "manifest.json",
+            "run.json",
             "twin.geojson",
             "profile.csv",
             "twin.laz",
@@ -255,7 +255,7 @@ def test_same_inputs_give_identical_metrics(tmp_path):
     for k in range(2):
         write_fake_runs(tmp_path / f"r{k}", drives=1)
         run = _runs(tmp_path / f"r{k}")[0]
-        metrics.append(json.loads((run / "manifest.json").read_text())["metrics"])
+        metrics.append(json.loads((run / "run.json").read_text())["metrics"])
     assert metrics[0] == metrics[1]
 
 

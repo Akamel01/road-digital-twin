@@ -145,7 +145,7 @@ def test_ranking_verdict_first_and_proposal(tmp_path):
             },
         }
         (d / "gates.json").write_text(json.dumps(report))
-        (d / "manifest.json").write_text(json.dumps({"params": BASE}))
+        (d / "run.json").write_text(json.dumps({"params": BASE}))
 
     # run a: no-go with a great score; run b: go with a poor score. The verdict wins.
     fake_run("20261109-000000-aaaaaa", "no-go", 0.0)

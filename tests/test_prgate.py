@@ -61,7 +61,7 @@ def test_prgate_job_needs_sha(tmp_path):
 def _run(store, name, verdict, nogo=0, scene=prgate.SCENE, status="ok", stages=None):
     d = store / name
     d.mkdir()
-    (d / "manifest.json").write_text(
+    (d / "run.json").write_text(
         json.dumps({"data": {"scene_token": scene, "nuscenes_version": "v1.0-mini"},
                     "stages": [{"name": n, "status": status} for n in (stages or STAGE_NAMES)]})
     )

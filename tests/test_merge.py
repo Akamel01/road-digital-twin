@@ -76,7 +76,7 @@ def test_area_manifest_records_version_and_refuses_mismatch(tmp_path, monkeypatc
     }
     log = logging.getLogger("t")
     merge.merge_area(area, tmp_path, Params(), log)
-    man = json.loads((tmp_path / "manifest.json").read_text())
+    man = json.loads((tmp_path / "run.json").read_text())
     assert man["data"]["nuscenes_version"] == "v1.0-trainval"
     with pytest.raises(ValueError, match="dataset version"):
         merge.merge_area(
