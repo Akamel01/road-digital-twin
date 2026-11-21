@@ -38,7 +38,7 @@ def pending(store):
 
 
 def test_every_job_type_has_a_check(store):
-    run_id = next(p.parent.name for p in store.glob("*/manifest.json"))
+    run_id = next(p.parent.name for p in store.glob("*/run.json"))
     check_job(store, {"type": "run", "scene": "tok"})
     check_job(store, {"type": "rerun", "run_id": run_id, "from_stage": "ground"})
     check_job(store, {"type": "eval", "run_id": run_id})
@@ -130,7 +130,7 @@ def test_p3_never_reruns_a_base_built_from_another_dataset_version(store, monkey
     assert autopilot.new_line(store, {}) == 0
     assert pending(store) == []
     # a base run of the right version is used, and its jobs pass the worker's checks
-    run = next(store.glob("20*/manifest.json"))
+    run = next(store.glob("20*/run.json"))
     doc = json.loads(run.read_text())
     doc["data"]["nuscenes_version"] = TRAINVAL
     run.write_text(json.dumps(doc))
@@ -181,7 +181,7 @@ def test_p3_narrowed_space_stays_inside_params_ranges(store, monkeypatch):
 
 def test_p3_narrowed_rounds_queue_valid_jobs(store, monkeypatch):
     monkeypatch.setattr(autopilot, "ROUND_N", 3)
-    base = next(p.parent.name for p in store.glob("20*/manifest.json"))
+    base = next(p.parent.name for p in store.glob("20*/run.json"))
     paths = _bounded_paths()
     for seed in range(40):
         rng = random.Random(seed)
@@ -219,7 +219,7 @@ def test_p4_jobs_pass_pipeline_validation(store, tmp_path, monkeypatch):
 
 # --- site publish -------------------------------------------------------------------------
 def test_publish_job_and_latest_dry_run(store, tmp_path, monkeypatch):
-    run_id = next(p.parent.name for p in store.glob("20*/manifest.json"))
+    run_id = next(p.parent.name for p in store.glob("20*/run.json"))
     (store / run_id / "gates.json").write_text(
         json.dumps({"verdict": "go", "gates": {}, "gates_version": 2})
     )
