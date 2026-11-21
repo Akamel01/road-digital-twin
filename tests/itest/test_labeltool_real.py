@@ -116,3 +116,34 @@ def test_draft_a_px_reconstruction(tmp_path):
             ry = (y1 - y) / g
             assert abs(round(rx, 2) - pxx) <= 0.02 or abs(rx - pxx) <= 0.02
             assert abs(round(ry, 2) - pxy) <= 0.02 or abs(ry - pxy) <= 0.02
+
+
+import re
+
+import pytest
+
+from twin.labeltool import generate
+
+SITE_TWIN = Path("/home/oc/inputs/area-tool/site-a1-signal-twin")
+SITE_JSON = Path("/home/oc/inputs/area-tool/site-a1-signal.json")
+from tests.test_labeltool import assert_window_covers
+
+
+@pytest.mark.itest
+@pytest.mark.skipif(not SITE_TWIN.is_dir() or not SITE_JSON.is_file(), reason="site-a1 inputs absent")
+def test_area_tool_a1_window_fits_polygon(tmp_path):
+    store = tmp_path / "store"
+    store.mkdir()
+    generate(store, "site-a1-signal", area=str(SITE_TWIN))
+    html = (store / "labels" / "site-a1-signal" / "tool.html").read_text()
+    m = re.search(r"const DATA=(.*?);", html, re.DOTALL)
+    data = json.loads(m.group(1))
+    assert data["window_fallback"] is False
+    w = data["window"]
+    import pytest as _p
+    assert w["g"] == _p.approx(0.05)
+    from shapely.geometry import shape
+    area_def = json.loads(SITE_JSON.read_text())
+    minx, miny, maxx, maxy = shape(area_def["polygon"]).bounds
+    assert_window_covers(w, minx, miny, maxx, maxy)
+    assert "Site larger than 80×75 m" not in html

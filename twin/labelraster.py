@@ -23,6 +23,7 @@ from twin.stages.zbuffer import camera_to_world
 W_PX = 1600
 H_PX = 1500
 G = 0.05
+MAX_WINDOW_PX = 10_240_000  # mirrors twin.labeltool.MAX_WINDOW_PX
 
 _cv2 = None
 _cv2_tried = False
@@ -173,15 +174,15 @@ def _encode(array, ext):
     return base64.b64encode(buf.getvalue()).decode()
 
 
-def blank_window(site, x0, y1, missing):
-    w, h = W_PX, H_PX
+def blank_window(site, x0, y1, missing, *, width=W_PX, height=H_PX, cell=G):
+    w, h = width, height
     intensity = _encode(np.zeros((h, w), dtype=np.uint8), ".png")
     ortho = _encode(np.zeros((h, w, 3), dtype=np.uint8), ".jpg")
     fused = _encode(np.zeros((h, w, 3), dtype=np.uint8), ".jpg")
     height = _encode(np.zeros((h, w, 3), dtype=np.uint8), ".jpg")
     return {
         "name": site,
-        "window": {"x0": x0, "y1": y1, "g": G, "w": w, "h": h},
+        "window": {"x0": x0, "y1": y1, "g": cell, "w": w, "h": h},
         "intensity": intensity,
         "ortho": ortho,
         "fused": fused,
@@ -248,7 +249,7 @@ def _collect_drive(run, x0, y1, width=W_PX, height=H_PX, cell=G, nuscenes_root=N
     obs = None
     rgb = None
     raw = None
-    if pgw_path.exists() and ortho_png.exists():
+    if cell <= G + 1e-12 and pgw_path.exists() and ortho_png.exists():
         with open(pgw_path) as _f:
             pgw = [float(v) for v in _f.read().split()]
         im = Image.open(ortho_png)
@@ -361,7 +362,7 @@ def _fuse(drive, *, width=W_PX, height=H_PX, cell=G, **kw):
         v0, v1, dx, dy = register(A, Bm, mask)
         ok = v1 >= 0.09 and max(abs(dx), abs(dy)) <= 19 and v1 >= v0
         stats = {
-            "shift_cm": round(float(np.hypot(dx, dy)) * 5, 1),
+            "shift_cm": round(float(np.hypot(dx, dy)) * cell * 100, 1),
             "ncc_before": round(v0, 3),
             "ncc_after": round(v1, 3),
             "used": bool(ok),
@@ -385,6 +386,8 @@ def export_window(store, runs, *, site, x0, y1, width=1600, height=1500, cell=0.
     prev = Image.MAX_IMAGE_PIXELS
     Image.MAX_IMAGE_PIXELS = None
     try:
+        if width * height > MAX_WINDOW_PX:
+            raise RasterError(f"window {width}x{height} px exceeds {MAX_WINDOW_PX} px; the fitted window was not downsampled")
         Gc = cell
         W, H = width, height
         sI = np.zeros((H, W))
@@ -412,6 +415,12 @@ def export_window(store, runs, *, site, x0, y1, width=1600, height=1500, cell=0.
                     missing.append(f"{rname}: missing ground.laz")
                 continue
 
+            if cell > G + 1e-12:
+                ortho = _run_base(run) / "6_colour" / "ortho.png"
+                if ortho.exists():
+                    note = f"{rname}: ortho/fused skipped (downsampled window)"
+                    if note not in missing:
+                        missing.append(note)
             collected.append(rname)
             usable.append(run)
             sI += dd["si"]
@@ -533,7 +542,7 @@ def export_window(store, runs, *, site, x0, y1, width=1600, height=1500, cell=0.
         height[cR == 0] = 0
 
         if not runs or not collected:
-            return blank_window(site, x0, y1, missing if missing else ["no drives"])
+            return blank_window(site, x0, y1, missing if missing else ["no drives"], width=W, height=H, cell=cell)
 
         return {
             "name": site,

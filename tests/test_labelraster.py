@@ -507,3 +507,56 @@ def test_export_window_area_source(tmp_path):
         img = Image.open(io.BytesIO(raw))
         assert img.size == (1600, 1500)
         assert np.asarray(img).max() > 0
+
+
+def test_blank_window_custom_size_and_cell():
+    d = lr.blank_window("site", 1.0, 2.0, [], width=120, height=80, cell=0.1)
+    for key in ("intensity", "ortho", "fused", "height"):
+        img = Image.open(io.BytesIO(base64.b64decode(d[key])))
+        assert img.size == (120, 80)
+    assert d["window"] == {"x0": 1.0, "y1": 2.0, "g": 0.1, "w": 120, "h": 80}
+
+
+def test_export_window_custom_size_uses_window_dict(tmp_path):
+    data = lr.export_window(tmp_path, [], site="s", x0=0.0, y1=10.0, width=100, height=80, cell=0.1)
+    assert data["window"] == {"x0": 0.0, "y1": 10.0, "g": 0.1, "w": 100, "h": 80}
+    img = Image.open(io.BytesIO(base64.b64decode(data["intensity"])))
+    assert img.size == (100, 80)
+    assert data["no_imagery"] is True
+
+
+def test_export_window_rejects_over_budget(tmp_path):
+    with pytest.raises(lr.RasterError, match="10240000|10,240,000"):
+        lr.export_window(tmp_path, [], site="s", x0=0.0, y1=10.0, width=3201, height=3200, cell=0.1)
+
+
+def test_collect_drive_downsampled_skips_ortho(tmp_path):
+    run_dir = tmp_path / "run1"
+    _make_laz(run_dir / "4_ground" / "ground.laz", 0.0, 20.0)
+    od = run_dir / "6_colour"
+    od.mkdir(parents=True, exist_ok=True)
+    from PIL import Image
+    Image.new("RGBA", (100, 100), (255, 0, 0, 255)).save(od / "ortho.png")
+    dd = lr._collect_drive(run_dir, 0.0, 20.0, width=110, height=110, cell=0.1)
+    assert dd["si"].shape == (110, 110)
+    assert dd["raw"] is None
+    assert dd["obs"] is None
+
+
+def test_export_window_downsampled_skips_ortho_with_note(tmp_path):
+    run_dir = tmp_path / "run1"
+    _make_laz(run_dir / "4_ground" / "ground.laz", 0.0, 20.0)
+    od = run_dir / "6_colour"
+    od.mkdir(parents=True, exist_ok=True)
+    from PIL import Image
+    Image.new("RGBA", (100, 100), (255, 0, 0, 255)).save(od / "ortho.png")
+    (od / "ortho.pgw").write_text("0.05 0 0 -0.05 0.025 19.975\n")
+    data = lr.export_window(tmp_path, [run_dir], site="s", x0=0.0, y1=20.0, width=110, height=110, cell=0.1)
+    assert any("ortho/fused skipped (downsampled window)" in m for m in data["missing"])
+    img = Image.open(io.BytesIO(base64.b64decode(data["intensity"])))
+    assert img.size == (110, 110)
+
+
+def test_max_window_px_mirrored():
+    from twin.labeltool import MAX_WINDOW_PX as a
+    assert lr.MAX_WINDOW_PX == a
