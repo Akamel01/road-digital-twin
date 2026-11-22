@@ -16,6 +16,13 @@ jobs:
       - name: Set up Python 3.11
         run: uv python install 3.11
 
+      - uses: webfactory/ssh-agent@dc588b651fe13675774614f8e6a936a468676387 # v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.RECON_CORE_DEPLOY_KEY }}
+
+      - name: Trust the recon-core deploy key for uv
+        run: git config --global url."git@github.com:Akamel01/recon-core".insteadOf "https://github.com/Akamel01/recon-core"
+
       - name: Install dependencies
         run: uv sync --frozen --python 3.11
 
@@ -43,6 +50,13 @@ jobs:
       - name: Set up Python 3.11
         run: uv python install 3.11
 
+      - uses: webfactory/ssh-agent@dc588b651fe13675774614f8e6a936a468676387 # v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.RECON_CORE_DEPLOY_KEY }}
+
+      - name: Trust the recon-core deploy key for uv
+        run: git config --global url."git@github.com:Akamel01/recon-core".insteadOf "https://github.com/Akamel01/recon-core"
+
       - name: Install dependencies
         run: uv sync --frozen --python 3.11
 
@@ -61,6 +75,13 @@ jobs:
 
       - name: Set up Python 3.11
         run: uv python install 3.11
+
+      - uses: webfactory/ssh-agent@dc588b651fe13675774614f8e6a936a468676387 # v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.RECON_CORE_DEPLOY_KEY }}
+
+      - name: Trust the recon-core deploy key for uv
+        run: git config --global url."git@github.com:Akamel01/recon-core".insteadOf "https://github.com/Akamel01/recon-core"
 
       - name: Make the synthetic showcase
         run: bash web/scripts/fake-showcase.sh
