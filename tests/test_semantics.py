@@ -103,3 +103,49 @@ def test_semantics_is_off_by_default_but_takes_the_gpu_lease_when_on():
     assert gpulease.needs_gpu(
         rerun, lambda v: {"semantics": {"method": "mapillary-m2f"}}
     )
+
+
+def _curb_ramp_raster():
+    pts = _ground(4.0, 9.0, -1.0, 1.0)
+    view = (CAM16, K, np.zeros((H, W, 3), np.uint8), [])
+    seg = lambda img: np.full((H, W), semantics.CURB_RAMP, dtype=np.uint8)
+    return vote(pts, NO_POINTS, [view, view], seg, 0.1)
+
+
+def test_vistas_curb_cut_maps_to_curb_ramp():
+    assert semantics.VISTAS_CLASSES["Curb Cut"] == semantics.CURB_RAMP == 6
+
+
+def test_vote_curb_ramp_bucket_populated():
+    r = _curb_ramp_raster()
+    assert r["curb_ramp"].sum() > 0
+
+
+def test_probability_on_evidence_accept_curb_ramp():
+    r = _curb_ramp_raster()
+    p = semantics.probability(r, "curb_ramp")
+    assert np.any(p > 0)
+    on = semantics._on(r, "curb_ramp", P)
+    assert on.any()
+    cells = np.flatnonzero(on)
+    ev = semantics._evidence(r, cells[:5], "curb_ramp")
+    assert ev["votes"] > 0
+    # "ramp" alias equivalence
+    assert np.array_equal(semantics.probability(r, "ramp"), p)
+    assert np.array_equal(semantics._on(r, "ramp", P), on)
+
+
+def test_build_variants_lidar_ramps_counts_fused():
+    r = _curb_ramp_raster()
+    ramp = _line(5, 8, 0.0)
+    lidar = {
+        "markings.geojson": [],
+        "crosswalks.geojson": [],
+        "curbs.geojson": [],
+        "ramps.geojson": [ramp],
+    }
+    _camera, fused, counts = build_variants(lidar, r, [], P)
+    c = counts["ramps.geojson"]
+    assert c["n_lidar"] == 1
+    assert c["supported"] + c["not_observed"] + c["dropped"] == 1
+    assert len(fused["ramps.geojson"]) >= 1
