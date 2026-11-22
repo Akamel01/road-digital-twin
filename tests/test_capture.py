@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import numpy as np
@@ -38,19 +39,23 @@ def _write_merged(base: Path, *, drive_values=None, n_drives=2) -> Path:
             ],
         }
         (ddir / "3_align" / "poses.json").write_text(json.dumps(poses))
+        rel = f"samples/CAM_FRONT/{scene}.jpg"
         cameras = {
             "cameras": [
                 {
                     "channel": "CAM_FRONT",
                     "sample_token": f"s{i}",
                     "timestamp_us": 1000 + i * 100,
-                    "image": f"samples/CAM_FRONT/{scene}.jpg",
+                    "image": rel,
                     "intrinsics": [[500.0, 0.0, 320.0], [0.0, 500.0, 240.0], [0.0, 0.0, 1.0]],
                     "extrinsics": {"translation": [0.0, 0.0, 1.0], "rotation_wxyz": [1.0, 0.0, 0.0, 0.0]},
                 }
             ]
         }
         (ddir / "1_load" / "cameras.json").write_text(json.dumps(cameras))
+        img = base / "nuscenes" / rel
+        img.parent.mkdir(parents=True, exist_ok=True)
+        img.write_bytes(b"")
     (merged / "drives.json").write_text(json.dumps(drives))
     return merged
 
@@ -64,7 +69,7 @@ def _write_area(base: Path, name="demo") -> None:
 def test_capture_meta_and_local_coordinates(tmp_path):
     merged = _write_merged(tmp_path)
     out = tmp_path / "areas" / "demo-capture"
-    build_area_capture(merged, out, "demo")
+    build_area_capture(merged, out, "demo", dataroot=tmp_path / "nuscenes")
 
     meta = json.loads((out / "capture.json").read_text())
     assert meta["version"] == 1
@@ -88,22 +93,29 @@ def test_capture_meta_and_local_coordinates(tmp_path):
 def test_capture_loads_through_core(tmp_path):
     merged = _write_merged(tmp_path)
     out = tmp_path / "areas" / "demo-capture"
-    build_area_capture(merged, out, "demo")
+    build_area_capture(merged, out, "demo", dataroot=tmp_path / "nuscenes")
 
     from recon_core.capture import load_capture
 
     cap = load_capture(out)
     assert cap.meta.epsg == 32619
     assert len(cap.colmap.images) > 0
-    # No image files written or copied
+    # Rewritten for #398, not deleted: bytes are never copied, every image is a link.
     for ext in ("*.jpg", "*.png", "*.JPG", "*.PNG"):
-        assert list(out.rglob(ext)) == []
+        for path in out.rglob(ext):
+            assert path.is_symlink(), path
+    linked = list(out.rglob("*.jpg"))
+    assert len(linked) == len(cap.colmap.images)
+    dataroot = (tmp_path / "nuscenes").resolve()
+    for im in cap.colmap.images.values():
+        scene, channel, _ = im.name.split("/")
+        assert os.path.samefile(out / "images" / im.name, dataroot / "samples" / channel / f"{scene}.jpg")
 
 
 def test_colmap_image_names_end_with_jpg(tmp_path):
     merged = _write_merged(tmp_path)
     out = tmp_path / "areas" / "demo-capture"
-    build_area_capture(merged, out, "demo")
+    build_area_capture(merged, out, "demo", dataroot=tmp_path / "nuscenes")
 
     from recon_core.capture import load_capture
 
@@ -116,7 +128,7 @@ def test_colmap_image_names_end_with_jpg(tmp_path):
 def test_lidar_capture_index_matches_drives(tmp_path):
     merged = _write_merged(tmp_path)
     out = tmp_path / "areas" / "demo-capture"
-    build_area_capture(merged, out, "demo")
+    build_area_capture(merged, out, "demo", dataroot=tmp_path / "nuscenes")
 
     from recon_core.capture import read_lidar
 
@@ -129,7 +141,7 @@ def test_lidar_capture_index_matches_drives(tmp_path):
 def test_camera_projection_round_trip(tmp_path):
     merged = _write_merged(tmp_path)
     out = tmp_path / "areas" / "demo-capture"
-    build_area_capture(merged, out, "demo")
+    build_area_capture(merged, out, "demo", dataroot=tmp_path / "nuscenes")
 
     from recon_core.capture import load_capture
 
@@ -176,11 +188,11 @@ def test_bad_drive_index_rejected(tmp_path):
     merged = _write_merged(tmp_path, drive_values=[0, 1, 2, 1], n_drives=2)
     out = tmp_path / "areas" / "demo-capture"
     with pytest.raises(ValueError, match="drive index out of range"):
-        build_area_capture(merged, out, "demo")
+        build_area_capture(merged, out, "demo", dataroot=tmp_path / "nuscenes")
     assert not out.exists()
 
 
-def test_capture_command_exit_codes(tmp_path, capsys):
+def test_capture_command_exit_codes(tmp_path, capsys, monkeypatch):
     # missing area/merged -> 2
     rc = main(["capture", "area", "demo", "--store", str(tmp_path / "store")])
     assert rc == 2
@@ -188,9 +200,73 @@ def test_capture_command_exit_codes(tmp_path, capsys):
     base = tmp_path / "store"
     _write_merged(base)
     _write_area(base, "demo")
+    monkeypatch.setenv("NUSCENES_ROOT", str(base / "nuscenes"))
     rc = main(["capture", "area", "demo", "--store", str(base)])
     assert rc == 0
     captured = capsys.readouterr()
     out_path = Path(captured.out.strip())
     assert out_path.name == "demo-capture"
     assert (out_path / "capture.json").is_file()
+    assert len(list((out_path / "images").rglob("*.jpg"))) == 2
+
+
+def test_capture_links_all_images_for_recon_core(tmp_path):
+    """build_cameras(cap, out) is the consumer that failed on the box for #398."""
+    merged = _write_merged(tmp_path)
+    out = tmp_path / "areas" / "demo-capture"
+    build_area_capture(merged, out, "demo", dataroot=tmp_path / "nuscenes")
+
+    from recon_core.capture import load_capture
+    from recon_core.nodes.splat import build_cameras
+
+    cap = load_capture(out)
+    assert cap.colmap.images
+    dataroot = (tmp_path / "nuscenes").resolve()
+    views = build_cameras(cap, out)  # raises the ticket's own missing-image error
+    assert len(views) == len(cap.colmap.images)
+    for v in views:
+        scene, channel, _ = v.name.split("/")
+        source = dataroot / "samples" / channel / f"{scene}.jpg"
+        assert v.path == out / "images" / v.name
+        assert v.path.exists()
+        assert Path(os.path.realpath(v.path)) == source
+        assert os.path.samefile(v.path, source)  # no copy: the link is the dataroot file
+        assert Path(os.readlink(v.path)).is_absolute()
+
+
+def test_link_images_reports_first_missing(tmp_path):
+    from twin.capture import link_images
+
+    good = tmp_path / "nuscenes" / "samples" / "CAM_FRONT" / "good.jpg"
+    good.parent.mkdir(parents=True)
+    good.write_bytes(b"")
+    missing_src = tmp_path / "nuscenes" / "samples" / "CAM_FRONT" / "absent.jpg"
+    sources = {
+        "scene-0000/CAM_FRONT/1000.jpg": missing_src,
+        "scene-0001/CAM_FRONT/1100.jpg": good,
+    }
+    images_dir = tmp_path / "capture" / "images"
+
+    with pytest.raises(FileNotFoundError) as excinfo:
+        link_images(images_dir, sources)
+
+    msg = str(excinfo.value)
+    assert "1 capture image(s) missing" in msg
+    assert "first missing: 'scene-0000/CAM_FRONT/1000.jpg'" in msg
+    assert str(missing_src) in msg
+    assert not images_dir.exists()  # collect-then-write: nothing was linked
+
+
+def test_capture_missing_image_rejected(tmp_path):
+    merged = _write_merged(tmp_path)
+    (tmp_path / "nuscenes" / "samples" / "CAM_FRONT" / "scene-0001.jpg").unlink()
+    out = tmp_path / "areas" / "demo-capture"
+
+    with pytest.raises(FileNotFoundError) as excinfo:
+        build_area_capture(merged, out, "demo", dataroot=tmp_path / "nuscenes")
+
+    msg = str(excinfo.value)
+    assert "1 capture image(s) missing" in msg
+    assert "first missing: 'scene-0001/CAM_FRONT/1100.jpg'" in msg
+    assert str(tmp_path / "nuscenes" / "samples" / "CAM_FRONT" / "scene-0001.jpg") in msg
+    assert not out.exists()  # atomic: a failed build never publishes a partial capture
