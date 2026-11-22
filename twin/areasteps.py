@@ -176,6 +176,7 @@ def ground_step(
 
     work = Path(work)
     out = Path(out)
+    out.mkdir(parents=True, exist_ok=True)
     load_stage = _stage_dir_for("load", load_dir)
     align_stage = _stage_dir_for("align", align_dir)
     with np.load(work / "merged.npz") as f:

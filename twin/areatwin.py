@@ -104,8 +104,6 @@ def area_inputs(drives: list[dict], work: Path, polygon) -> tuple[list[dict], li
 
 def parked_vehicles(drives: list[dict], work: Path, centre: np.ndarray, polygon) -> np.ndarray:
     """Parked-vehicle points of all drives in the merged frame, (N, 3), inside the area polygon."""
-    from twin.merge import apply
-
     out = []
     for d in drives:
         base = work / "drives" / d["scene"]
@@ -119,7 +117,8 @@ def parked_vehicles(drives: list[dict], work: Path, centre: np.ndarray, polygon)
         xyz, _, _ = ground.aligned_points(
             fields, poses(stage_dir(base, "load") / "poses.json"), poses(stage_dir(base, "align") / "poses.json")
         )
-        xyz = apply(drive_correction(d.get("correction")), xyz - centre) + centre
+        t = drive_correction(d.get("correction"))
+        xyz = (xyz - centre) @ t[:3, :3].T + t[:3, 3] + centre
         out.append(xyz[shapely.contains_xy(polygon, xyz[:, 0], xyz[:, 1])])
     return np.vstack(out) if out else np.empty((0, 3))
 
@@ -292,7 +291,15 @@ def support(
     """
     near = np.abs(xyz[:, 2] - ground_z) <= SUPPORT_BAND_M
     xyz, drive = xyz[near], drive[near]
+    if len(xyz) == 0:
+        for f in feats:
+            f["properties"]["support"] = {"n_drives": 0, "drives": {}}
+        return
     tile = np.floor((xyz[:, :2] - origin) / SUPPORT_TILE_M).astype(np.int64)
+    if tile.size == 0:
+        for f in feats:
+            f["properties"]["support"] = {"n_drives": 0, "drives": {}}
+        return
     ntx = int(tile[:, 0].max()) + 1
     key = tile[:, 1] * ntx + tile[:, 0]
     order = np.argsort(key, kind="stable")
