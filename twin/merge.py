@@ -18,8 +18,12 @@ import os
 from pathlib import Path
 
 import numpy as np
-import open3d as o3d
 import shapely
+
+try:
+    import open3d as o3d
+except Exception:  # noqa: BLE001
+    o3d = None  # type: ignore[assignment]
 from shapely.geometry import shape
 
 from twin import heights, runner
@@ -67,7 +71,9 @@ MIN_CELLS = 200
 # ------------------------------------------------------------------ geometry
 
 
-def _pcd(xyz: np.ndarray, normals: bool = False) -> o3d.geometry.PointCloud:
+def _pcd(xyz: np.ndarray, normals: bool = False):
+    if o3d is None:
+        raise RuntimeError("open3d is required for ICP registration")
     p = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(xyz))
     if normals:
         p.estimate_normals(
@@ -81,10 +87,15 @@ def _pcd(xyz: np.ndarray, normals: bool = False) -> o3d.geometry.PointCloud:
 
 def nearest(query: np.ndarray, target: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Index and distance of the nearest target point for each query point."""
-    nns = o3d.core.nns.NearestNeighborSearch(o3d.core.Tensor(target))
-    nns.knn_index()
-    idx, d2 = nns.knn_search(o3d.core.Tensor(query), 1)
-    return idx.numpy().ravel(), np.sqrt(d2.numpy().ravel())
+    if o3d is not None:
+        nns = o3d.core.nns.NearestNeighborSearch(o3d.core.Tensor(target))
+        nns.knn_index()
+        idx, d2 = nns.knn_search(o3d.core.Tensor(query), 1)
+        return idx.numpy().ravel(), np.sqrt(d2.numpy().ravel())
+    from scipy.spatial import cKDTree
+
+    dist, idx = cKDTree(np.asarray(target, float)).query(np.asarray(query, float), k=1)
+    return np.asarray(idx, np.int64).ravel(), np.asarray(dist, float).ravel()
 
 
 def nearest_xy(query: np.ndarray, target: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -114,8 +125,55 @@ def apply(t: np.ndarray, xyz: np.ndarray) -> np.ndarray:
     return xyz @ t[:3, :3].T + t[:3, 3]
 
 
+def _register_numpy(src: np.ndarray, tgt: np.ndarray) -> tuple[np.ndarray, float, float]:
+    """Fallback ICP when open3d is unavailable (2D yaw+translation on XY, z by median)."""
+    from scipy.spatial import cKDTree
+
+    src = np.asarray(src, float)
+    tgt = np.asarray(tgt, float)
+    cur = np.eye(4)
+    cur[2, 3] = z_offset(src, tgt)
+    tree = cKDTree(tgt[:, :2])
+    for dist in ICP_STEPS_M:
+        for _ in range(ICP_MAX_ITER):
+            s2 = apply(cur, src)
+            d, idx = tree.query(s2[:, :2], k=1)
+            mask = d <= dist
+            if mask.sum() < 20:
+                break
+            a = s2[mask, :2]
+            b = tgt[idx[mask], :2]
+            ca, cb = a.mean(axis=0), b.mean(axis=0)
+            aa, bb = a - ca, b - cb
+            h = aa.T @ bb
+            u, _, vt = np.linalg.svd(h)
+            r2 = vt.T @ u.T
+            if np.linalg.det(r2) < 0:
+                vt[1, :] *= -1
+                r2 = vt.T @ u.T
+            t2 = cb - r2 @ ca
+            delta = np.eye(4)
+            delta[:2, :2] = r2
+            delta[0, 3] = t2[0]
+            delta[1, 3] = t2[1]
+            new = delta @ cur
+            new = yaw_translation(new)
+            if np.linalg.norm(new[:2, 3] - cur[:2, 3]) < 1e-5 and abs(np.arctan2(new[1, 0], new[0, 0]) - np.arctan2(cur[1, 0], cur[0, 0])) < 1e-5:
+                cur = new
+                break
+            cur = new
+    s2 = apply(cur, src)
+    d, _ = cKDTree(tgt[:, :2]).query(s2[:, :2], k=1)
+    mask = d <= ICP_STEPS_M[-1]
+    fitness = float(mask.mean()) if len(mask) else 0.0
+    rmse = float(np.sqrt((d[mask] ** 2).mean())) if mask.any() else float("nan")
+    return cur, fitness, rmse
+
+
 def register(src: np.ndarray, tgt: np.ndarray) -> tuple[np.ndarray, float, float]:
     """Point-to-plane ICP of src onto tgt ((N, 3), centred on the polygon). Returns (yaw + translation 4x4, fitness, rmse)."""
+    if o3d is None:
+        return _register_numpy(src, tgt)
     s, t = _pcd(src), _pcd(tgt, normals=True)
     est = o3d.pipelines.registration.TransformationEstimationPointToPlane()
     crit = o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=ICP_MAX_ITER)
@@ -299,11 +357,12 @@ def register_drives(
     ground disagreement per pair before, after ICP (registered) and after the planes (after). `ground` (drive id -> (N, 3), same frame) are the drives' ground-class points; the
     ground disagreement is measured on them (2026-11-10 amendment to ADR 0005), or on `clouds` when absent.
     """
-    o3d.utility.random.seed(seed)
+    if o3d is not None:
+        o3d.utility.random.seed(seed)
     pts = {k: thin(v - centre, ICP_VOXEL_M) for k, v in clouds.items()}
     gnd = {k: v - centre for k, v in (ground or clouds).items()}
     ids = sorted(clouds)
-    ref = max(ids, key=lambda k: (len(clouds[k]), k))
+    ref = min(ids, key=lambda k: (-len(clouds[k]), k))
     corr = {ref: np.eye(4)}
     info = {ref: {"role": "reference"}}
     target = pts[ref]
@@ -361,6 +420,11 @@ def register_drives(
         "info": info,
         "pairs": pairs,
     }
+
+
+def align_chained(clouds, centre, seed: int = 0, ground=None) -> dict:
+    """Chained (legacy) registration: thin wrapper over register_drives for the M04 dispatch surface."""
+    return register_drives(clouds, centre, seed=seed, ground=ground)
 
 
 def correction_summary(t: np.ndarray) -> dict:
@@ -554,9 +618,39 @@ def merge_area(area: dict, out: Path, params: Params, log) -> dict:
     ground_pts = {
         k: gworld[k][:, :3] if k in gworld else clouds[k][:, :3] for k in names
     }
-    res = register_drives(
-        {k: v[:, :3] for k, v in clouds.items()}, centre, params.seed, ground_pts
-    )
+    method = params.merge.method
+    if method == "chained-icp":
+        res = register_drives(
+            {k: v[:, :3] for k, v in clouds.items()}, centre, params.seed, ground_pts
+        )
+    elif method == "joint-pose-graph":
+        import logging as _logging
+
+        from twin import areatwin, joint_align, reference_split
+        _log = _logging.getLogger("twin.merge")
+        anchor_load_failed = False
+        try:
+            _, reference = areatwin.area_inputs(
+                [sc for sc in area["drives"] if sc.get("build_input")], out, polygon
+            )
+        except Exception as exc:  # noqa: BLE001
+            _log.exception("area_inputs failed: %s", exc)
+            reference = []
+            anchor_load_failed = True
+        anchors, _heldout, _meta = reference_split.split_reference(reference)
+        res = joint_align.align_joint(
+            names,
+            {k: v[:, :3] for k, v in clouds.items()},
+            ground_pts,
+            anchors,
+            centre,
+        )
+        if anchor_load_failed:
+            res["fallback_reason"] = "anchor load failed"
+            if isinstance(res.get("convergence"), dict):
+                res["convergence"]["fallback_reason"] = "anchor load failed" 
+    else:
+        raise ValueError(f"unknown merge method: {method}")
     # DECISION: heights are fitted across drives only when merge.heights is set (off by default). They come after
     # the drive registration (it gives the drives' overall dz) and move only z, roll and pitch of each sweep; x, y
     # and yaw stay as align and the registration gave them.
@@ -615,6 +709,14 @@ def merge_area(area: dict, out: Path, params: Params, log) -> dict:
     qa = {
         "area": area["name"],
         "reference": res["reference"],
+        "method": res.get("method"),
+        "convergence": res.get("convergence"),
+        "anchor_residuals": res.get("anchor_residuals"),
+        "pair_residuals": res.get("pair_residuals"),
+        "fallback_reason": res.get("fallback_reason"),
+        "n_anchors": res.get("n_anchors"),
+        "n_drives_with_overlap": res.get("n_drives_with_overlap"),
+        "elapsed": res.get("elapsed"),
         "drives": drives,
         "ground_disagreement_pairs": res["pairs"],
         "heights": hqa["summary"] if hqa else None,
@@ -630,6 +732,14 @@ def merge_area(area: dict, out: Path, params: Params, log) -> dict:
         "cross_drive_ground_p95_registered_m": float(np.median(reg)) if reg else None,
         "n_drives": len(names),
         "n_skipped": len(skipped),
+        "method": res.get("method"),
+        "convergence": res.get("convergence"),
+        "fallback_reason": res.get("fallback_reason"),
+        "n_anchors": res.get("n_anchors"),
+        "n_drives_with_overlap": res.get("n_drives_with_overlap"),
+        "elapsed": res.get("elapsed"),
+        "anchor_residuals": res.get("anchor_residuals"),
+        "pair_residuals": res.get("pair_residuals"),
     }
     write_document(
         out,
@@ -647,7 +757,7 @@ def merge_area(area: dict, out: Path, params: Params, log) -> dict:
     return qa
 
 
-def area_merge_command(name: str, store: Path | None, heights_on: bool = False) -> int:
+def area_merge_command(name: str, store: Path | None, heights_on: bool = False, method: str = "chained-icp") -> int:
     from twin.runner import default_store
 
     base = Path(store) if store else default_store()
@@ -658,7 +768,7 @@ def area_merge_command(name: str, store: Path | None, heights_on: bool = False) 
     out = base / "areas" / f"{name}-merged"
     out.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(level=logging.INFO)
-    params = Params(merge={"heights": heights_on})
+    params = Params(merge={"heights": heights_on, "method": method})
     qa = merge_area(area, out, params, logging.getLogger("twin.merge"))
     print(json.dumps(qa, indent=2))
     return 0

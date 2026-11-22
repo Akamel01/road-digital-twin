@@ -187,14 +187,20 @@ def _entry(
     }
 
 
-@register("accuracy", "one-way")
-def run_one_way(ctx: Any, params: AccuracyParams) -> StageResult:
+def _run_once(ctx: Any, params: AccuracyParams, reference_path: Any = None, output_path: Any = None) -> dict[str, Any]:
     out = ctx.stage_dir("accuracy")
     out.mkdir(exist_ok=True)
     features_dir = ctx.input_dir("features")
     load_dir = ctx.input_dir("load")
     buffer_m = params.buffer_m
     radius_m = params.match_radius_m
+    if reference_path is None:
+        reference_path = load_dir / "reference.geojson"
+    reference_path = Path(reference_path)
+    if output_path is None:
+        output_path = out / "accuracy.json"
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
     feat_qa = json.loads((features_dir / "qa.json").read_text())
     not_scanned = set(feat_qa.get("not_scanned_enough", []))
@@ -202,7 +208,7 @@ def run_one_way(ctx: Any, params: AccuracyParams) -> StageResult:
     # stage writes false here, markings are reported as "not extractable at this density" (spec section 6).
     markings_extractable = bool(feat_qa.get("markings_extractable", True))
 
-    reference = _read_fc(load_dir / "reference.geojson")
+    reference = _read_fc(reference_path)
     ref = {
         t: _reference(reference, layers, t in AREA_TYPES)
         for t, layers in REFERENCE.items()
@@ -345,5 +351,53 @@ def run_one_way(ctx: Any, params: AccuracyParams) -> StageResult:
             "markings_extractable": markings_extractable,
         },
     }
-    (out / "accuracy.json").write_text(json.dumps(doc, indent=2))
-    return StageResult(status="ok", files=list(OUTPUT_FILES), metrics=doc)
+    output_path.write_text(json.dumps(doc, indent=2))
+    return doc
+
+
+_ALL_MAP = {
+    "matched_p95_m": "matched_p95_all_m",
+    "false_positive_rate": "false_positive_rate_all",
+    "coverage": "coverage_all",
+    "matched_p50_m": "matched_p50_all_m",
+}
+
+
+def _merge_all_keys(held_doc: dict[str, Any], all_doc: dict[str, Any]) -> dict[str, Any]:
+    for section in ("elements", "marking_types", "facilities"):
+        held = held_doc.get(section, {})
+        alls = all_doc.get(section, {})
+        if not isinstance(held, dict) or not isinstance(alls, dict):
+            continue
+        for key, he in held.items():
+            ae = alls.get(key)
+            if not isinstance(he, dict) or not isinstance(ae, dict):
+                continue
+            for src, dst in _ALL_MAP.items():
+                if src in ae:
+                    he[dst] = ae[src]
+    return held_doc
+
+
+@register("accuracy", "one-way")
+def run_one_way(ctx: Any, params: AccuracyParams, *, reference_path: Any = None, output_path: Any = None) -> StageResult:
+    out = ctx.stage_dir("accuracy")
+    out.mkdir(exist_ok=True)
+    # Combined mode: default call runs all + held-out and merges into accuracy.json.
+    # Held-out scoring only happens when the sidecar is present; otherwise default to all reference.
+    if reference_path is None and output_path is None:
+        load_dir = ctx.input_dir("load")
+        all_doc = _run_once(ctx, params, reference_path=load_dir / "reference.geojson", output_path=out / "accuracy.all.json")
+        heldout_path = load_dir / "reference.heldout.geojson"
+        if not heldout_path.is_file():
+            (out / "accuracy.json").write_text(json.dumps(all_doc, indent=2))
+            return StageResult(status="ok", files=list(OUTPUT_FILES), metrics=all_doc)
+        held_doc = _run_once(ctx, params, reference_path=heldout_path, output_path=out / "accuracy.heldout.json")
+        combined = _merge_all_keys(held_doc, all_doc)
+        (out / "accuracy.json").write_text(json.dumps(combined, indent=2))
+        return StageResult(status="ok", files=list(OUTPUT_FILES), metrics=combined)
+    doc = _run_once(ctx, params, reference_path=reference_path, output_path=output_path)
+    out_name = Path(output_path).name if output_path is not None else "accuracy.json"
+    if output_path is None:
+        out_name = "accuracy.json"
+    return StageResult(status="ok", files=[out_name], metrics=doc)

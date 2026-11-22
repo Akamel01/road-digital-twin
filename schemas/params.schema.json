@@ -413,6 +413,15 @@
           "default": false,
           "title": "Heights",
           "type": "boolean"
+        },
+        "method": {
+          "default": "chained-icp",
+          "enum": [
+            "chained-icp",
+            "joint-pose-graph"
+          ],
+          "title": "Method",
+          "type": "string"
         }
       },
       "title": "MergeParams",
