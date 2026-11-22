@@ -422,6 +422,9 @@ def _make_synthetic_area(tmp_path: Path, name="site-tiny") -> Path:
             ]
         }
         (ddir / "1_load" / "cameras.json").write_text(json.dumps(cameras))
+        img = base / "nuscenes" / "samples" / "CAM_FRONT" / f"{scene}.jpg"
+        img.parent.mkdir(parents=True, exist_ok=True)
+        img.write_bytes(b"")
 
         np.savez(ddir / "2_mask" / "parked.npz", x=np.array([]), y=np.array([]), z=np.array([]), intensity=np.array([]), sweep=np.array([], dtype=np.uint16))
 
@@ -440,6 +443,7 @@ def _make_synthetic_area(tmp_path: Path, name="site-tiny") -> Path:
 
 def test_real_manifest_runs_end_to_end_on_synthetic_area(tmp_path, monkeypatch):
     base = _make_synthetic_area(tmp_path)
+    monkeypatch.setenv("NUSCENES_ROOT", str(base / "nuscenes"))
     name = "site-tiny"
     monkeypatch.setenv("TWIN_RUNS", str(base))
     areabuild.area_build(base, name, logging.getLogger("test"))

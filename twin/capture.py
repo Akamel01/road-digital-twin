@@ -1,8 +1,9 @@
 """Area build -> recon-core Posed Capture adapter.
 
 Writes a recon-core Posed Capture (capture.json, colmap/, lidar.laz) from an
-area merge output. Coordinates are local metres: absolute merged EPSG:32619 xyz
-minus a deterministic origin_offset = [floor(min x), floor(min y), 0.0].
+area merge output. images/ holds absolute symlinks into the nuScenes
+dataroot. Coordinates are local metres: absolute merged EPSG:32619 xyz minus a
+deterministic origin_offset = [floor(min x), floor(min y), 0.0].
 
 Pose conventions (verified from twin code):
 - cameras.json extrinsics are ego->camera: {"translation", "rotation_wxyz"}
@@ -29,6 +30,7 @@ from pathlib import Path
 
 import numpy as np
 
+from twin.dataset import DatasetConfig
 from twin.runner import default_store
 
 EPSG = 32619
@@ -36,6 +38,7 @@ DATA_LICENCE = "CC BY-NC-SA"
 IMAGE_WIDTH = 1600
 IMAGE_HEIGHT = 900
 COLMAP_DIR = "colmap"
+IMAGES_DIR = "images"
 CAPTURE_FILE = "capture.json"
 LIDAR_FILE = "lidar.laz"
 
@@ -150,12 +153,16 @@ def _load_merged(merged_dir: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray, 
 
 
 def colmap_model(drives: list[dict], merged_dir: Path, origin: np.ndarray):
-    """Build recon-core ColmapModel from per-drive cameras and align poses."""
+    """Build recon-core ColmapModel from per-drive cameras and align poses.
+
+    Also returns {COLMAP image name: dataroot-relative nuScenes image path}.
+    """
     from recon_core.capture.colmap import Camera, ColmapModel, Image
 
     cameras: dict[int, Camera] = {}
     images: dict[int, Image] = {}
     cam_id_by_key: dict[tuple, int] = {}
+    sources: dict[str, str] = {}
     image_id = 1
 
     for d in drives:
@@ -195,6 +202,12 @@ def colmap_model(drives: list[dict], merged_dir: Path, origin: np.ndarray):
             name = f"{scene}/{cam['channel']}/{t_us}.jpg"
             if any(ch.isspace() for ch in name):
                 raise ValueError(f"image name has whitespace: {name!r}")
+            prev = sources.get(name)
+            if prev is not None and prev != str(cam["image"]):
+                raise ValueError(
+                    f"duplicate capture image name {name!r}: {prev!r} and {cam['image']!r}"
+                )
+            sources[name] = str(cam["image"])
             images[image_id] = Image(
                 image_id=image_id,
                 qvec=qvec,
@@ -205,11 +218,30 @@ def colmap_model(drives: list[dict], merged_dir: Path, origin: np.ndarray):
             )
             image_id += 1
 
-    return ColmapModel(cameras=cameras, images=images, points3d={})
+    return ColmapModel(cameras=cameras, images=images, points3d={}), sources
 
 
-def build_area_capture(merged_dir: Path, out: Path, name: str) -> Path:
-    """Build a recon-core Posed Capture from an area merged dir."""
+def link_images(images_dir: Path, sources: dict[str, Path]) -> None:
+    """Create images_dir/<name> symlinks to dataroot files. Copies no bytes."""
+    missing = [(name, src) for name, src in sources.items() if not src.is_file()]
+    if missing:
+        name, src = missing[0]
+        raise FileNotFoundError(
+            f"{len(missing)} capture image(s) missing; first missing: {name!r} (looked for {src})"
+        )
+    for name, src in sources.items():
+        dst = images_dir / name
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        os.symlink(src.resolve(), dst)
+
+
+def build_area_capture(
+    merged_dir: Path, out: Path, name: str, dataroot: Path | None = None
+) -> Path:
+    """Build a recon-core Posed Capture from an area merged dir.
+
+    Symlinks images/<name> for every COLMAP image; bytes stay in the dataroot.
+    """
     from datetime import UTC, datetime
 
     from recon_core.capture import Capture, CaptureMeta, save_capture
@@ -217,6 +249,7 @@ def build_area_capture(merged_dir: Path, out: Path, name: str) -> Path:
 
     merged_dir = Path(merged_dir)
     out = Path(out)
+    dataroot_path = Path(dataroot) if dataroot is not None else Path(DatasetConfig.from_env().root)
     x, y, z, drive, drives = _load_merged(merged_dir)
     if len(drives) == 0:
         raise ValueError("drives.json is empty")
@@ -240,7 +273,7 @@ def build_area_capture(merged_dir: Path, out: Path, name: str) -> Path:
 
     xyz_local = np.column_stack([x, y, z]).astype(np.float64) - origin.reshape(1, 3)
     lidar = Lidar(xyz=xyz_local, capture_index=drive.astype(np.int32))
-    colmap = colmap_model(drives, merged_dir, origin)
+    colmap, image_sources = colmap_model(drives, merged_dir, origin)
     capture = Capture(meta=meta, colmap=colmap, lidar=lidar)
 
     parent = out.parent
@@ -248,6 +281,7 @@ def build_area_capture(merged_dir: Path, out: Path, name: str) -> Path:
     tmp = Path(tempfile.mkdtemp(dir=parent, prefix=f".{out.name}-", suffix=".tmp"))
     try:
         save_capture(capture, tmp)
+        link_images(tmp / IMAGES_DIR, {n: dataroot_path / rel for n, rel in image_sources.items()})
         if out.exists():
             if out.is_dir() and not out.is_symlink():
                 shutil.rmtree(out)
