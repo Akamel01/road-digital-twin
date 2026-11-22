@@ -69,6 +69,7 @@ def test_fusion_keeps_supported_drops_unsupported_adds_camera_only():
         "markings.geojson": [on_stripe, off_stripe, unseen],
         "crosswalks.geojson": [],
         "curbs.geojson": [],
+        "ramps.geojson": [],
     }
     camera, fused, counts = build_variants(lidar, r, [], P)
     assert counts["markings.geojson"] == {
