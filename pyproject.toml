@@ -29,6 +29,7 @@ dependencies = [
     "pillow==13.0.0",
     "scipy==1.17.1",
     "cryptography==50.0.2",
+    "recon-core",
 ]
 
 [project.optional-dependencies]
@@ -62,3 +63,6 @@ extend-exclude = ["prototypes", ".claude"]
 testpaths = ["tests"]
 addopts = ["-m", "not itest"]
 markers = ["itest: needs real datasets on disk (see make itest); skipped by default"]
+
+[tool.uv.sources]
+recon-core = { git = "https://github.com/Akamel01/recon-core", rev = "v0.1.1" }

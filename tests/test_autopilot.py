@@ -133,7 +133,7 @@ def test_cli_once(tmp_path, monkeypatch):
 def test_p3_skips_other_dataset_version(tmp_path, monkeypatch):
     monkeypatch.setattr(autopilot, "dataset_version", lambda: "v1.0-trainval")
     (tmp_path / "base").mkdir()
-    (tmp_path / "base" / "manifest.json").write_text(json.dumps({"data": {"nuscenes_version": "v1.0-mini"}}))
+    (tmp_path / "base" / "run.json").write_text(json.dumps({"data": {"nuscenes_version": "v1.0-mini"}}))
     (tmp_path / "sweeps" / "s1").mkdir(parents=True)
     (tmp_path / "sweeps" / "s1" / "sweep.json").write_text(json.dumps({"target": "base", "variants": []}))
     assert autopilot._latest_scored(tmp_path) is None
@@ -150,7 +150,7 @@ def test_skip_source(tmp_path, monkeypatch):
 def _base(store, run_id, version="v1.0-trainval", accuracy="ok", parent=None):
     (store / run_id).mkdir()
     m = {"data": {"nuscenes_version": version}, "stages": [{"name": "accuracy", "status": accuracy}]}
-    (store / run_id / "manifest.json").write_text(json.dumps({**m, "parent": parent}))
+    (store / run_id / "run.json").write_text(json.dumps({**m, "parent": parent}))
 
 
 def test_stalled_p3_starts_new_line(tmp_path, monkeypatch):
@@ -339,7 +339,7 @@ def test_new_main_queues_one_run_per_area_scene_unless_current(tmp_path, monkeyp
     _area(tmp_path, ["scene-1", "scene-2"])
     current = tmp_path / "r-current"
     current.mkdir()
-    (current / "manifest.json").write_text(json.dumps({"code": {"git_sha": commit}}))
+    (current / "run.json").write_text(json.dumps({"code": {"git_sha": commit}}))
     monkeypatch.setattr(autopilot.prgate, "pick_baseline", lambda store, scene: current if scene == "tok-scene-2" else None)
     monkeypatch.setattr(autopilot, "main_commit", lambda: commit)
     monkeypatch.setattr(autopilot, "_alive", lambda pid: False)

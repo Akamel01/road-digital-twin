@@ -2255,6 +2255,11 @@ wheels = [
 ]
 
 [[package]]
+name = "recon-core"
+version = "0.1.1"
+source = { git = "https://github.com/Akamel01/recon-core?rev=v0.1.1#17d4e3ff58b4c58c0325865e084029553e1f0caa" }
+
+[[package]]
 name = "referencing"
 version = "0.37.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2818,6 +2823,7 @@ dependencies = [
     { name = "pyjwt" },
     { name = "pyproj" },
     { name = "pyyaml" },
+    { name = "recon-core" },
     { name = "scipy" },
     { name = "shapely" },
     { name = "uvicorn" },
@@ -2867,6 +2873,7 @@ requires-dist = [
     { name = "pyjwt", specifier = "==2.15.1" },
     { name = "pyproj", specifier = "==3.7.2" },
     { name = "pyyaml", specifier = "==6.0.3" },
+    { name = "recon-core", git = "https://github.com/Akamel01/recon-core?rev=v0.1.1" },
     { name = "scipy", specifier = "==1.17.1" },
     { name = "shapely", specifier = "==2.2.0" },
     { name = "torch", marker = "extra == 'marking'", specifier = "==2.10.0" },

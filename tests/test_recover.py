@@ -6,7 +6,7 @@ from twin.runner import CURRENT_FILE, INTERRUPTED, LOCK_FILE, recover_interrupte
 
 
 def _make_running(run_dir, stage_name):
-    path = run_dir / "manifest.json"
+    path = run_dir / "run.json"
     manifest = Manifest.model_validate_json(path.read_text())
     for stage in manifest.stages:
         if stage.name == stage_name:
@@ -23,7 +23,7 @@ def test_running_stage_marked_failed_and_locks_cleared(tmp_path):
 
     assert recover_interrupted(tmp_path / "store") == [run_id]
 
-    manifest = Manifest.model_validate_json((run_dirs[0] / "manifest.json").read_text())
+    manifest = Manifest.model_validate_json((run_dirs[0] / "run.json").read_text())
     assert not [s for s in manifest.stages if s.status == "running"]
     assert [s.status for s in manifest.stages if s.name == "ground"] == ["failed"]
     assert manifest.metrics["ground"]["message"] == INTERRUPTED
@@ -33,10 +33,10 @@ def test_running_stage_marked_failed_and_locks_cleared(tmp_path):
 
 def test_no_running_stage_changes_nothing(tmp_path):
     run_dirs = write_fake_runs(tmp_path / "store", drives=1)
-    before = (run_dirs[0] / "manifest.json").read_text()
+    before = (run_dirs[0] / "run.json").read_text()
 
     assert recover_interrupted(tmp_path / "store") == []
-    assert (run_dirs[0] / "manifest.json").read_text() == before
+    assert (run_dirs[0] / "run.json").read_text() == before
 
 
 def test_live_lock_holder_is_left_alone(tmp_path):
@@ -47,7 +47,7 @@ def test_live_lock_holder_is_left_alone(tmp_path):
     held.acquire()
     try:
         assert recover_interrupted(tmp_path / "store") == []
-        manifest = Manifest.model_validate_json((run_dirs[0] / "manifest.json").read_text())
+        manifest = Manifest.model_validate_json((run_dirs[0] / "run.json").read_text())
         assert [s.status for s in manifest.stages if s.name == "ground"] == ["running"]
         assert (tmp_path / "store" / CURRENT_FILE).exists()
     finally:
@@ -71,7 +71,7 @@ def test_stage_is_marked_running_while_it_runs(tmp_path, monkeypatch):
     for name in STAGE_NAMES:
 
         def run(ctx, params, name=name):
-            manifest = Manifest.model_validate_json((ctx.run_dir / "manifest.json").read_text())
+            manifest = Manifest.model_validate_json((ctx.run_dir / "run.json").read_text())
             seen[name] = manifest.stages[-1].status
             return StageResult(status="ok")
 

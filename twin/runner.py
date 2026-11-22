@@ -1,6 +1,7 @@
-"""Run store: make a run folder, run enabled stages in order, keep manifest.json current.
+"""Run store: make a run folder, run enabled stages in order, keep run.json current.
 
-Source of truth: docs/design/twin-v1-spec.md, sections 3, 4 and 8.
+The twin Run Record is `run.json`; legacy `manifest.json` runs are read via
+`twin.runrecord`. Source of truth: docs/design/twin-v1-spec.md, sections 3, 4 and 8.
 """
 
 import hashlib
@@ -11,7 +12,6 @@ import secrets
 import shutil
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 from dataclasses import dataclass
@@ -40,6 +40,7 @@ from twin.contracts import (
     stage_dir,
 )
 from twin.dataset import DatasetConfig
+from twin.runrecord import read_manifest, record_path, write_record
 from twin.runstore import RUN_ID_RE, RunStore
 
 REPO = Path(__file__).resolve().parents[1]
@@ -129,13 +130,7 @@ def _create_run_dir(store: Path) -> tuple[str, Path]:
 
 def _write_manifest(run_dir: Path, manifest: Manifest) -> None:
     # Re-validate every write, then replace atomically so readers never see a partial file.
-    text = Manifest.model_validate(manifest.model_dump(mode="json")).model_dump_json(
-        indent=2
-    )
-    fd, tmp = tempfile.mkstemp(dir=run_dir, prefix=".manifest-", suffix=".tmp")
-    with os.fdopen(fd, "w") as f:
-        f.write(text + "\n")
-    os.replace(tmp, run_dir / "manifest.json")
+    write_record(run_dir, manifest)
 
 
 def _list_files(path: Path) -> list[str]:
@@ -173,7 +168,7 @@ def start_run(
     """Run the pipeline on one scene. Returns the run id.
 
     Raises ValueError before creating any folder when the input is invalid.
-    A failed stage does not raise: it is recorded in manifest.json.
+    A failed stage does not raise: it is recorded in run.json.
     """
     pipeline, params = _checked(scene_token, pipeline, params)
     return _execute_run(Path(store), scene_token, pipeline, params)
@@ -443,13 +438,13 @@ def _run_step(job: _Job, index: int) -> bool:
 
 def _job_from_disk(run_dir: Path) -> _Job:
     """Rebuild a begun job from its run folder, so one stage can run in any process."""
-    manifest = Manifest.model_validate_json((run_dir / "manifest.json").read_text())
+    manifest = read_manifest(run_dir)
     pipeline = Pipeline.model_validate(yaml.safe_load((run_dir / "pipeline.yaml").read_text()))
     params = Params.model_validate(yaml.safe_load((run_dir / "params.yaml").read_text()))
     store, parent_dir, parent, keep = run_dir.parent, None, None, 0
     if manifest.parent:
         parent_dir = store / manifest.parent.run_id
-        parent = Manifest.model_validate_json((parent_dir / "manifest.json").read_text())
+        parent = read_manifest(parent_dir)
         keep = STAGES[manifest.parent.from_stage].number - 1 if manifest.parent.from_stage else 0
     ctx = StageContext(
         run_dir=run_dir,
@@ -517,7 +512,7 @@ def _run_is_live(folder: Path) -> bool:
 def fail_running(folder: Path, message: str) -> str | None:
     """Mark every stage left `running` in a run folder failed. Returns the run id, or None
     when nothing was running."""
-    manifest = Manifest.model_validate_json((folder / "manifest.json").read_text())
+    manifest = read_manifest(folder)
     stuck = [s for s in manifest.stages if s.status == "running"]
     for stage in stuck:
         stage.status = "failed"
@@ -606,9 +601,10 @@ def _rerun_args(
         raise ValueError(f"unknown stage {from_stage!r}")
     store = Path(store)
     parent_dir = store / parent_run_id
-    if not (parent_dir / "manifest.json").is_file():
-        raise ValueError(f"run {parent_run_id} not found in {store}")
-    parent = Manifest.model_validate_json((parent_dir / "manifest.json").read_text())
+    try:
+        parent = read_manifest(parent_dir)
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"run {parent_run_id} not found in {store}") from exc
     parent_pipeline = Pipeline.model_validate(
         yaml.safe_load((parent_dir / "pipeline.yaml").read_text()) or {}
     )
@@ -687,13 +683,13 @@ def _exit_code(store: Path, run_id: str) -> int:
     failed = runs.failed(runs.get(run_id))
     if failed and failed[0]["status"] == "cancelled":
         print(
-            f"twin: run cancelled before stage {failed[0]['name']}; see {run_dir / 'manifest.json'}",
+            f"twin: run cancelled before stage {failed[0]['name']}; see {record_path(run_dir)}",
             file=sys.stderr,
         )
         return 1
     if failed:
         print(
-            f"twin: stage {failed[0]['name']} {failed[0]['status']}; see {run_dir / 'manifest.json'}",
+            f"twin: stage {failed[0]['name']} {failed[0]['status']}; see {record_path(run_dir)}",
             file=sys.stderr,
         )
         return 1

@@ -79,10 +79,10 @@ def test_missing_file_404(client, store):
 @pytest.mark.parametrize(
     "path",
     [
-        "../manifest.json",
-        "1_load/../../manifest.json",
-        "%2e%2e/manifest.json",
-        "1_load/%2e%2e/%2e%2e/manifest.json",
+        "../run.json",
+        "1_load/../../run.json",
+        "%2e%2e/run.json",
+        "1_load/%2e%2e/%2e%2e/run.json",
         "%2Fetc%2Fpasswd",
         "%2fetc%2fpasswd",
     ],
@@ -109,8 +109,8 @@ def test_compare_finds_changed_param(tmp_path, access):
     store = tmp_path / "runs"
     write_fake_runs(store, drives=2)
     a, b = _ids(store)
-    # Change one param in run b's manifest (test copy only; real runs are never edited).
-    path = store / b / "manifest.json"
+    # Change one param in run b's record (test copy only; real runs are never edited).
+    path = store / b / "run.json"
     data = json.loads(path.read_text())
     data["params"]["ground"]["voxel_m"] = 0.123
     path.write_text(json.dumps(data))

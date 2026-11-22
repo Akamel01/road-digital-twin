@@ -30,6 +30,7 @@ from twin import jobqueue
 from twin.contracts import PARAM_STAGE, STAGE_NAMES, Params
 from twin.gates import GO, RANK, GateReport
 from twin.runner import RUN_ID_RE, default_store
+from twin.runrecord import read_record, record_path
 
 MAX_VARIANTS = 500
 
@@ -115,10 +116,11 @@ def queue_sweep(store: Path, target: str, space: dict, extra: dict | None = None
     """Queue one job per variant and write sweeps/<id>/sweep.json. Returns the sweep id."""
     is_run = re.fullmatch(RUN_ID_RE, target) is not None
     if is_run:
-        mpath = store / target / "manifest.json"
+        rdir = store / target
+        mpath = record_path(rdir)
         if not mpath.is_file():
             raise ValueError(f"run {target} not found in {store}")
-        base = json.loads(mpath.read_text())["params"]
+        base = read_record(rdir)["params"]
     else:
         base = Params().model_dump(mode="json")
     variants = build_variants(space, base)
@@ -210,9 +212,7 @@ def leaderboard(store: Path, sweep_id: str) -> dict:
     (folder / "leaderboard.md").write_text("\n".join(lines) + "\n")
     best = next((r for r in rows if r["verdict"] == GO), None)
     if best:
-        params = json.loads((store / best["run_id"] / "manifest.json").read_text())[
-            "params"
-        ]
+        params = read_record(store / best["run_id"])["params"]
         (folder / "proposed_baseline.yaml").write_text(
             "# PROPOSED baseline, not adopted. The operator approves it.\n"
             + yaml.safe_dump(

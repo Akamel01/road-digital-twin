@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from twin.contracts import AreaFacility, AreaIndex, Drive, Manifest, stage_dir
 from twin.height_raster import compute_height_above_road, render_height_rgba
 from twin.runner import default_store
+from twin.runrecord import read_manifest, record_path
 from twin.tiles import TILE, write_mosaic_tiles
 
 MAX_FILE_BYTES = 25 * 1024 * 1024  # Pages limit per file
@@ -266,7 +267,7 @@ def publish_runs(
     run_dirs: list[Path] = []
     for rid in run_ids:
         run_dir = store / rid
-        manifest = Manifest.model_validate_json((run_dir / "manifest.json").read_text())
+        manifest = read_manifest(run_dir)
         manifests.append(manifest)
         run_dirs.append(run_dir)
         las = laspy.read(_stage(run_dir, "ground") / "ground.laz")
@@ -290,7 +291,7 @@ def publish_runs(
         manifest = manifests[i]
         dest = out / manifest.run_id
         dest.mkdir(exist_ok=True)
-        shutil.copy(run_dir / "manifest.json", dest / "manifest.json")
+        shutil.copy(record_path(run_dir), dest / "run.json")
         outputs = _stage(run_dir, "outputs")
         for name in PUBLIC_FILES:
             shutil.copy(outputs / name, dest / name)

@@ -24,6 +24,7 @@ from shapely.geometry import shape
 
 from twin import heights, runner
 from twin.contracts import Params, stage_dir
+from twin.runrecord import read_record, record_path, write_document
 from twin.stages import align, ground, load, mask
 
 # DECISION: registration works on points thinned to one per 0.3 m voxel.
@@ -514,9 +515,9 @@ def move_sweeps(p: np.ndarray, delta: np.ndarray) -> np.ndarray:
 
 def merge_area(area: dict, out: Path, params: Params, log) -> dict:
     version = area["dataset_version"]
-    old = out / "manifest.json"
+    old = record_path(out)
     if old.is_file():  # DECISION: a folder built from another dataset version is refused (its cached drives would mix)
-        had = json.loads(old.read_text()).get("data", {}).get("nuscenes_version")
+        had = read_record(out).get("data", {}).get("nuscenes_version")
         if had is not None and had != version:
             raise ValueError(
                 f"dataset version {version!r} differs from the earlier merge's {had!r}"
@@ -619,7 +620,7 @@ def merge_area(area: dict, out: Path, params: Params, log) -> dict:
         "heights": hqa["summary"] if hqa else None,
         "skipped": skipped,
     }
-    # DECISION: a minimal manifest.json so `twin eval <folder>` can read gate G2. The gate's metric is the
+    # DECISION: a minimal run.json so `twin eval <folder>` can read gate G2. The gate's metric is the
     # median over pairs of the after-registration ground P95; the worst pair is reported beside it.
     p95 = [p["after"]["p95_m"] for p in res["pairs"] if p["after"]]
     reg = [p["registered"]["p95_m"] for p in res["pairs"] if p.get("registered")]
@@ -630,16 +631,14 @@ def merge_area(area: dict, out: Path, params: Params, log) -> dict:
         "n_drives": len(names),
         "n_skipped": len(skipped),
     }
-    (out / "manifest.json").write_text(
-        json.dumps(
-            {
-                "run_id": f"area-{area['name']}",
-                "data": {"nuscenes_version": version},
-                "metrics": {"align": metrics},
-                "stages": [],
-            },
-            indent=2,
-        )
+    write_document(
+        out,
+        {
+            "run_id": f"area-{area['name']}",
+            "data": {"nuscenes_version": version},
+            "metrics": {"align": metrics},
+            "stages": [],
+        },
     )
     (out / "drives.json").write_text(json.dumps(drives, indent=2))
     (out / "qa.json").write_text(json.dumps(qa, indent=2))

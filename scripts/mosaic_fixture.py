@@ -56,7 +56,7 @@ def main():
         rsrc = src / rid
         rdst = fixture_showcase / rid
         rdst.mkdir(parents=True, exist_ok=True)
-        for f in ("manifest.json", "twin.geojson", "profile.csv", "centrelines.geojson"):
+        for f in ("run.json", "manifest.json", "twin.geojson", "profile.csv", "centrelines.geojson"):
             s = rsrc / f
             if s.exists():
                 shutil.copy2(s, rdst / f)

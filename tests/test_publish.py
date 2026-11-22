@@ -37,8 +37,9 @@ def _site(runs, tmp_path, **limits):
 def test_layout_and_area_validate(runs, tmp_path):
     site, run_ids = _site(runs, tmp_path)
     for rid in run_ids:
-        for name in ("twin.geojson", "manifest.json", "twin.laz", "plan.pdf", "profile.csv"):
+        for name in ("twin.geojson", "run.json", "twin.laz", "plan.pdf", "profile.csv"):
             assert (site / rid / name).is_file(), name
+        assert not (site / rid / "manifest.json").exists()
         assert laspy.read(site / rid / "twin.laz").header.point_count > 0
     for layer in ("lidar", "ortho", "height", "coverage"):
         assert (site / "tiles" / layer / "meta.json").is_file()

@@ -67,7 +67,7 @@ def wait_idle(store) -> None:
 
 
 def _manifest(store, run_id) -> Manifest:
-    return Manifest.model_validate_json((store / run_id / "manifest.json").read_text())
+    return Manifest.model_validate_json((store / run_id / "run.json").read_text())
 
 
 def _start(client, auth) -> str:
@@ -83,7 +83,7 @@ def test_valid_token_starts_run(client, auth, store, stubs):
     run_id = _start(client, auth)
     assert RUN_ID.fullmatch(run_id)
     # The folder and manifest exist when the response is sent; stages run in a thread.
-    assert (store / run_id / "manifest.json").is_file()
+    assert (store / run_id / "run.json").is_file()
     wait_idle(store)
     manifest = _manifest(store, run_id)
     assert {s.name for s in manifest.stages if s.status != "ok"} == {"semantics", "splats"}  # off by default

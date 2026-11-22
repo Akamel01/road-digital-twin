@@ -69,7 +69,7 @@ def test_chain_runs_in_order_and_streams(tmp_path, stubs, monkeypatch):
     done = _done(tmp_path)
     assert set(done) == set("abc")
     for job in done.values():
-        manifest = json.loads((tmp_path / job["run_id"] / "manifest.json").read_text())
+        manifest = json.loads((tmp_path / job["run_id"] / "run.json").read_text())
         assert [s["name"] for s in manifest["stages"]] == list(STAGE_NAMES)
     # streaming: scene b starts its first stage before scene a ends its last
     first_b = min(float(t) for k, n, sc, t in _log(tmp_path) if k == "s" and sc == "b")
@@ -158,9 +158,9 @@ def test_dead_task_fails_its_run_only(tmp_path, stubs, monkeypatch):
     _sched(tmp_path)
     states = {j["scene"]: j["state"] for j in jobqueue.list_jobs(tmp_path)}
     assert states == {"bad": "failed", "good": "done"}
-    run_id = next(d.name for d in tmp_path.iterdir() if (d / "manifest.json").exists()
-                  and json.loads((d / "manifest.json").read_text())["data"]["scene_token"] == "bad")
-    manifest = json.loads((tmp_path / run_id / "manifest.json").read_text())
+    run_id = next(d.name for d in tmp_path.iterdir() if (d / "run.json").exists()
+                  and json.loads((d / "run.json").read_text())["data"]["scene_token"] == "bad")
+    manifest = json.loads((tmp_path / run_id / "run.json").read_text())
     assert [s["status"] for s in manifest["stages"]][-1] == "failed"
 
 
@@ -173,7 +173,7 @@ def test_restart_resumes_interrupted_run(tmp_path, stubs):
     for i in range(3):
         runner.run_stage_task(begun.ctx.run_dir, i)
     # the worker died inside ground: a running entry and a partial folder are left
-    manifest = runner.Manifest.model_validate_json((begun.ctx.run_dir / "manifest.json").read_text())
+    manifest = runner.Manifest.model_validate_json((begun.ctx.run_dir / "run.json").read_text())
     manifest.stages.append(ManifestStage(name="ground", method="ransac-tiles", status="running",
                                          started=manifest.stages[0].started, seconds=0, files=[]))
     runner._write_manifest(begun.ctx.run_dir, manifest)
@@ -184,7 +184,7 @@ def test_restart_resumes_interrupted_run(tmp_path, stubs):
     _sched(tmp_path)
     assert _done(tmp_path)["r"]["run_id"] == begun.ctx.run_dir.name
     assert not (begun.ctx.stage_dir("ground") / "partial.txt").exists()
-    assert len(json.loads((begun.ctx.run_dir / "manifest.json").read_text())["stages"]) == len(STAGE_NAMES)
+    assert len(json.loads((begun.ctx.run_dir / "run.json").read_text())["stages"]) == len(STAGE_NAMES)
 
 
 def test_one_worker_equals_many(tmp_path, stubs):
@@ -208,7 +208,7 @@ def test_stop_after_ends_the_run_early(tmp_path, stubs):
     jobqueue.add(tmp_path, {"type": "run", "scene": "a", "stop_after": "mask"})
     _sched(tmp_path)
     done = _done(tmp_path)
-    manifest = json.loads((tmp_path / done["a"]["run_id"] / "manifest.json").read_text())
+    manifest = json.loads((tmp_path / done["a"]["run_id"] / "run.json").read_text())
     assert [s["name"] for s in manifest["stages"]] == ["load", "mask"]
 
 
