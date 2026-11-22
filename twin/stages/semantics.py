@@ -36,13 +36,13 @@ from twin.stages import accuracy, colour, features, zbuffer
 
 log = logging.getLogger(__name__)
 OUTPUT_FILES = ("prob.npz", "prob.pgw", "paint_prob.png", "curb_prob.png", "qa.json")
-KINDS = ("markings.geojson", "crosswalks.geojson", "curbs.geojson")
+KINDS = ("markings.geojson", "crosswalks.geojson", "curbs.geojson", "ramps.geojson")
 
 # Our classes. Everything else is 0.
-MARKING, CROSSWALK, CURB, SIGN, SIGNAL = 1, 2, 3, 4, 5
+MARKING, CROSSWALK, CURB, SIGN, SIGNAL, CURB_RAMP = 1, 2, 3, 4, 5, 6
 # DECISION: Vistas has no stop-line class (a stop line is "Lane Marking - General"), so stop lines come out as
 # markings and the features' marking typing (map stop_line layer) names them. "Crosswalk - Plain" is a crosswalk
-# without stripes, so it joins the crosswalk class. "Curb Cut" is a ramp, not a curb, and stays out.
+# without stripes, so it joins the crosswalk class. "Curb Cut" is a ramp, not a curb, mapped to curb_ramp.
 VISTAS_CLASSES = {
     "Lane Marking - General": MARKING,
     "Lane Marking - Crosswalk": CROSSWALK,
@@ -50,6 +50,7 @@ VISTAS_CLASSES = {
     "Curb": CURB,
     "Traffic Sign (Front)": SIGN,
     "Traffic Light": SIGNAL,
+    "Curb Cut": CURB_RAMP,
 }
 MODEL_NAME = "mask2former-swin-large-mapillary-vistas-semantic"
 MODEL_REPO = "facebook/" + MODEL_NAME
@@ -173,7 +174,7 @@ def vote(
     z[zn == 0] = np.nan
     r = {
         k: np.zeros(n, np.int32)
-        for k in ("seen", "images", "marking", "crosswalk", "curb")
+        for k in ("seen", "images", "marking", "crosswalk", "curb", "curb_ramp")
     }
     st = stats if stats is not None else {}
     st.update(
@@ -209,6 +210,7 @@ def vote(
                 ("marking", MARKING),
                 ("crosswalk", CROSSWALK),
                 ("curb", CURB),
+                ("curb_ramp", CURB_RAMP),
             ):
                 r[name] += np.bincount(cell[code == k], minlength=n)
             st["n_images_seen"] += 1
@@ -221,13 +223,17 @@ def vote(
 
 
 def probability(r: dict, name: str) -> np.ndarray:
-    """Share of the seen points of each cell labelled `name` (marking, crosswalk, curb, or paint = both)."""
+    """Share of the seen points of each cell labelled `name` (marking, crosswalk, curb, curb_ramp, or paint = both)."""
+    if name == "ramp":
+        name = "curb_ramp"
     votes = r["marking"] + r["crosswalk"] if name == "paint" else r[name]
     return votes / np.maximum(r["seen"], 1)
 
 
 def _on(r: dict, name: str, p: SemanticsParams) -> np.ndarray:
     """Cells that count as `name`: seen in enough images, with probability at least min_prob."""
+    if name == "ramp":
+        name = "curb_ramp"
     return (r["images"] >= p.min_images) & (probability(r, name) >= p.min_prob)
 
 
@@ -242,6 +248,8 @@ def _centres(r: dict, cells: np.ndarray) -> np.ndarray:
 
 def _evidence(r: dict, cells: np.ndarray, name: str) -> dict:
     """Images and votes behind a feature: median images per cell, labelled points, mean probability."""
+    if name == "ramp":
+        name = "curb_ramp"
     votes = (
         r["marking"][cells] + r["crosswalk"][cells]
         if name == "paint"
@@ -416,18 +424,21 @@ def build_variants(
         "markings.geojson": camera_lines(r, "marking", "marking", p),
         "crosswalks.geojson": camera_crosswalks(r, p),
         "curbs.geojson": camera_lines(r, "curb", "curb", p),
+        "ramps.geojson": camera_lines(r, "curb_ramp", "curb_ramp", p),
     }
     features.type_markings(camera["markings.geojson"], reference)
     channel = {
         "markings.geojson": "paint",
         "crosswalks.geojson": "paint",
         "curbs.geojson": "curb",
+        "ramps.geojson": "curb_ramp",
     }
     # A camera marking inside a lidar crosswalk is a stripe the lidar already has.
     explained = {
         "markings.geojson": lidar["markings.geojson"] + lidar["crosswalks.geojson"],
         "crosswalks.geojson": lidar["crosswalks.geojson"],
         "curbs.geojson": lidar["curbs.geojson"],
+        "ramps.geojson": lidar["ramps.geojson"],
     }
     fused, counts = {}, {}
     for kind in KINDS:
@@ -586,7 +597,7 @@ def run_with(
         out / "prob.npz",
         **{
             k: r[k]
-            for k in ("seen", "images", "marking", "crosswalk", "curb", "z", "origin")
+            for k in ("seen", "images", "marking", "crosswalk", "curb", "curb_ramp", "z", "origin")
         },
         cell_m=r["cell_m"],
         nx=r["nx"],
