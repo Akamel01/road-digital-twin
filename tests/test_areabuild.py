@@ -1,4 +1,5 @@
 import json
+import logging
 from pathlib import Path
 
 import numpy as np
@@ -340,105 +341,6 @@ def test_every_manifest_command_parses_with_real_cli(tmp_path):
         elif "stage" in args:
             assert ns.name == node["name"], (node["name"], ns)
         assert getattr(ns, "out", None) is not None
-import logging
-import os
-
-
-def _make_synthetic_area(tmp_path: Path, name="site-tiny") -> Path:
-    base = tmp_path / "store"
-    areas = base / "areas"
-    areas.mkdir(parents=True)
-    merged = areas / f"{name}-merged"
-    merged.mkdir()
-    drives_dir = merged / "drives"
-    drives_dir.mkdir()
-
-    # polygon in EPSG:32619
-    poly_coords = [[[-10.0, -10.0], [10.0, -10.0], [10.0, 10.0], [-10.0, 10.0], [-10.0, -10.0]]]
-    area_doc = {
-        "name": name,
-        "location": "boston-seaport",
-        "epsg": 32619,
-        "buffer_m": 2.0,
-        "intersections": [],
-        "polygon": {"type": "Polygon", "coordinates": poly_coords},
-        "dataset_version": "v1.0-test",
-        "drives": [
-            {"scene": "scene-a", "scene_token": "tok-a", "date": "2018-05-01", "description": "dry", "rain": False, "build_input": True},
-            {"scene": "scene-b", "scene_token": "tok-b", "date": "2018-05-02", "description": "dry", "rain": False, "build_input": True},
-        ],
-    }
-    (areas / f"{name}.json").write_text(json.dumps(area_doc))
-
-    # merged points
-    rng = np.random.default_rng(0)
-    n = 500
-    xs = rng.uniform(-8, 8, n)
-    ys = rng.uniform(-8, 8, n)
-    zs = np.zeros(n)
-    # high-intensity stripes
-    intensity = np.ones(n, dtype=float)
-    stripe = np.abs(xs) < 1.0
-    intensity[stripe] = 100.0
-    drive = rng.integers(0, 2, n).astype(np.int64)
-    np.savez(merged / "merged.npz", x=xs, y=ys, z=zs, intensity=intensity, drive=drive)
-
-    z_surface = [0.0] * 6
-    drives_list = []
-    for i, scene in enumerate(["scene-a", "scene-b"]):
-        drives_list.append({
-            "index": i,
-            "scene": scene,
-            "date": f"2018-05-0{i+1}",
-            "role": "reference" if i == 0 else "registered",
-            "correction": {"dx_m": 0.0, "dy_m": 0.0, "dz_m": 0.0, "translation_m": 0.0, "yaw_deg": 0.0},
-            "z_surface": z_surface,
-            "n_points": int((drive == i).sum()),
-        })
-        ddir = drives_dir / scene
-        (ddir / "1_load").mkdir(parents=True)
-        (ddir / "2_mask").mkdir(parents=True)
-        (ddir / "3_align").mkdir(parents=True)
-
-        # reference feature covering polygon
-        ref_feat = {
-            "type": "Feature",
-            "properties": {"layer": "drivable_area", "token": "ref1"},
-            "geometry": {"type": "Polygon", "coordinates": poly_coords},
-        }
-        (ddir / "1_load" / "facilities.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": []}))
-        (ddir / "1_load" / "reference.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": [ref_feat]}))
-        poses = {"poses": [{"sweep": 0, "timestamp_us": 1000 + i * 100, "matrix": np.eye(4).tolist()}]}
-        (ddir / "1_load" / "poses.json").write_text(json.dumps(poses))
-        cameras = {
-            "cameras": [
-                {
-                    "channel": "CAM_FRONT",
-                    "sample_token": f"s{i}",
-                    "timestamp_us": 1000 + i * 100,
-                    "image": f"samples/CAM_FRONT/{scene}.jpg",
-                    "intrinsics": [[500.0, 0.0, 320.0], [0.0, 500.0, 240.0], [0.0, 0.0, 1.0]],
-                    "extrinsics": {"translation": [0.0, 0.0, 1.0], "rotation_wxyz": [1.0, 0.0, 0.0, 0.0]},
-                }
-            ]
-        }
-        (ddir / "1_load" / "cameras.json").write_text(json.dumps(cameras))
-
-        # empty parked
-        np.savez(ddir / "2_mask" / "parked.npz", x=np.array([]), y=np.array([]), z=np.array([]), intensity=np.array([]), sweep=np.array([], dtype=np.uint16))
-
-        align_poses = {"poses": [{"sweep": 0, "timestamp_us": 1000 + i * 100, "matrix": np.eye(4).tolist()}]}
-        (ddir / "3_align" / "poses.json").write_text(json.dumps(align_poses))
-        (ddir / "3_align" / "qa.json").write_text(json.dumps({"method": "merged-icp", "fallback_used": False, "xy_drift_p95_m": None}))
-
-    (merged / "drives.json").write_text(json.dumps(drives_list))
-
-    # merged run record
-    from twin.runrecord import write_document
-    write_document(merged, {"run_id": "area-site-tiny", "data": {"nuscenes_version": "v1.0-test"}, "metrics": {"align": {"cross_drive_ground_p95_m": 0.1}}, "stages": []})
-
-    (merged / "qa.json").write_text("{}\n")
-    return base
 
 
 def _make_synthetic_area(tmp_path: Path, name="site-tiny") -> Path:
@@ -536,14 +438,16 @@ def _make_synthetic_area(tmp_path: Path, name="site-tiny") -> Path:
     return base
 
 
-def test_real_manifest_runs_end_to_end_on_synthetic_area(tmp_path):
+def test_real_manifest_runs_end_to_end_on_synthetic_area(tmp_path, monkeypatch):
     base = _make_synthetic_area(tmp_path)
     name = "site-tiny"
-    os.environ["TWIN_RUNS"] = str(base)
+    monkeypatch.setenv("TWIN_RUNS", str(base))
     areabuild.area_build(base, name, logging.getLogger("test"))
     core_dir = base / "areas" / f"{name}-twin-core"
     core_doc = json.loads((core_dir / "run.json").read_text())
-    assert all(n.get("status") == "done" for n in core_doc.get("nodes", [])), [n.get("status") for n in core_doc.get("nodes", [])]
+    nodes = core_doc.get("nodes", [])
+    assert len(nodes) == 9
+    assert all(n.get("status") == "done" for n in nodes), [n.get("status") for n in nodes]
     twin_dir = base / "areas" / f"{name}-twin"
     for d in ["1_load", "2_mask", "3_align", "4_ground", "5_features", "7_profile", "8_isd", "9_accuracy"]:
         assert (twin_dir / d).exists(), d
