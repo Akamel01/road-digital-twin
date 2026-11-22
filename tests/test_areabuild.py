@@ -311,3 +311,32 @@ def test_assemble_area_twin_check_date_none(tmp_path, monkeypatch):
     assert summary["construction_check"] is None
     change = json.loads((base / "areas" / f"{name}-twin" / "change.json").read_text())
     assert change["construction_check"] is None
+
+
+def test_every_manifest_command_parses_with_real_cli(tmp_path):
+    from twin.cli import build_parser
+
+    base = tmp_path / "store"
+    base.mkdir()
+    manifest = areabuild.area_manifest(base, "x")
+    parser = build_parser()
+    for node in manifest["nodes"]:
+        cmd = list(node["command"])
+        if cmd and cmd[0].endswith("twin"):
+            args = cmd[1:]
+        elif len(cmd) >= 4 and cmd[0] == "python" and cmd[1] == "-m" and cmd[2] == "twin.cli":
+            args = cmd[3:]
+        else:
+            # handle sys.executable variant: python -m twin.cli
+            if "twin.cli" in cmd:
+                idx = cmd.index("twin.cli")
+                args = cmd[idx + 1:]
+            else:
+                args = cmd[:]
+        ns = parser.parse_args(args)
+        # area step nodes
+        if "area" in args and "step" in args:
+            assert ns.step == node["name"], (node["name"], ns)
+        elif "stage" in args:
+            assert ns.name == node["name"], (node["name"], ns)
+        assert getattr(ns, "out", None) is not None
