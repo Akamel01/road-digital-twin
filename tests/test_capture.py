@@ -270,3 +270,62 @@ def test_capture_missing_image_rejected(tmp_path):
     assert "first missing: 'scene-0001/CAM_FRONT/1100.jpg'" in msg
     assert str(tmp_path / "nuscenes" / "samples" / "CAM_FRONT" / "scene-0001.jpg") in msg
     assert not out.exists()  # atomic: a failed build never publishes a partial capture
+
+
+def test_capture_duplicate_image_name_different_path_rejected(tmp_path):
+    merged = tmp_path / "areas" / "demo-merged"
+    (merged / "drives" / "scene-0000" / "1_load").mkdir(parents=True)
+    (merged / "drives" / "scene-0000" / "3_align").mkdir(parents=True)
+    np.savez(
+        merged / "merged.npz",
+        x=np.array([100.0], dtype=float),
+        y=np.array([200.0], dtype=float),
+        z=np.array([10.0], dtype=float),
+        intensity=np.ones(1),
+        drive=np.array([0], dtype=np.int64),
+    )
+    (merged / "drives.json").write_text(
+        json.dumps([{"scene": "scene-0000", "date": "2018-05-01", "scene_token": "tok0"}])
+    )
+    poses = {
+        "crs": "EPSG:32619",
+        "poses": [{"sweep": 0, "timestamp_us": 1000, "matrix": np.eye(4).tolist()}],
+    }
+    (merged / "drives" / "scene-0000" / "3_align" / "poses.json").write_text(json.dumps(poses))
+    rel_a = "samples/CAM_FRONT/scene-0000-a.jpg"
+    rel_b = "samples/CAM_FRONT/scene-0000-b.jpg"
+    cameras = {
+        "cameras": [
+            {
+                "channel": "CAM_FRONT",
+                "sample_token": "s0a",
+                "timestamp_us": 1000,
+                "image": rel_a,
+                "intrinsics": [[500.0, 0.0, 320.0], [0.0, 500.0, 240.0], [0.0, 0.0, 1.0]],
+                "extrinsics": {"translation": [0.0, 0.0, 1.0], "rotation_wxyz": [1.0, 0.0, 0.0, 0.0]},
+            },
+            {
+                "channel": "CAM_FRONT",
+                "sample_token": "s0b",
+                "timestamp_us": 1000,
+                "image": rel_b,
+                "intrinsics": [[500.0, 0.0, 320.0], [0.0, 500.0, 240.0], [0.0, 0.0, 1.0]],
+                "extrinsics": {"translation": [0.0, 0.0, 1.0], "rotation_wxyz": [1.0, 0.0, 0.0, 0.0]},
+            },
+        ]
+    }
+    (merged / "drives" / "scene-0000" / "1_load" / "cameras.json").write_text(json.dumps(cameras))
+    for rel in (rel_a, rel_b):
+        img = tmp_path / "nuscenes" / rel
+        img.parent.mkdir(parents=True, exist_ok=True)
+        img.write_bytes(b"")
+
+    out = tmp_path / "areas" / "demo-capture"
+    with pytest.raises(ValueError) as excinfo:
+        build_area_capture(merged, out, "demo", dataroot=tmp_path / "nuscenes")
+
+    msg = str(excinfo.value)
+    assert "duplicate capture image name 'scene-0000/CAM_FRONT/1000.jpg'" in msg
+    assert rel_a in msg
+    assert rel_b in msg
+    assert not out.exists()

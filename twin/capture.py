@@ -202,6 +202,11 @@ def colmap_model(drives: list[dict], merged_dir: Path, origin: np.ndarray):
             name = f"{scene}/{cam['channel']}/{t_us}.jpg"
             if any(ch.isspace() for ch in name):
                 raise ValueError(f"image name has whitespace: {name!r}")
+            prev = sources.get(name)
+            if prev is not None and prev != str(cam["image"]):
+                raise ValueError(
+                    f"duplicate capture image name {name!r}: {prev!r} and {cam['image']!r}"
+                )
             sources[name] = str(cam["image"])
             images[image_id] = Image(
                 image_id=image_id,
