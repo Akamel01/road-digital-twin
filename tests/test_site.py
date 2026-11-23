@@ -5,6 +5,7 @@ import pytest
 
 from twin import jobqueue, site
 from twin.cli import main
+from twin.contracts import stage_dir
 from twin.gates import GateReport
 
 
@@ -217,7 +218,7 @@ def test_area_runs_maps_drive_names_to_tokens_and_skips_unpublishable(tmp_path, 
     for run in (good, partial):
         run.mkdir()
         (run / "run.json").write_text("{}")
-    out = publish._stage(good, "outputs")
+    out = stage_dir(good, "outputs")
     out.mkdir(parents=True)
     for name in publish.PUBLIC_FILES:
         (out / name).write_text("x")

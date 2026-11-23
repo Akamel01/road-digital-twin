@@ -17,6 +17,7 @@ import numpy as np
 from PIL import Image
 from scipy import ndimage
 
+from twin.contracts import stage_dir
 from twin.dataset import DatasetConfig
 from twin.stages.zbuffer import camera_to_world
 
@@ -202,7 +203,7 @@ def _collect_drive(run, x0, y1, width=W_PX, height=H_PX, cell=G, nuscenes_root=N
     base = _run_base(run)
     rname = _run_name(run)
 
-    ground_path = base / "4_ground" / "ground.laz"
+    ground_path = stage_dir(base, "ground") / "ground.laz"
     if not ground_path.exists():
         raise OSError(f"missing ground.laz: {ground_path}")
 
@@ -244,8 +245,8 @@ def _collect_drive(run, x0, y1, width=W_PX, height=H_PX, cell=G, nuscenes_root=N
     cR = okd.astype(float)
 
     basep = base
-    pgw_path = basep / "6_colour" / "ortho.pgw"
-    ortho_png = basep / "6_colour" / "ortho.png"
+    pgw_path = stage_dir(basep, "colour") / "ortho.pgw"
+    ortho_png = stage_dir(basep, "colour") / "ortho.png"
     obs = None
     rgb = None
     raw = None
@@ -416,7 +417,7 @@ def export_window(store, runs, *, site, x0, y1, width=1600, height=1500, cell=0.
                 continue
 
             if cell > G + 1e-12:
-                ortho = _run_base(run) / "6_colour" / "ortho.png"
+                ortho = stage_dir(_run_base(run), "colour") / "ortho.png"
                 if ortho.exists():
                     note = f"{rname}: ortho/fused skipped (downsampled window)"
                     if note not in missing:
@@ -450,14 +451,14 @@ def export_window(store, runs, *, site, x0, y1, width=1600, height=1500, cell=0.
         for rname, base, transform in (s for run in usable for s in _frame_drives(run)):
             base = Path(base)
             try:
-                with open(base / "3_align" / "poses.json") as _f:
+                with open(stage_dir(base, "align") / "poses.json") as _f:
                     poses = json.load(_f)["poses"]
                 ego = np.array([q["matrix"] for q in poses], float).reshape(-1, 4, 4)
                 # shortcut: correction applied here assumes 3_align/poses.json is uncorrected; if merge ever bakes corrections into poses.json, remove this transform
                 if transform is not None:
                     ego = transform @ ego
                 t = np.array([q["timestamp_us"] for q in poses], np.int64)
-                with open(base / "1_load" / "cameras.json") as _f:
+                with open(stage_dir(base, "load") / "cameras.json") as _f:
                     cams = json.load(_f)["cameras"]
             except (OSError, ValueError, KeyError, json.JSONDecodeError):
                 continue

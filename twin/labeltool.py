@@ -21,7 +21,7 @@ from shapely.geometry import shape
 from twin import labels
 from twin.area import drive_correction
 from twin.area import drive_tokens as area_drive_tokens
-from twin.contracts import LabelFeature
+from twin.contracts import LabelFeature, stage_dir
 from twin.labels import read_labels, read_site, valid_site, write_labels
 from twin.runstore import DONE, RunStore
 
@@ -327,9 +327,9 @@ def area_source(build_dir, area_def) -> AreaSource | None:
     build = Path(build_dir)
     name = build.name.removesuffix("-twin").removesuffix("-merged")
     root = build.parent
-    twin = build if (build / "4_ground" / "ground.laz").is_file() else root / f"{name}-twin"
+    twin = build if (stage_dir(build, "ground") / "ground.laz").is_file() else root / f"{name}-twin"
     merged = build if build.name.endswith("-merged") else root / f"{name}-merged"
-    if not (twin / "4_ground" / "ground.laz").is_file():
+    if not (stage_dir(twin, "ground") / "ground.laz").is_file():
         return None
     try:
         drives = json.loads((merged / "drives.json").read_text())
