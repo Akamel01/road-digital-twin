@@ -188,6 +188,30 @@ describe("evaluations lib", () => {
     expect(HEADLINE[2].barKey).toBeUndefined();
   });
 
+  it("METRIC_INFO per-row metadata", () => {
+    const expected: Record<string, { header: string; unit: string; dir: string; log: boolean; barKey: string | null }> = {
+      psnr: { header: "Image match (PSNR, dB)", unit: "dB", dir: "up", log: false, barKey: "psnr_min" },
+      ssim: { header: "Structure match (SSIM)", unit: "", dir: "up", log: false, barKey: null },
+      road_depth_p50_m: { header: "Road median (m)", unit: "m", dir: "down", log: true, barKey: null },
+      road_depth_p95_m: { header: "Road worst 5% (m)", unit: "m", dir: "down", log: true, barKey: "road_depth_p95_max_m" },
+      sidewalk_depth_p50_m: { header: "Sidewalk median (m)", unit: "m", dir: "down", log: true, barKey: null },
+      sidewalk_depth_p95_m: { header: "Sidewalk worst 5% (m)", unit: "m", dir: "down", log: true, barKey: null },
+      lidar_all_p50_m: { header: "All-ray median (m)", unit: "m", dir: "down", log: true, barKey: null },
+      lidar_all_p95_m: { header: "All-ray worst 5% (m)", unit: "m", dir: "down", log: true, barKey: null },
+      lidar_ground_p50_m: { header: "Ground-ray median (m)", unit: "m", dir: "down", log: true, barKey: null },
+      lidar_ground_p95_m: { header: "Ground-ray worst 5% (m)", unit: "m", dir: "down", log: true, barKey: null },
+    };
+    for (const k of METRIC_KEYS) {
+      const info = METRIC_INFO[k];
+      const e = expected[k];
+      expect(info.header).toBe(e.header);
+      expect(info.unit).toBe(e.unit);
+      expect(info.dir).toBe(e.dir);
+      expect(info.log).toBe(e.log);
+      expect(info.barKey ?? null).toBe(e.barKey);
+    }
+  });
+
   it("seriesByApproach date sort and tie-break", () => {
     const runs: any[] = [
       { date: "2026-01-03", approach: "A", metrics: { psnr: 1 } },

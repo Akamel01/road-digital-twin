@@ -124,9 +124,10 @@
 
 .chartTitle {
   font: 700 14px/1.2 var(--display);
-  white-space: nowrap;
+  white-space: normal;
   overflow-wrap: normal;
   word-break: normal;
+  max-width: 100%;
 }
 
 .chartMeaning {
@@ -182,7 +183,7 @@
 
 .barLabel {
   fill: var(--on-glass-2);
-  font-size: 10px;
+  font-size: 14px;
 }
 
 .axisText {
@@ -251,7 +252,7 @@
 .stickyFirst {
   position: sticky;
   left: 0;
-  background: var(--glass-smoke);
+  background: var(--canopy-900);
   box-shadow: 2px 0 0 var(--glass-edge);
   z-index: 2;
 }

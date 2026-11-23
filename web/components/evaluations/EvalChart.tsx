@@ -12,8 +12,8 @@ import {
 import local from "./evaluations.module.css";
 
 const W = 720;
-const H = 260;
-const M = { top: 16, right: 16, bottom: 40, left: 56 };
+const H = 280;
+const M = { top: 24, right: 40, bottom: 44, left: 88 };
 
 export default function EvalChart({
   spec,
