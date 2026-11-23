@@ -23,6 +23,7 @@ import numpy as np
 
 from twin import fake_run, gpulease, jobqueue, merge, registry, runner, scheduler, site
 from twin import fixtures as fx
+from twin.autopilot import RealWorld
 from twin.contracts import STAGE_NAMES, STAGES, Params, StageResult
 from twin.runrecord import record_path
 
@@ -319,10 +320,10 @@ def smoke(work: Path | None = None, say: Callable[[str], None] = _say) -> int:
             )
             run("contract: runs are complete", lambda: _check_runs(store, 2))
             merge_eval_publish(store, stub_web(work), say, run)
-            with fake_sources(work):
+            with fake_sources(work) as world:
                 run(
                     "autopilot --once, every source",
-                    lambda: _autopilot_pass(store, say),
+                    lambda: _autopilot_pass(store, say, world),
                 )
                 run(
                     "scheduler on the autopilot's jobs",
@@ -362,56 +363,70 @@ def _check_runs(store: Path, n: int) -> None:
             raise StepFailed(f"run {run.id}: no gates.json after eval")
 
 
+class SmokeWorld(RealWorld):
+    """The autopilot's outside world for the smoke: GitHub (PR list, diff), main commit, nuScenes scene list,
+    area ranking and disk are faked; git pull, detached shells, the site and the sweeps stay real."""
+
+    SHA = "f" * 40
+
+    def __init__(self):
+        super().__init__()
+        self.scenes = [{"name": f"fake-p4-{i}", "token": f"fake-p4-token-{i}"} for i in range(2)]
+        self.passes = {"fake/area-x": [s["name"] for s in self.scenes]}
+
+    def main_commit(self):
+        return self.SHA
+
+    def has_gh(self):
+        return True
+
+    def gh(self, *args):
+        if args[:2] == ("pr", "diff"):
+            return "twin/stages/ground.py"
+        return json.dumps([{"number": 7, "headRefOid": self.SHA, "labels": [{"name": "method"}]}])
+
+    def free_gb(self, path):
+        return 1000.0
+
+    def ranked_areas(self):
+        return self.passes
+
+    def scene_tokens(self):
+        return {s["name"]: s["token"] for s in self.scenes}
+
+    def queue_sweep(self, store, target, space, extra):
+        return super().queue_sweep(store, target, {**space, "n": 2}, extra)  # small rounds
+
+
 @contextmanager
 def fake_sources(work: Path):
-    """The autopilot's outside world, faked: GitHub (PR list, statuses, gate), main commit, nuScenes scene list,
-    area ranking and disk. The patches hold while the scheduler runs the jobs they produce."""
-    from twin import autopilot, prgate
+    """The world the autopilot runs in (a SmokeWorld), and the PR gate's own GitHub calls faked. Those run in
+    the scheduler's worker, not in the autopilot, so they cannot go through the world: a PR gate needs
+    git and GitHub, the job must still flow through, and a smoke run never posts to GitHub. The patches
+    hold while the scheduler runs the jobs the autopilot produced."""
+    from twin import prgate
 
-    nusc = work / "nuscenes"
-    nusc.mkdir(exist_ok=True)
-    scenes = [{"name": f"fake-p4-{i}", "token": f"fake-p4-token-{i}"} for i in range(2)]
-    (nusc / "scene.json").write_text(json.dumps(scenes))
-    passes = work / "passes.json"
-    passes.write_text(json.dumps({"fake/area-x": [s["name"] for s in scenes]}))
-    sha = "f" * 40
     patches = {
-        (autopilot, "NUSCENES"): nusc,
-        (autopilot, "ranked_areas"): lambda *a: json.loads(
-            passes.read_text()
-        ),  # PASSES_FILE is a default argument
-        (autopilot, "ROUND_N"): 2,
-        (autopilot, "main_commit"): lambda: sha,
-        (autopilot.shutil, "which"): lambda name: "/bin/true",
-        (prgate, "open_prs"): lambda repo=None, gh=None: [
-            {"pr": 7, "sha": sha, "method": True}
-        ],
-        (
-            prgate,
-            "gate",
-        ): lambda *a, **k: {},  # a PR gate needs git and GitHub; the job must still flow through
-        (prgate, "set_status"): lambda *a, **k: (
-            None
-        ),  # never post to GitHub from a smoke run
+        (prgate, "gate"): lambda *a, **k: {},
+        (prgate, "set_status"): lambda *a, **k: None,
         (prgate, "post_comment"): lambda *a, **k: None,
-        (autopilot.telemetry, "free_gb"): lambda path: 1000.0,
     }
     saved = {k: getattr(*k) for k in patches}
     for (obj, name), value in patches.items():
         setattr(obj, name, value)
     try:
-        yield
+        yield SmokeWorld()
     finally:
         for (obj, name), value in saved.items():
             setattr(obj, name, value)
 
 
-def _autopilot_pass(store: Path, say) -> None:
+def _autopilot_pass(store: Path, say, world) -> None:
     """One `twin autopilot --once` pass with P0, P2, P3 and P4 all producing work."""
     from twin import autopilot
 
     before = {j["id"] for j in jobqueue.list_jobs(store)}
-    say(f"    {autopilot.step(store, ready=0)}")
+    say(f"    {autopilot.step(store, ready=0, world=world)}")
     # P2 runs detached; wait for its merge + eval to end, as the next passes would
     state = autopilot.load_state(store)
     for _ in range(240):

@@ -49,14 +49,19 @@ def test_pull_failure_path(monkeypatch, tmp_path, capsys):
         return subprocess.CompletedProcess(a[0] if a else [], 1, stdout="", stderr="nope")
     monkeypatch.setattr(subprocess, "run", fake_run)
     # need git commit function
-    monkeypatch.setattr("twin.autopilot.main_commit", lambda: "abc123")
+    from twin.autopilot import RealWorld
+
+    class World(RealWorld):
+        def main_commit(self):
+            return "abc123"
+
     # store state
     (tmp_path / "autopilot").mkdir(parents=True, exist_ok=True)
     state = {"p2": {}, "p2b": {}}
     import json
     (tmp_path / "autopilot" / "state.json").write_text(json.dumps(state))
     from twin import autopilot
-    autopilot.p2_area(tmp_path, state)
+    autopilot.p2_area(tmp_path, state, World())
     out = capsys.readouterr().out
     assert "pull failed" in out
 
