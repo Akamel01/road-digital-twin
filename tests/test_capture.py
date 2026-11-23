@@ -329,3 +329,25 @@ def test_capture_duplicate_image_name_different_path_rejected(tmp_path):
     assert rel_a in msg
     assert rel_b in msg
     assert not out.exists()
+
+
+
+def test_capture_writes_image_captures_for_multi_drive(tmp_path):
+    merged = _write_merged(tmp_path)
+    out = tmp_path / "areas" / "demo-capture"
+    build_area_capture(merged, out, "demo", dataroot=tmp_path / "nuscenes")
+
+    from recon_core.capture import load_capture
+
+    cap = load_capture(out)
+    meta = json.loads((out / "capture.json").read_text())
+    mapping = meta["image_captures"]
+
+    assert len(mapping) == 2
+    assert set(mapping) == {im.name for im in cap.colmap.images.values()}
+    assert set(mapping.values()) == set(meta["captures"]) == {"scene-0000", "scene-0001"}
+    assert mapping == {
+        "scene-0000/CAM_FRONT/1000.jpg": "scene-0000",
+        "scene-0001/CAM_FRONT/1100.jpg": "scene-0001",
+    }
+    assert dict(cap.meta.image_captures) == mapping

@@ -461,3 +461,38 @@ def test_real_manifest_runs_end_to_end_on_synthetic_area(tmp_path, monkeypatch):
     for g in ("G1", "G2", "G3", "G4", "G5", "G6"):
         assert g in gates["gates"], g
     assert "verdict" in gates
+
+
+def test_area_build_rebuilds_stale_multi_drive_capture(tmp_path, monkeypatch):
+    base = _make_store(tmp_path)
+    name = "a1"
+    single = tmp_path / "single.json"
+    single.write_text(json.dumps({"version": 1, "captures": ["s1"]}))
+    assert areabuild._capture_stale(single) is False
+    capture_json = base / "areas" / f"{name}-capture" / "capture.json"
+    capture_json.parent.mkdir()
+    capture_json.write_text(json.dumps({"version": 1, "captures": ["s1", "s2"]}))
+    calls = []
+
+    def fake_build(merged_dir, out, area_name):
+        calls.append(area_name)
+        (Path(out) / "capture.json").write_text(
+            json.dumps({"version": 1, "captures": ["s1", "s2"],
+                        "image_captures": {"s1/a.jpg": "s1", "s2/b.jpg": "s2"}})
+        )
+        return Path(out)
+
+    node_metrics = {
+        "ground": {"z_disagreement_p95_m": 0.1},
+        "change": {"n_features": 0, "n_features_changed": 0, "n_change_regions": 0,
+                    "change_area_m2": 0.0, "noise": {}, "by_date": {}},
+        "accuracy": {"elements": {}},
+    }
+    monkeypatch.setattr("twin.capture.build_area_capture", fake_build)
+    monkeypatch.setattr(areabuild, "core_run", lambda mp, cd: _fake_core_run(cd, node_metrics))
+    log = logging.getLogger("test")
+
+    areabuild.area_build(base, name, log)
+    assert len(calls) == 1  # stale multi-drive capture rebuilt
+    areabuild.area_build(base, name, log)
+    assert len(calls) == 1  # complete capture reused
