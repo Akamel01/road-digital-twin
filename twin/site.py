@@ -11,6 +11,7 @@ import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
 
@@ -18,7 +19,6 @@ from twin import prgate, publish, score
 from twin.areastore import open_area
 from twin.contracts import stage_dir
 from twin.gates import GO, GateReport
-from twin.publish import PublishReport
 from twin.runner import default_store
 from twin.runrecord import read_record, record_path
 
@@ -93,39 +93,56 @@ def write_status(showcase: Path, report: dict, published_at: str) -> None:
     (showcase / "status.json").write_text(json.dumps(status, indent=2) + "\n")
 
 
-def build(run_ids: list[str], store: Path, report: dict, web: Path = WEB) -> PublishReport:
-    """Showcase bundle, status.json and the static export in web/out.
+class NodeWeb:
+    """The web toolchain: export() writes the static site to web/out, deploy() ships it to Cloudflare.
+    Tests pass a fake with the same two methods and a `web` folder."""
 
-    Returns the PublishReport captured from publish_runs (single source of truth).
-    """
-    from twin.publish import PublishReport
+    def __init__(self, web: Path = WEB):
+        self.web = web
 
-    label = ",".join(map(str, run_ids))
-    if not shutil.which("npm", path=node_env()["PATH"]):
-        raise SiteStop(
-            "npm not found: Node is needed to build web/ (not installed on this machine)"
-        )
+    def export(self) -> None:
+        if not shutil.which("npm", path=node_env()["PATH"]):
+            raise SiteStop(
+                "npm not found: Node is needed to build web/ (not installed on this machine)"
+            )
+        if not (self.web / "node_modules").exists():
+            _run(["npm", "ci"], self.web)
+        _run(["npm", "run", "build"], self.web)
+
+    def deploy(self) -> None:
+        env = node_env({"CLOUDFLARE_API_TOKEN": read_token()})
+        env.setdefault("CLOUDFLARE_ACCOUNT_ID", ACCOUNT_ID)
+        _run(["npx", "-y", WRANGLER, "deploy"], self.web, env)
+
+
+def _ship(
+    store: Path,
+    web: Path,
+    toolchain,
+    showcase_from: tuple[list[str], dict, str] | None,
+    dry_run: bool,
+    detail: str | None = None,
+) -> str | None:
+    """Stage the showcase (runs, gate report, published_at) and the latest bundle into web/public, export,
+    then deploy. A dry run stops before the deploy and returns its status line; a deploy returns None."""
+    toolchain = toolchain or NodeWeb(web)
     showcase = web / "public" / "showcase"
     shutil.rmtree(showcase, ignore_errors=True)
-    try:
-        _area, pub_report = publish.publish_runs(run_ids, showcase, store)
-    except (OSError, ValueError) as exc:
-        raise SiteStop(f"cannot build the showcase from {label}: {exc}") from exc
+    files = 0
+    if showcase_from:
+        runs, report, at = showcase_from
+        try:
+            _area, pub_report = publish.publish_runs(runs, showcase, store)
+        except (OSError, ValueError) as exc:
+            raise SiteStop(f"cannot build the showcase from {','.join(runs)}: {exc}") from exc
+        write_status(showcase, report, at)
+        files = getattr(pub_report, "total_files", 0)
     stage_latest_into(store, web)
-    write_status(showcase, report, datetime.now(UTC).isoformat(timespec="seconds"))
-    if not (web / "node_modules").exists():
-        _run(["npm", "ci"], web)
-    _run(["npm", "run", "build"], web)
-    return pub_report if pub_report is not None else PublishReport(
-        run_ids=run_ids, layers={}, total_bytes=0, total_files=0,
-        max_file_bytes=0, max_files=0,
-    )
-
-
-def deploy(token: str, web: Path = WEB) -> None:
-    env = node_env({"CLOUDFLARE_API_TOKEN": token})
-    env.setdefault("CLOUDFLARE_ACCOUNT_ID", ACCOUNT_ID)
-    _run(["npx", "-y", WRANGLER, "deploy"], web, env)
+    toolchain.export()
+    if not dry_run:
+        toolchain.deploy()
+        return None
+    return f"dry run: built {web / 'out'}, nothing deployed ({detail or f'files={files}'})"
 
 
 def _published_report(store: Path, entry: dict) -> dict | None:
@@ -156,26 +173,45 @@ def _score_or_none(store, target_dir, baseline_doc):
     return doc
 
 
-def _improves(candidate: dict, published_entry: dict, score_doc) -> tuple[bool, str]:
-    pub_gc = published_entry.get("go_count")
-    pub_ms = published_entry.get("margin_sum")
+def _already_published(past: list[dict], publish_id: str) -> bool:
+    return bool(past) and past[-1].get("build_id", past[-1].get("run_id")) == publish_id
+
+
+class Decision(NamedTuple):
+    publish: bool
+    reason: str  # why not, when publish is False
+    note: str = ""  # a diagnostic for stderr (a fallback was taken)
+
+
+def decide(candidate: dict, past: list[dict], score_doc, *, publish_id: str, force: bool) -> Decision:
+    """The publish rule (#292 item 18): no element worse beyond the noise, ties publish. Pure: the caller
+    computes score_doc (None when unavailable) and acts on the answer."""
+    if not past or force:
+        return Decision(True, "")
+    last = past[-1]
+    if _already_published(past, publish_id):
+        return Decision(False, "already published")
+    pub_gc = last.get("go_count")
+    pub_ms = last.get("margin_sum")
     if pub_gc is None or pub_ms is None:
-        return True, ""
+        return Decision(True, "")
     cand_gc = GateReport(candidate).passed
     if cand_gc < pub_gc:
-        return False, f"fewer gate checks pass ({cand_gc} vs {pub_gc})"
-    base_doc = published_entry.get("score")
-    if score_doc is not None and base_doc is not None:
+        return Decision(False, f"worse: fewer gate checks pass ({cand_gc} vs {pub_gc})")
+    note = ""
+    if score_doc is not None and last.get("score") is not None:
         cmp = score_doc.get("compare") or {}
         if cmp.get("comparable") is not False:
-            ok = cmp.get("publish") is True
-            return ok, "" if ok else str(cmp.get("reason") or "per-element score worse")
-        print("publish: baseline score not comparable (label sites changed): comparing gate margins", file=sys.stderr)
+            if cmp.get("publish") is True:
+                return Decision(True, "")
+            return Decision(False, f"worse: {cmp.get('reason') or 'per-element score worse'}")
+        note = "baseline score not comparable (label sites changed): comparing gate margins"
     else:
-        print("publish: no per-element score for the candidate and the published run: comparing gate margins", file=sys.stderr)
+        note = "no per-element score for the candidate and the published run: comparing gate margins"
     cand_ms = GateReport(candidate).score()
-    return (True, "") if cand_ms >= pub_ms - TIE_MARGIN else (
-        False, f"margin sum {cand_ms:g} is worse than published {pub_ms:g}")
+    if cand_ms >= pub_ms - TIE_MARGIN:
+        return Decision(True, "", note)
+    return Decision(False, f"worse: margin sum {cand_ms:g} is worse than published {pub_ms:g}", note)
 
 
 def area_runs(store: Path, area) -> list[str]:
@@ -215,6 +251,7 @@ def publish_run(
     dry_run: bool = False,
     force: bool = False,
     web: Path = WEB,
+    toolchain=None,
 ) -> str:
     """Publish run_id (or an area name) if it improves on the published run. Returns a status line;
     a skip returns "skipped: reason". Raises SiteStop when it cannot go on."""
@@ -249,33 +286,25 @@ def publish_run(
     target_dir = area if area is not None else store / str(run_id)
     published = history(store)
     baseline_doc = published[-1].get("score") if published else None
-    noop = published and not force and (
-        published[-1].get("build_id", published[-1].get("run_id")) == publish_id
-    )
     score_doc = None
-    if not dry_run and not noop:
-        score_doc = _score_or_none(store, target_dir, baseline_doc)
-    if published and not force:
-        last = published[-1]
-        if last.get("build_id", last.get("run_id")) == publish_id:
-            if not dry_run:
-                return "skipped: already published"
-        else:
-            improve, reason = _improves(report, published[-1], score_doc)
-            if not improve and not dry_run:
-                return f"skipped: worse: {reason}"
-    token = None if dry_run else read_token()
-    pub_report = build(build_input, store, report, web)
-    if dry_run:
-        n = getattr(pub_report, "total_files", 0) if pub_report is not None else 0
-        return f"dry run: built {web / 'out'}, nothing deployed (files={n})"
-    deploy(token, web)
+    if not dry_run:
+        if force or not _already_published(published, publish_id):  # a no-op publish is not scored
+            score_doc = _score_or_none(store, target_dir, baseline_doc)
+        decision = decide(report, published, score_doc, publish_id=publish_id, force=force)
+        if decision.note:
+            print(f"publish: {decision.note}", file=sys.stderr)
+        if not decision.publish:
+            return f"skipped: {decision.reason}"
+    at = datetime.now(UTC).isoformat(timespec="seconds")
+    line = _ship(store, web, toolchain, (build_input, report, at), dry_run)
+    if line:
+        return line
     _record(
         store,
         {
             "run_id": publish_id,
             "build_id": build_id,
-            "published_at": datetime.now(UTC).isoformat(timespec="seconds"),
+            "published_at": at,
             "verdict": report["verdict"],
             "margins": GateReport(report).rooms(),
             "go_count": GateReport(report).passed,
@@ -296,17 +325,7 @@ def entry_inputs(store: Path, entry: dict) -> tuple[list[str], dict]:
     return [entry["run_id"]], json.loads((Path(store) / entry["run_id"] / "gates.json").read_text())
 
 
-def _build_and_deploy(runs: list[str], store: Path, report: dict, web: Path, dry_run: bool) -> tuple[bool, object]:
-    """Build the site from runs and report; deploy unless dry_run. Returns (deployed, report)."""
-    token = None if dry_run else read_token()
-    pub_report = build(runs, store, report, web)
-    if dry_run:
-        return False, pub_report
-    deploy(token, web)
-    return True, pub_report
-
-
-def rollback(store: Path, dry_run: bool = False, web: Path = WEB) -> str:
+def rollback(store: Path, dry_run: bool = False, web: Path = WEB, toolchain=None) -> str:
     """Republish the run published before the current one."""
     past = history(Path(store))
     if not past:
@@ -316,17 +335,17 @@ def rollback(store: Path, dry_run: bool = False, web: Path = WEB) -> str:
         raise SiteStop("no earlier published run to roll back to")
     entry = earlier[-1]
     if "runs" not in entry:  # published before #222: a single run id
-        return publish_run(Path(store), entry["run_id"], dry_run, force=True, web=web)
+        return publish_run(Path(store), entry["run_id"], dry_run, force=True, web=web, toolchain=toolchain)
     runs, report = entry_inputs(Path(store), entry)
-    deployed, pub_report = _build_and_deploy(runs, Path(store), report, web, dry_run)
-    if not deployed:
-        n = getattr(pub_report, "total_files", 0) if pub_report is not None else 0
-        return f"dry run: built {web / 'out'}, nothing deployed (files={n})"
-    _record(Path(store), {**entry, "published_at": datetime.now(UTC).isoformat(timespec="seconds")})
+    at = datetime.now(UTC).isoformat(timespec="seconds")
+    line = _ship(Path(store), web, toolchain, (runs, report, at), dry_run)
+    if line:
+        return line
+    _record(Path(store), {**entry, "published_at": at})
     return f"rolled back to {entry['run_id']}"
 
 
-def redeploy(store: Path, dry_run: bool = False, web: Path = WEB) -> str:
+def redeploy(store: Path, dry_run: bool = False, web: Path = WEB, toolchain=None) -> str:
     """Rebuild the last published entry with the current web/ code and deploy it. No new history entry:
     the last one gets redeployed_at (#247)."""
     store = Path(store)
@@ -335,11 +354,11 @@ def redeploy(store: Path, dry_run: bool = False, web: Path = WEB) -> str:
         raise SiteStop("nothing has been published")
     last = past[-1]
     runs, report = entry_inputs(store, last)
-    deployed, pub_report = _build_and_deploy(runs, store, report, web, dry_run)
-    if not deployed:
-        n = getattr(pub_report, "total_files", 0) if pub_report is not None else 0
-        return f"dry run: built {web / 'out'}, nothing deployed (files={n})"
-    past[-1] = {**last, "redeployed_at": datetime.now(UTC).isoformat(timespec="seconds")}
+    at = datetime.now(UTC).isoformat(timespec="seconds")
+    line = _ship(store, web, toolchain, (runs, report, at), dry_run)
+    if line:
+        return line
+    past[-1] = {**last, "redeployed_at": at}
     _history_file(store).write_text(json.dumps(past, indent=2) + "\n")
     return f"redeployed {last['run_id']}"
 
@@ -350,20 +369,21 @@ def site_command(
     dry_run: bool,
     store: Path | None,
     latest: str | None = None,
+    toolchain=None,
 ) -> int:
     store = store or default_store()
     try:
         if latest:
-            print(publish_latest(store, latest, dry_run))
+            print(publish_latest(store, latest, dry_run, toolchain=toolchain))
         elif action == "history":
             for e in history(store):
                 print(e["published_at"], e["run_id"], e["verdict"])
         elif action == "rollback":
-            print(rollback(store, dry_run))
+            print(rollback(store, dry_run, toolchain=toolchain))
         elif action == "redeploy":
-            print(redeploy(store, dry_run))
+            print(redeploy(store, dry_run, toolchain=toolchain))
         elif run_id:
-            print(publish_run(store, run_id, dry_run))
+            print(publish_run(store, run_id, dry_run, toolchain=toolchain))
         else:
             print("twin site publish: needs a run id", file=sys.stderr)
             return 2
@@ -534,42 +554,21 @@ def stage_latest_into(store: Path, web: Path = WEB) -> bool:
     return True
 
 
-def build_latest(store: Path, web: Path = WEB) -> None:
-    """Static export carrying the latest bundle and, unchanged, the last GO-published showcase."""
-    if not shutil.which("npm", path=node_env()["PATH"]):
-        raise SiteStop(
-            "npm not found: Node is needed to build web/ (not installed on this machine)"
-        )
+def publish_latest(
+    store: Path, area: str, dry_run: bool = False, web: Path = WEB, toolchain=None
+) -> str:
+    """Stage the area's latest build and deploy it to the site's /latest view, whatever the verdict. The
+    site also carries, unchanged, the last GO-published showcase. Returns a status line. Raises SiteStop
+    when it cannot go on."""
+    store = Path(store)
+    info = latest_payload(store, area)
     past = history(store)
-    showcase = web / "public" / "showcase"
-    shutil.rmtree(showcase, ignore_errors=True)
+    showcase_from = None
     if past:
         runs, report = entry_inputs(store, past[-1])
-        try:
-            publish.publish_runs(runs, showcase, store)[1]
-        except (OSError, ValueError) as exc:
-            raise SiteStop(
-                f"cannot rebuild the published showcase from {','.join(runs)}: {exc}"
-            ) from exc
-        write_status(showcase, report, past[-1]["published_at"])
-    stage_latest_into(store, web)
-    if not (web / "node_modules").exists():
-        _run(["npm", "ci"], web)
-    _run(["npm", "run", "build"], web)
-
-
-def publish_latest(
-    store: Path, area: str, dry_run: bool = False, web: Path = WEB
-) -> str:
-    """Stage the area's latest build and deploy it to the site's /latest view, whatever the verdict.
-    Returns a status line. Raises SiteStop when it cannot go on."""
-    store = Path(store)
-    token = None if dry_run else read_token()
-    info = latest_payload(store, area)
-    build_latest(store, web)
+        showcase_from = (runs, report, past[-1]["published_at"])
     mb = info["bytes"] / 1e6
     line = f"{info['area']} {info['verdict']}, {info['n_points']} points, {mb:.1f} MB"
-    if dry_run:
-        return f"dry run: built {web / 'out'}, nothing deployed ({line})"
-    deploy(token, web)
+    if dry := _ship(store, web, toolchain, showcase_from, dry_run, detail=line):
+        return dry
     return f"published latest build: {line}"
