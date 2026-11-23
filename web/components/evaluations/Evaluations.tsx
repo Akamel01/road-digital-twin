@@ -127,7 +127,7 @@ export default function Evaluations() {
                 );
               })}
               <div className={local.glossaryItem}>
-                <dt>Pass bar · {dirText("up")}</dt>
+                <dt>Pass bar · both bars must pass</dt>
                 <dd>{PASS_BAR_MEANING}</dd>
               </div>
             </dl>
@@ -229,7 +229,7 @@ export default function Evaluations() {
                 <tbody>
                   {[...data.runs].reverse().map((r) => (
                     <tr key={r.id}>
-                      <td>{r.date}</td>
+                      <td className={local.nowrap}>{r.date}</td>
                       <td>
                         <code>{r.id}</code> {r.approach} {r.variant}
                       </td>

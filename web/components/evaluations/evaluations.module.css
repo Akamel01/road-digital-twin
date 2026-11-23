@@ -318,3 +318,7 @@
     font-size: 18px;
   }
 }
+
+.nowrap {
+  white-space: nowrap;
+}
