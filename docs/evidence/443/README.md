@@ -12,7 +12,7 @@
   (`#eval-page`; `.page` is CSS-module-hashed) and `html,body`: briefing header (pass
   bar, best run per headline metric, verdict), three trend charts (PSNR linear, road depth
   p95 log, LiDAR ground p50 log), comparison table, run list. phone.png also shows the
-  header wrapped with its single back link fully visible. home-phone.png is the `/` page at
+  header on one line with its single back link fully visible and no horizontal clipping. home-phone.png is the `/` page at
   390x844 showing the top bar with the Evaluations link fully visible, unclipped.
 - AC4 note (D3): the LiDAR ground p50 chart has no registry-defined threshold; its caption
   reads `no pass bar defined` and the briefing card reads `no bar`. The other two charts
