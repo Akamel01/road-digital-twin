@@ -33,16 +33,24 @@ def test_live_file_matches_seed_prefix():
     reg = load_registry(REGISTRY_PATH)
     assert len(reg.runs) >= 7
     seed = json.loads(SEED.read_text(encoding="utf-8"))
+    assert len(seed["runs"]) == 7
     assert reg.pass_bar.model_dump() == seed["pass_bar"]
+    live_raw = json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
+    assert list(live_raw.keys()) == ["pass_bar", "runs"]
+    assert list(live_raw["pass_bar"].keys()) == list(seed["pass_bar"].keys())
+    assert [list(r.keys()) for r in live_raw["runs"][:7]] == [list(r.keys()) for r in seed["runs"]]
+    assert [list(r["metrics"].keys()) for r in live_raw["runs"][:7]] == [list(r["metrics"].keys()) for r in seed["runs"]]
     for live, fix in zip(reg.runs[:7], seed["runs"]):
         assert live.model_dump(mode="json") == EvalRun.model_validate(fix).model_dump(mode="json")
-        # key order
-        assert list(live.model_dump(mode="json").keys()) == list(EvalRun.model_validate(fix).model_dump(mode="json").keys())
 
 
 def test_verbatim_contract():
     reg = load_registry(REGISTRY_PATH)
     seed = json.loads(SEED.read_text(encoding="utf-8"))
+    assert len(seed["runs"]) == 7
+    live_raw = json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
+    assert [list(r.keys()) for r in live_raw["runs"][:7]] == [list(r.keys()) for r in seed["runs"]]
+    assert [list(r["metrics"].keys()) for r in live_raw["runs"][:7]] == [list(r["metrics"].keys()) for r in seed["runs"]]
     live_runs = [r.model_dump(mode="json") for r in reg.runs[:7]]
     fix_runs = [EvalRun.model_validate(r).model_dump(mode="json") for r in seed["runs"]]
     assert live_runs == fix_runs
@@ -116,3 +124,9 @@ def test_eval_set_required():
     del data["runs"][0]["eval_set"]
     with pytest.raises(ValidationError):
         EvalRegistry.model_validate(data)
+
+
+def test_canonical_format():
+    text = REGISTRY_PATH.read_text(encoding="utf-8")
+    assert text.endswith("\n")
+    assert dump_registry(load_registry(REGISTRY_PATH)) == text
