@@ -153,26 +153,11 @@ async function main() {
       await context.close();
     }
 
-    // home-phone viewport capture
-    {
-      const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
-      const page = await context.newPage();
-      await page.goto(base + "/", { waitUntil: "domcontentloaded" });
-      const link = page.locator('a[href="/evaluations"]').first();
-      await link.waitFor({ state: "visible", timeout: 20000 });
-      const box = await link.boundingBox();
-      if (!box || box.x < 0 || box.x + box.width > 390 || box.y + box.height > 844) {
-        throw new Error(`home link not in viewport: ${JSON.stringify(box)}`);
-      }
-      await page.screenshot({ path: join(OUT_DIR, "home-phone.png"), type: "png" });
-      await context.close();
-    }
-
     // print info
     const browserLabel = browserKind === "webkit" ? "webkit" : `chromium (${chromePath})`;
     console.log("Browser: " + browserLabel);
-    console.log("Viewports: desktop 1440x900, phone 390x844, home-phone 390x844; deviceScaleFactor 1");
-    for (const f of ["desktop", "phone", "home-phone"]) {
+    console.log("Viewports: desktop 1440x900, phone 390x844; deviceScaleFactor 1");
+    for (const f of ["desktop", "phone"]) {
       const p = join(OUT_DIR, f + ".png");
       const d = pngDims(p);
       console.log(`${f}.png ${d.w} x ${d.h} bytes=${statSync(p).size} sha256=${sha256File(p)}`);

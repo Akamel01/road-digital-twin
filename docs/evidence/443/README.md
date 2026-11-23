@@ -5,8 +5,8 @@
 - Capture: `LD_LIBRARY_PATH=/tmp/evals-443/root/usr/lib/x86_64-linux-gnu:/tmp/evals-443/root/lib/x86_64-linux-gnu:/tmp/evals-443/root/usr/lib:/tmp/evals-443/root/lib HOME=/tmp/evals-443/home CHROME_BIN=/home/oc/.cache/ms-playwright/chromium-1248/chrome-linux64/chrome node web/scripts/shoot-evals.mjs`
 - Viewports: desktop 1440x900, phone 390x844; deviceScaleFactor 1
 - Browser: chromium /home/oc/.cache/ms-playwright/chromium-1248/chrome-linux64/chrome
-- Desktop: desktop.png sha256=03cd8ed5f7334a4dda19aa3397fb6975b235f88c4fe13fd5969b616114259403
-- Phone: phone.png sha256=fa5835cbbf7b58f685a53142273aee98ca16c008e821089c8d9717bef8aeec82
+- Desktop: desktop.png sha256=2af2bea0696f1f954cffc9724f48c5a3c9b24b1c4cd90573563aeaab0a958a5f
+- Phone: phone.png sha256=4873b08922b43b5cb09681fe05c90308dddb44256bf60c33fb6c02c5c8a3705e
 - Content: desktop.png and phone.png are full-page captures after overriding the page root
   (`#eval-page`; `.page` is CSS-module-hashed) and `html,body`: plain-language cards/glossary
   ("How to read this"), briefing header (pass bar, best run per headline metric, verdict),
