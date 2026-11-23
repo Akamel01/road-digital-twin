@@ -91,3 +91,217 @@
   color: var(--ok);
   font-weight: 700;
 }
+
+.trendsGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.chart {
+  background: var(--glass-clear);
+  border-radius: 12px;
+  padding: 12px;
+  margin: 0;
+}
+
+.chart .chartSvg {
+  width: 100%;
+  height: 260px;
+  display: block;
+}
+
+.chartTitle {
+  font: 700 14px/1.2 var(--display);
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.chartMeaning {
+  display: block;
+  color: var(--on-glass-3);
+  font-size: 11.5px;
+  white-space: normal;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.chartMeta {
+  display: block;
+  color: var(--on-glass-3);
+  font-size: 11px;
+  white-space: normal;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.chartCaption {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 6px;
+}
+
+.chartNote {
+  color: var(--on-glass-3);
+  font-size: 12px;
+}
+
+.gridLine {
+  stroke: var(--glass-edge);
+  stroke-width: 1;
+  opacity: 0.4;
+}
+
+.seriesLine {
+  fill: none;
+  stroke-width: 2.2;
+}
+
+.seriesDot {
+  stroke: var(--glass-smoke);
+  stroke-width: 1;
+}
+
+.barLine {
+  stroke: var(--warn, #d97706);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+}
+
+.barLabel {
+  fill: var(--on-glass-2);
+  font-size: 10px;
+}
+
+.axisText {
+  fill: var(--on-glass-3);
+  font-size: 10px;
+}
+
+.tick {
+  stroke: var(--on-glass-3);
+  stroke-width: 1;
+}
+
+.glossary {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+  margin: 0;
+}
+
+.glossaryItem {
+  display: grid;
+  gap: 2px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--glass-clear);
+}
+
+.glossaryItem dt {
+  font-weight: 600;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.glossaryItem dd {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--on-glass-2);
+}
+
+.tableScroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.compareTable {
+  min-width: 1180px;
+  border-collapse: collapse;
+}
+
+.compareTable th,
+.compareTable td {
+  padding: 6px 8px;
+  vertical-align: top;
+  border-bottom: 1px solid var(--glass-edge);
+}
+
+.compareTable th {
+  white-space: normal;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.stickyFirst {
+  position: sticky;
+  left: 0;
+  background: var(--glass-smoke);
+  box-shadow: 2px 0 0 var(--glass-edge);
+  z-index: 2;
+}
+
+.wrapNormal {
+  white-space: normal;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.headerName {
+  display: block;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.headerMeaning {
+  display: block;
+  font-size: 10.5px;
+  color: var(--on-glass-3);
+  white-space: normal;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.headerDir {
+  display: block;
+  font-size: 10px;
+  color: var(--on-glass-3);
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.ticketLink {
+  color: var(--pa-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ticketLink:hover {
+  color: var(--on-glass);
+}
+
+.ticketLink:focus-visible {
+  outline: 2px solid var(--pa-accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+@media (max-width: 600px) {
+  .chart .chartSvg {
+    height: 220px;
+  }
+  .axisText {
+    font-size: 9px;
+  }
+}

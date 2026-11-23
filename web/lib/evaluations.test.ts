@@ -17,6 +17,10 @@ import {
   isBest,
   yDomain,
   fmtMetric,
+  METRIC_INFO,
+  axisTicks,
+  fmtValue,
+  dirText,
   formatCount,
   TOKENS,
   DASHES,
@@ -39,6 +43,10 @@ describe("evaluations lib", () => {
       }
     }
     expect([...METRIC_KEYS]).toEqual(seen);
+  });
+
+  it("METRIC_INFO keys", () => {
+    expect([...Object.keys(METRIC_INFO)].sort()).toEqual([...METRIC_KEYS].sort());
   });
 
   it("HEADLINE contract", () => {
@@ -149,9 +157,50 @@ describe("evaluations lib", () => {
   });
 
   it("gapText", () => {
-    expect(gapText(22.2646, 26, "up", "dB")).toBe("3.7354 dB short of bar");
-    expect(gapText(1.4095, 0.05, "down", "m")).toBe("1.3595 m over bar");
-    expect(gapText(5, undefined, "up", "m")).toBe("no bar");
+    expect(gapText(22.2646, 26, "psnr" as any)).toBe("3.7 dB short of bar");
+    expect(gapText(1.4095, 0.05, "road_depth_p95_m" as any)).toBe("1.36 m over bar");
+    expect(gapText(5, undefined, "psnr" as any)).toBe("no bar");
+  });
+
+  it("METRIC_INFO coverage", () => {
+    expect(Object.keys(METRIC_INFO).length).toBe(10);
+    expect(METRIC_INFO.psnr.name).toBe("Image match (PSNR)");
+    expect(METRIC_INFO.lidar_ground_p50_m.meaning).toContain("more than 10°");
+    expect(dirText("up")).toBe("higher is better ↑");
+    expect(dirText("down")).toBe("lower is better ↓");
+  });
+
+  it("fmtValue", () => {
+    expect(fmtValue("psnr" as any, 22.2646)).toBe("22.3");
+    expect(fmtValue("ssim" as any, 0.5865)).toBe("0.587");
+    expect(fmtValue("road_depth_p95_m" as any, 118.7642)).toBe("118.76");
+    expect(fmtValue("road_depth_p95_m" as any, 1.4095)).toBe("1.41");
+    expect(fmtValue("road_depth_p95_m" as any, 0.028)).toBe("0.028");
+    expect(fmtValue("road_depth_p95_m" as any, 0.05)).toBe("0.050");
+    expect(fmtValue("psnr" as any, 0)).toBe("0.0");
+    expect(fmtValue("psnr" as any, undefined)).toBe("not measured");
+  });
+
+  it("axisTicks", () => {
+    const lin = axisTicks(0, 10, false);
+    expect(lin.length).toBe(4);
+    expect(lin[0]).toBe(0);
+    expect(lin[3]).toBe(10);
+    const log = axisTicks(0.01, 100, true);
+    expect(log.length).toBe(4);
+    expect(log.every((v) => v > 0)).toBe(true);
+    expect(log[0]).toBeCloseTo(0.01, 5);
+  });
+
+  it("series date order", () => {
+    const s = seriesByApproach(seed.runs as any, "psnr" as any);
+    for (const ser of s) {
+      const xs = ser.points.map((p) => p.x);
+      // x indices should be non-decreasing by run date
+      const dates = xs.map((x) => (seed.runs as any)[x].date);
+      const sorted = [...dates].sort();
+      expect(dates).toEqual(sorted);
+    }
   });
 
   it("isPassing", () => {

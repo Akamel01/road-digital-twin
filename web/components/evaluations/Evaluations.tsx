@@ -20,30 +20,17 @@ import {
   barValue,
   formatCount,
   METRIC_KEYS,
+  METRIC_INFO,
   isBest,
+  fmtValue,
   type EvalRegistry,
-  type MetricKey,
   ticketUrl,
+  dirText,
 } from "@/lib/evaluations";
 import { fmt } from "@/lib/latest";
 
 const LEGAL =
   "Derived from nuScenes (CC BY-NC-SA 4.0). Street names © OpenStreetMap contributors (ODbL). Non-commercial research demo.";
-
-const METRIC_HEADERS: Record<MetricKey, string> = {
-  psnr: "PSNR (dB)",
-  ssim: "SSIM",
-  road_depth_p50_m: "Road p50 (m)",
-  road_depth_p95_m: "Road p95 (m)",
-  sidewalk_depth_p50_m: "Sidewalk p50 (m)",
-  sidewalk_depth_p95_m: "Sidewalk p95 (m)",
-  lidar_all_p50_m: "LiDAR p50 (m)",
-  lidar_all_p95_m: "LiDAR p95 (m)",
-  lidar_ground_p50_m: "LiDAR ground p50 (m)",
-  lidar_ground_p95_m: "LiDAR ground p95 (m)",
-};
-
-const DIR_UP = new Set<MetricKey>(["psnr", "ssim"]);
 
 export default function Evaluations() {
   const [data, setData] = useState<EvalRegistry | null>(null);
@@ -88,13 +75,24 @@ export default function Evaluations() {
                 const bar = barValue(spec, data.pass_bar);
                 return (
                   <div key={spec.key} className={local.headline}>
-                    <span>{spec.label}</span>
-                    <b>{best ? `${fmt(best.value)} ${spec.unit}` : "not measured"}</b>
-                    <span>{best ? runLabel(best.run) : "no run has this metric"}</span>
-                    <small>{best ? `#${best.run.ticket}` : ""}</small>
-                    <span className={local.gap}>
-                      {best ? gapText(best.value, bar, spec.dir, spec.unit) : ""}
+                    <span>
+                      {spec.name} · {dirText(spec.dir)}
                     </span>
+                    <b>{best ? `${fmtValue(spec.key, best.value)} ${spec.unit}`.trim() : "not measured"}</b>
+                    <span>{best ? runLabel(best.run) : "no run has this metric"}</span>
+                    <small>
+                      {best ? (
+                        <a className={local.ticketLink} href={ticketUrl(best.run.ticket)} target="_blank" rel="noreferrer">
+                          #{best.run.ticket}
+                        </a>
+                      ) : (
+                        ""
+                      )}
+                    </small>
+                    <span className={local.gap}>
+                      {best ? gapText(best.value, bar, spec.key) : ""}
+                    </span>
+                    <small className={local.gap}>{spec.meaning}</small>
                   </div>
                 );
               })}
@@ -111,11 +109,36 @@ export default function Evaluations() {
             </p>
           </section>
 
+          <section className={`${styles.panel} glass`} aria-labelledby="h-glossary">
+            <h2 id="h-glossary" className="over">
+              How to read this
+            </h2>
+            <dl className={local.glossary}>
+              {METRIC_KEYS.map((k) => {
+                const info = METRIC_INFO[k];
+                return (
+                  <div key={k} className={local.glossaryItem}>
+                    <dt>
+                      {info.name} · {dirText(info.dir)}
+                    </dt>
+                    <dd>{info.meaning}</dd>
+                  </div>
+                );
+              })}
+              <div className={local.glossaryItem}>
+                <dt>Pass bar · {dirText("up")}</dt>
+                <dd>
+                  A run passes only when PSNR is at least 26.0 dB and road depth p95 is at most 0.050 m.
+                </dd>
+              </div>
+            </dl>
+          </section>
+
           <section className={`${styles.panel} glass`} aria-labelledby="h-trends">
             <h2 id="h-trends" className="over">
               Trends
             </h2>
-            <div className={styles.trends}>
+            <div className={local.trendsGrid}>
               {HEADLINE.map((spec) => (
                 <EvalChart
                   key={spec.key}
@@ -131,17 +154,22 @@ export default function Evaluations() {
             <h2 id="h-compare" className="over">
               Approach comparison
             </h2>
-            <div className={styles.tableWrap}>
-              <table className={styles.table}>
+            <div className={local.tableScroll}>
+              <table className={local.compareTable}>
                 <thead>
                   <tr>
                     <th>Approach</th>
                     <th>Latest run</th>
-                    {METRIC_KEYS.map((k) => (
-                      <th key={k} className={styles.num}>
-                        {METRIC_HEADERS[k]}
-                      </th>
-                    ))}
+                    {METRIC_KEYS.map((k) => {
+                      const info = METRIC_INFO[k];
+                      return (
+                        <th key={k} className={local.num}>
+                          <span className={local.headerName}>{info.header}</span>
+                          <small className={local.headerMeaning}>{info.meaning}</small>
+                          <small className={local.headerDir}>{dirText(info.dir)}</small>
+                        </th>
+                      );
+                    })}
                   </tr>
                 </thead>
                 <tbody>
@@ -149,26 +177,26 @@ export default function Evaluations() {
                     const rows = latestByApproach(data.runs);
                     return rows.map((row) => (
                       <tr key={row.id}>
-                        <td>
+                        <td className={local.stickyFirst}>
                           {row.approach}
                           {row.variant && <small> {row.variant}</small>}
                           <br />
                           <small>#{row.ticket}</small>
                         </td>
-                        <td>
-                          <code>{row.id}</code>
+                        <td title={row.id} className={local.wrapNormal}>
+                          {row.variant || row.approach}
                         </td>
                         {METRIC_KEYS.map((k) => {
                           const v = metricValue(row, k);
-                          const dir = DIR_UP.has(k) ? "up" : "down";
+                          const dir = METRIC_INFO[k].dir;
                           const columnVals = rows.map((r) => metricValue(r, k));
                           const best = isBest(v, columnVals, dir);
                           return (
-                            <td key={k} className={styles.num}>
+                            <td key={k} className={local.num}>
                               {v === undefined ? (
                                 <span className={styles.muted}>not measured</span>
                               ) : (
-                                <span className={best ? local.best : undefined}>{fmt(v)}</span>
+                                <span className={best ? local.best : undefined}>{fmtValue(k, v)}</span>
                               )}
                             </td>
                           );
@@ -207,7 +235,7 @@ export default function Evaluations() {
                         <code>{r.id}</code> {r.approach} {r.variant}
                       </td>
                       <td>
-                        <a href={ticketUrl(r.ticket)} target="_blank" rel="noreferrer">
+                        <a className={local.ticketLink} href={ticketUrl(r.ticket)} target="_blank" rel="noreferrer">
                           #{r.ticket}
                         </a>
                       </td>
