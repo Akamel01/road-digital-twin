@@ -145,8 +145,9 @@ export default function Evaluations() {
                   </tr>
                 </thead>
                 <tbody>
-                  {latestByApproach(data.runs).map((row) => {
-                    return (
+                  {(() => {
+                    const rows = latestByApproach(data.runs);
+                    return rows.map((row) => (
                       <tr key={row.id}>
                         <td>
                           {row.approach}
@@ -160,7 +161,7 @@ export default function Evaluations() {
                         {METRIC_KEYS.map((k) => {
                           const v = metricValue(row, k);
                           const dir = DIR_UP.has(k) ? "up" : "down";
-                          const columnVals = latestByApproach(data.runs).map((r) => metricValue(r, k));
+                          const columnVals = rows.map((r) => metricValue(r, k));
                           const best = isBest(v, columnVals, dir);
                           return (
                             <td key={k} className={styles.num}>
@@ -173,8 +174,8 @@ export default function Evaluations() {
                           );
                         })}
                       </tr>
-                    );
-                  })}
+                    ));
+                  })()}
                 </tbody>
               </table>
             </div>
@@ -230,5 +231,3 @@ export default function Evaluations() {
     </div>
   );
 }
-
-

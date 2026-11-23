@@ -62,6 +62,12 @@ describe("evaluations lib", () => {
       "SplatAD",
       "OmniRe 3-drive fusion",
     ]);
+    expect(Object.fromEntries(res.map((r) => [r.approach, r.id]))).toMatchObject({
+      "recon-core gsplat": "reconcore-baseline",
+      OmniRe: "omnire-30k",
+      SplatAD: "splatad-35k",
+      "OmniRe 3-drive fusion": "omnire-fuse3",
+    });
   });
 
   it("approachOrder + approachStyle", () => {
@@ -91,6 +97,19 @@ describe("evaluations lib", () => {
     expect(st.token).toBe(TOKENS[2]);
   });
 
+  it("seriesByApproach keeps gaps (no zero fill)", () => {
+    const runs: any[] = [
+      { approach: "A", metrics: { psnr: 1 } },
+      { approach: "A", metrics: {} },
+      { approach: "A", metrics: { psnr: 3 } },
+    ];
+    const s = seriesByApproach(runs, "psnr" as any);
+    expect(s[0].points).toEqual([
+      { x: 0, v: 1 },
+      { x: 2, v: 3 },
+    ]);
+  });
+
   it("bestRun", () => {
     const psnr = bestRun(seed.runs as any, "psnr" as any, "up");
     expect(psnr?.run.id).toBe("splatad-35k");
@@ -100,6 +119,7 @@ describe("evaluations lib", () => {
     expect(depth?.value).toBe(1.4095);
     const lidar = bestRun(seed.runs as any, "lidar_ground_p50_m" as any, "down");
     expect(lidar?.run.id).toBe("splatad-35k");
+    expect(lidar?.value).toBe(0.028);
   });
 
   it("metricValue", () => {
@@ -139,6 +159,11 @@ describe("evaluations lib", () => {
     expect(isPassing(passing as any, seed.pass_bar as any)).toBe(true);
     const failing = seed.runs[0];
     expect(isPassing(failing as any, seed.pass_bar as any)).toBe(false);
+    expect(isPassing({ metrics: { psnr: 27 } } as any, seed.pass_bar as any)).toBe(false);
+    expect(isPassing({ metrics: { psnr: 27, road_depth_p95_m: 0 } } as any, seed.pass_bar as any)).toBe(false);
+    expect(isPassing({ metrics: { psnr: 27, road_depth_p95_m: 0.04 } } as any, seed.pass_bar as any)).toBe(true);
+    const over = { metrics: { psnr: 27, road_depth_p95_m: 1 } };
+    expect(isPassing(over as any, seed.pass_bar as any)).toBe(false);
   });
 
   it("verdict", () => {
@@ -164,6 +189,8 @@ describe("evaluations lib", () => {
     expect(lin!.lo < 5 && lin!.hi > 5 && lin!.lo < lin!.hi).toBe(true);
     const withBar = yDomain([0.028], 0.05, true);
     expect(withBar!.lo > 0).toBe(true);
+    expect(withBar!.hi >= 0.05).toBe(true);
+    expect(withBar!.lo < 0.05).toBe(true);
   });
 });
 
@@ -173,6 +200,10 @@ describe("live file smoke", () => {
       readFileSync(new URL("../../docs/evals/recon-v2-results.json", import.meta.url), "utf8")
     );
     expect(live.pass_bar).toBeDefined();
+    expect(typeof live.pass_bar.psnr_min).toBe("number");
+    expect(typeof live.pass_bar.road_depth_p95_max_m).toBe("number");
+    expect(live.pass_bar.psnr_min).toBe(26);
+    expect(live.pass_bar.road_depth_p95_max_m).toBe(0.05);
     expect(Array.isArray(live.runs)).toBe(true);
     expect(live.runs.length).toBeGreaterThanOrEqual(7);
     for (const r of live.runs) {

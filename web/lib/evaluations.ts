@@ -113,25 +113,18 @@ export function seriesByApproach(
   key: MetricKey
 ): { approach: string; points: { x: number; v: number }[] }[] {
   const map = new Map<string, { x: number; v: number }[]>();
-  const order: string[] = [];
   runs.forEach((r, i) => {
     const v = metricValue(r, key);
     if (v === undefined) return;
-    if (!map.has(r.approach)) {
-      map.set(r.approach, []);
-      order.push(r.approach);
-    }
+    if (!map.has(r.approach)) map.set(r.approach, []);
     map.get(r.approach)!.push({ x: i, v });
   });
-  // first-appearance order over all runs, not just those with points
   const fa = approachOrder(runs);
   const result: { approach: string; points: { x: number; v: number }[] }[] = [];
   for (const a of fa) {
     const pts = map.get(a);
     if (pts && pts.length > 0) result.push({ approach: a, points: pts });
   }
-  // drop empty already; keep order stable even if fa differs from insertion
-  void order;
   return result;
 }
 

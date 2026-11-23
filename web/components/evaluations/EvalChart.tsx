@@ -25,20 +25,6 @@ export default function EvalChart({
   const y = (v: number, lo: number, hi: number) =>
     H - 4 - ((w(v) - w(lo)) / (w(hi) - w(lo))) * (H - 8);
 
-  if (series.length === 0 || domain === null) {
-    // if no series, render not measured
-    if (series.length === 0) {
-      return (
-        <figure className={styles.trend}>
-          <figcaption>
-            <span>{spec.label}</span>
-          </figcaption>
-          <p className={styles.note}>not measured</p>
-        </figure>
-      );
-    }
-  }
-
   if (series.length === 0) {
     return (
       <figure className={styles.trend}>
@@ -49,8 +35,18 @@ export default function EvalChart({
       </figure>
     );
   }
+  if (domain === null) {
+    return (
+      <figure className={styles.trend}>
+        <figcaption>
+          <span>{spec.label}</span>
+        </figcaption>
+        <p className={styles.note}>not measured</p>
+      </figure>
+    );
+  }
 
-  const { lo, hi } = domain!;
+  const { lo, hi } = domain;
   const first = runs[0];
   const last = runs[runs.length - 1];
 
