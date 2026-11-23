@@ -237,6 +237,23 @@ def _read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text())
 
 
+def _capture_stale(capture_json: Path) -> bool:
+    """Multi-drive capture without image_captures predates #409; rebuild it."""
+    try:
+        meta = json.loads(capture_json.read_text())
+    except (OSError, ValueError):
+        return True
+    if not isinstance(meta, dict):
+        return True
+    captures = meta.get("captures")
+    if not isinstance(captures, list):
+        return True
+    image_captures = meta.get("image_captures")
+    return len(captures) > 1 and not (
+        isinstance(image_captures, dict) and image_captures
+    )
+
+
 def assemble_area_twin(
     base: Path, name: str, core_dir: Path, manifest: dict[str, Any], check_date: str | None = None
 ) -> dict[str, Any]:
@@ -354,7 +371,7 @@ def area_build(base: Path, name: str, log: logging.Logger, check_date: str | Non
         raise ValueError(f"area {name!r} missing required inputs: {area_path}, {merged_npz}, {merged_drives}")
 
     capture_dir = areas / f"{name}-capture"
-    if not (capture_dir / "capture.json").is_file():
+    if _capture_stale(capture_dir / "capture.json"):
         build_area_capture(merged_dir, capture_dir, name)
 
     params_path = areas / f"{name}-params.json"

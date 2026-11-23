@@ -65,4 +65,4 @@ addopts = ["-m", "not itest"]
 markers = ["itest: needs real datasets on disk (see make itest); skipped by default"]
 
 [tool.uv.sources]
-recon-core = { git = "https://github.com/Akamel01/recon-core", rev = "v0.1.1" }
+recon-core = { git = "https://github.com/Akamel01/recon-core", rev = "v0.1.3" }

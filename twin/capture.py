@@ -157,7 +157,8 @@ def _load_merged(merged_dir: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray, 
 def colmap_model(drives: list[dict], merged_dir: Path, origin: np.ndarray):
     """Build recon-core ColmapModel from per-drive cameras and align poses.
 
-    Also returns {COLMAP image name: dataroot-relative nuScenes image path}.
+    Also returns {COLMAP image name: dataroot-relative nuScenes image path}
+    and {COLMAP image name: scene name}.
     """
     from recon_core.capture.colmap import Camera, ColmapModel, Image
 
@@ -165,6 +166,7 @@ def colmap_model(drives: list[dict], merged_dir: Path, origin: np.ndarray):
     images: dict[int, Image] = {}
     cam_id_by_key: dict[tuple, int] = {}
     sources: dict[str, str] = {}
+    image_captures: dict[str, str] = {}
     image_id = 1
 
     for d in drives:
@@ -210,6 +212,7 @@ def colmap_model(drives: list[dict], merged_dir: Path, origin: np.ndarray):
                     f"duplicate capture image name {name!r}: {prev!r} and {cam['image']!r}"
                 )
             sources[name] = str(cam["image"])
+            image_captures[name] = str(scene)
             images[image_id] = Image(
                 image_id=image_id,
                 qvec=qvec,
@@ -220,7 +223,7 @@ def colmap_model(drives: list[dict], merged_dir: Path, origin: np.ndarray):
             )
             image_id += 1
 
-    return ColmapModel(cameras=cameras, images=images, points3d={}), sources
+    return ColmapModel(cameras=cameras, images=images, points3d={}), sources, image_captures
 
 
 def link_images(images_dir: Path, sources: dict[str, Path]) -> None:
@@ -263,19 +266,20 @@ def build_area_capture(
 
     origin = np.array(area_origin(x, y), dtype=float)
     captures = tuple(str(d["scene"]) for d in drives)
+    colmap, image_sources, image_captures = colmap_model(drives, merged_dir, origin)
     meta = CaptureMeta(
         epsg=EPSG,
         origin_offset=tuple(float(v) for v in origin),
         source=f"area:{name}",
         data_licence=DATA_LICENCE,
         captures=captures,
+        image_captures=tuple(sorted(image_captures.items())),
         name=name,
         created=datetime.now(UTC).isoformat(),
     )
 
     xyz_local = np.column_stack([x, y, z]).astype(np.float64) - origin.reshape(1, 3)
     lidar = Lidar(xyz=xyz_local, capture_index=drive.astype(np.int32))
-    colmap, image_sources = colmap_model(drives, merged_dir, origin)
     capture = Capture(meta=meta, colmap=colmap, lidar=lidar)
 
     parent = out.parent
