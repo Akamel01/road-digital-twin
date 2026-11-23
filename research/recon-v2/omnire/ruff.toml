@@ -1,0 +1,4 @@
+extend = "../ruff.toml"
+
+[lint]
+extend-ignore = ["E701", "E702", "E401", "SIM115", "N806", "N802", "B023"]

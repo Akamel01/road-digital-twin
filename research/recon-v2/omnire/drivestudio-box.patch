@@ -1,0 +1,82 @@
+diff --git a/datasets/driving_dataset.py b/datasets/driving_dataset.py
+index 38b3e07..49bea1c 100644
+--- a/datasets/driving_dataset.py
++++ b/datasets/driving_dataset.py
+@@ -1,3 +1,4 @@
++import json
+ from typing import Dict, Union, Literal
+ import logging
+ import os
+@@ -582,6 +583,23 @@ class DrivingDataset(SceneDataset):
+         return valid_mask
+ 
+     def split_train_test(self):
++        # box patch (#417): harness split from RV2_SPLIT = {"test": [t...], "exclude": [t...]}
++        rv2 = os.environ.get("RV2_SPLIT")
++        if rv2:
++            sp = json.load(open(rv2))
++            test_timesteps = np.array(sorted(sp["test"]), dtype=int)
++            excl = set(sp["exclude"]) | set(sp["test"])
++            train_timesteps = np.array([i for i in range(self.num_img_timesteps) if i not in excl])
++            ls = self.lidar_source
++            keep = torch.ones_like(ls._timesteps, dtype=torch.bool)
++            for t in excl:
++                keep &= ls._timesteps != t
++            ls.visible_masks = keep
++            ls.delete_invisible_pts()
++            logger.info(f"[RV2] train {len(train_timesteps)} test {len(test_timesteps)} excluded {len(excl)} timesteps")
++            train_indices = [t * self.pixel_source.num_cams + c for t in train_timesteps for c in range(self.pixel_source.num_cams)]
++            test_indices = [t * self.pixel_source.num_cams + c for t in test_timesteps for c in range(self.pixel_source.num_cams)]
++            return train_timesteps, test_timesteps, train_indices, test_indices
+         if self.data_cfg.pixel_source.test_image_stride != 0:
+             test_timesteps = np.arange(
+                 # it makes no sense to have test timesteps before the start timestep
+diff --git a/models/gaussians/basics.py b/models/gaussians/basics.py
+index faeb632..990b806 100644
+--- a/models/gaussians/basics.py
++++ b/models/gaussians/basics.py
+@@ -10,8 +10,15 @@ from sklearn.neighbors import NearestNeighbors
+ from pytorch3d.transforms import matrix_to_quaternion
+ 
+ from gsplat.rendering import rasterization
+-from gsplat.cuda_legacy._wrapper import num_sh_bases
+-from gsplat.cuda_legacy._torch_impl import quat_to_rotmat
++# box patch: gsplat 1.5 dropped cuda_legacy (drivestudio pins 1.3.0)
++def num_sh_bases(degree: int) -> int:
++    return (degree + 1) ** 2
++
++
++def quat_to_rotmat(quats):
++    import torch.nn.functional as _F
++    from pytorch3d.transforms import quaternion_to_matrix
++    return quaternion_to_matrix(_F.normalize(quats, dim=-1))
+ from gsplat.cuda._wrapper import spherical_harmonics
+ 
+ def interpolate_quats(q1, q2, fraction=0.5):
+diff --git a/models/gaussians/vanilla.py b/models/gaussians/vanilla.py
+index d59ff14..e4a6c56 100644
+--- a/models/gaussians/vanilla.py
++++ b/models/gaussians/vanilla.py
+@@ -213,6 +213,8 @@ class VanillaGaussians(nn.Module):
+             do_densification = (
+                 self.step < self.ctrl_cfg.stop_split_at
+                 and self.step % reset_interval > max(self.num_train_images, self.ctrl_cfg.refine_interval)
++                # box patch (#417): Gaussian cap for the shared 12 GB GPU
++                and self.num_points < self.ctrl_cfg.get("max_num_gaussians", float("inf"))
+             )
+             # split & duplicate
+             print(f"Class {self.class_prefix} current points: {self.num_points} @ step {self.step}")
+diff --git a/models/trainers/base.py b/models/trainers/base.py
+index 2f959bf..c6e3ed1 100644
+--- a/models/trainers/base.py
++++ b/models/trainers/base.py
+@@ -420,6 +420,9 @@ class BasicTrainer(nn.Module):
+         
+         # render rgb and opacity
+         rgb, depth, opacity, self.info = render_fn(return_info=True)
++        # box patch: gsplat 1.5 returns per-axis radii [C, N, 2]; drivestudio expects [C, N]
++        if self.info["radii"].dim() == 3:
++            self.info["radii"] = self.info["radii"].max(-1).values
+         results = {
+             "rgb_gaussians": rgb,
+             "depth": depth, 
