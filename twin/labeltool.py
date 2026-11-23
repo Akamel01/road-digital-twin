@@ -19,8 +19,7 @@ from shapely.errors import GeometryTypeError
 from shapely.geometry import shape
 
 from twin import labels
-from twin.area import drive_correction
-from twin.area import drive_tokens as area_drive_tokens
+from twin.areastore import open_area
 from twin.contracts import LabelFeature, stage_dir
 from twin.labels import read_labels, read_site, valid_site, write_labels
 from twin.runstore import DONE, RunStore
@@ -298,8 +297,9 @@ class AreaSource:
 
 def runs_for_area(store, area, *, areas_root=None):
     store = Path(store)
-    build_dir, area_def = labels.resolve_area(store, area, areas_root=areas_root)
-    tokens = area_drive_tokens(build_dir, defined=area_def)
+    a = open_area(store, area, areas_root=areas_root)
+    area_def = a.definition()
+    tokens = a.drive_tokens(area_def)
     rs = RunStore(store)
     dataset_version = None
     if isinstance(area_def, dict):
@@ -325,16 +325,11 @@ def runs_for_area(store, area, *, areas_root=None):
 def area_source(build_dir, area_def) -> AreaSource | None:
     """Returns the area build as one label-tool source, or None when it has no merged ground cloud; frames is empty when the area definition has no usable polygon or the merged drives are missing."""
     build = Path(build_dir)
-    name = build.name.removesuffix("-twin").removesuffix("-merged")
-    root = build.parent
-    twin = build if (stage_dir(build, "ground") / "ground.laz").is_file() else root / f"{name}-twin"
-    merged = build if build.name.endswith("-merged") else root / f"{name}-merged"
+    area = open_area(build.parent, build)
+    twin = build if (stage_dir(build, "ground") / "ground.laz").is_file() else area.twin_dir
     if not (stage_dir(twin, "ground") / "ground.laz").is_file():
         return None
-    try:
-        drives = json.loads((merged / "drives.json").read_text())
-    except (OSError, ValueError):
-        drives = []
+    drives = area.drives(area_def if isinstance(area_def, dict) else {})
     frames: tuple[FrameDrive, ...] = ()
     poly = area_def.get("polygon") if isinstance(area_def, dict) else None
     if drives and isinstance(poly, dict):
@@ -351,16 +346,8 @@ def area_source(build_dir, area_def) -> AreaSource | None:
         ):
             centre = None
         if centre is not None:
-            frames = tuple(
-                FrameDrive(
-                    name=d["scene"],
-                    base=merged / "drives" / d["scene"],
-                    transform=drive_correction(d.get("correction"), centre),
-                )
-                for d in drives
-                if isinstance(d, dict) and d.get("scene")
-            )
-    return AreaSource(name=name, base=twin, frames=frames)
+            frames = tuple(FrameDrive(name=d.scene, base=d.dir, transform=d.transform(centre)) for d in drives)
+    return AreaSource(name=area.name, base=twin, frames=frames)
 
 
 def fit_window(minx, miny, maxx, maxy, *, margin=WINDOW_MARGIN_M, cell=CELL,

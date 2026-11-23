@@ -275,26 +275,11 @@ def drive_correction(c: dict | None, centre: np.ndarray | None = None) -> np.nda
 
 
 def drive_tokens(build: Path, defined: dict | None = None) -> list[str]:
-    """Scene tokens of the drives an area build used (its drives.json lists scene names), in that order.
-    The tokens come from the area definition <store>/areas/<area>.json, where the build folder is
-    <area>-twin or <area>-merged. When ``defined`` is passed, its ``drives`` list is used instead of
-    reading the sibling ``<name>.json``. [] when required data is missing or unreadable."""
+    """Scene tokens of the drives an area build used, in drives.json order; see areastore.Area.drive_tokens."""
+    from twin.areastore import open_area  # lazy: areastore imports this module
+
     build = Path(build)
-    name = build.name.removesuffix("-twin").removesuffix("-merged")
-    try:
-        if defined is None:
-            defined_drives = json.loads((build.parent / f"{name}.json").read_text())["drives"]
-        else:
-            defined_drives = defined.get("drives") or []
-        used = json.loads((build / "drives.json").read_text())
-    except (OSError, ValueError, KeyError):
-        return []
-    token = {
-        d["scene"]: d["scene_token"]
-        for d in defined_drives
-        if isinstance(d, dict) and d.get("scene") and d.get("scene_token")
-    }
-    return [token[d["scene"]] for d in used if isinstance(d, dict) and d.get("scene") in token]
+    return open_area(build.parent, build).drive_tokens(defined)
 
 
 VERSION = "v1.0-trainval"
