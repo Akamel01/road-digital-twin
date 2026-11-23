@@ -1,0 +1,32 @@
+{
+ "on_path": {
+  "n_views": 900,
+  "psnr": 13.286960751991408,
+  "ssim": 0.5616441717164995,
+  "road_depth_p50_m": 1.6087498664855957,
+  "road_depth_p95_m": 7.472060203552246,
+  "n_road": 468029,
+  "sidewalk_depth_p50_m": 1.22493577003479,
+  "sidewalk_depth_p95_m": 4.860415935516357,
+  "n_sidewalk": 207770,
+  "depth_coverage": 0.9961248651293874
+ },
+ "off_path": {
+  "n_views": 0,
+  "psnr": null,
+  "ssim": null,
+  "road_depth_p50_m": null,
+  "road_depth_p95_m": null,
+  "n_road": 0,
+  "sidewalk_depth_p50_m": null,
+  "sidewalk_depth_p95_m": null,
+  "n_sidewalk": 0,
+  "depth_coverage": null
+ },
+ "missing_views": 0,
+ "pass_bar": {
+  "psnr_min": 26.0,
+  "road_depth_p95_max_m": 0.05
+ },
+ "passes": false
+}
