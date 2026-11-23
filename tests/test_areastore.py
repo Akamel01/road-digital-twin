@@ -225,6 +225,6 @@ def test_cloud_dir_only_for_the_named_build_holding_merged_npz(tmp_path):
 
 
 def test_drive_records_are_the_named_builds_entries(tmp_path):
-    store, root = _mk(tmp_path)
+    store, _root = _mk(tmp_path)
     assert [r["scene"] for r in open_area(store, "a1-merged").drive_records()] == ["s2", "s1", "s9"]
     assert open_area(store, "a1-twin").drive_records() == []
