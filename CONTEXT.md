@@ -14,6 +14,18 @@ _Avoid_: model, scene, map (a map is the external HD map)
 The making of the twin from sensor data. This is the main product.
 _Avoid_: rendering, visualisation
 
+**Static layer**:
+The photorealistic, metric model of everything at a site that does not move (road surface, curbs, buildings, poles), built from camera images and supervised by LiDAR. Features are extracted from it. Photorealism is a property of the static layer, not a separate product.
+_Avoid_: rendering, splat (a splat is one way to hold it), visualisation
+
+**Actor layer**:
+A separate model of one moving object (a vehicle, cyclist or pedestrian) over its track in a drive. Kept so moving objects never pollute the static layer.
+_Avoid_: dynamic object, agent
+
+**Fused area model**:
+A static layer built from several drives of the same site, aligned into one model.
+_Avoid_: merged splat, multi-traversal model
+
 **Feature**:
 A road element extracted from the twin: a lane marking, a crosswalk, a curb or a curb ramp.
 _Avoid_: object, asset, annotation
