@@ -13,7 +13,7 @@ import local from "./evaluations.module.css";
 
 const W = 720;
 const H = 280;
-const M = { top: 24, right: 40, bottom: 44, left: 88 };
+const M = { top: 24, right: 40, bottom: 68, left: 88 };
 
 export default function EvalChart({
   spec,
@@ -106,7 +106,7 @@ export default function EvalChart({
         {runs.map((r, i) => (
           <g key={r.id}>
             <line x1={x(i)} x2={x(i)} y1={H - M.bottom} y2={H - M.bottom + 4} className={local.tick} />
-            <text x={x(i)} y={H - M.bottom + 16} textAnchor="middle" className={local.axisText}>
+            <text x={x(i)} y={H - 20} textAnchor="middle" className={local.axisText}>
               {r.date.slice(5)}
               <title>{r.date}</title>
             </text>
