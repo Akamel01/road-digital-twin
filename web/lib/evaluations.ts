@@ -82,6 +82,8 @@ export const HEADLINE: readonly MetricInfo[] = [
   METRIC_INFO.lidar_ground_p50_m,
 ];
 
+export const PASS_BAR_MEANING = "A run passes only when PSNR is at least 26.0 dB and road depth p95 is at most 0.050 m.";
+
 export const TOKENS: readonly string[] = [
   "var(--feat-cross)",
   "var(--sight)",

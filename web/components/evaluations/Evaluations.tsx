@@ -26,6 +26,7 @@ import {
   type EvalRegistry,
   ticketUrl,
   dirText,
+  PASS_BAR_MEANING,
 } from "@/lib/evaluations";
 import { fmt } from "@/lib/latest";
 
@@ -66,8 +67,8 @@ export default function Evaluations() {
               Briefing
             </h2>
             <p className={local.gap}>
-              Pass bar: PSNR ≥ {fmt(data.pass_bar.psnr_min)} dB · road depth p95 ≤{" "}
-              {fmt(data.pass_bar.road_depth_p95_max_m)} m
+              Pass bar: PSNR ≥ {fmtValue("psnr", data.pass_bar.psnr_min)} dB · road depth p95 ≤{" "}
+              {fmtValue("road_depth_p95_m", data.pass_bar.road_depth_p95_max_m)} m
             </p>
             <div className={local.headlines}>
               {HEADLINE.map((spec) => {
@@ -127,9 +128,7 @@ export default function Evaluations() {
               })}
               <div className={local.glossaryItem}>
                 <dt>Pass bar · {dirText("up")}</dt>
-                <dd>
-                  A run passes only when PSNR is at least 26.0 dB and road depth p95 is at most 0.050 m.
-                </dd>
+                <dd>{PASS_BAR_MEANING}</dd>
               </div>
             </dl>
           </section>
@@ -158,7 +157,7 @@ export default function Evaluations() {
               <table className={local.compareTable}>
                 <thead>
                   <tr>
-                    <th>Approach</th>
+                    <th className={local.stickyFirst}>Approach</th>
                     <th>Latest run</th>
                     {METRIC_KEYS.map((k) => {
                       const info = METRIC_INFO[k];

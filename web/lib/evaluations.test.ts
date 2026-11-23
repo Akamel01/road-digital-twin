@@ -21,6 +21,7 @@ import {
   axisTicks,
   fmtValue,
   dirText,
+  PASS_BAR_MEANING,
   formatCount,
   TOKENS,
   DASHES,
@@ -164,10 +165,38 @@ describe("evaluations lib", () => {
 
   it("METRIC_INFO coverage", () => {
     expect(Object.keys(METRIC_INFO).length).toBe(10);
+    for (const k of METRIC_KEYS) {
+      const info = METRIC_INFO[k];
+      expect(typeof info.name).toBe("string");
+      expect(info.name.length).toBeGreaterThan(0);
+      expect(typeof info.meaning).toBe("string");
+      expect(info.meaning.length).toBeGreaterThan(0);
+      expect(typeof info.unit).toBe("string");
+      expect(info.dir === "up" || info.dir === "down").toBe(true);
+      expect(typeof info.log).toBe("boolean");
+    }
     expect(METRIC_INFO.psnr.name).toBe("Image match (PSNR)");
     expect(METRIC_INFO.lidar_ground_p50_m.meaning).toContain("more than 10°");
     expect(dirText("up")).toBe("higher is better ↑");
     expect(dirText("down")).toBe("lower is better ↓");
+    expect(PASS_BAR_MEANING).toContain("26.0 dB");
+  });
+
+  it("HEADLINE barKey values", () => {
+    expect(HEADLINE[0].barKey).toBe("psnr_min");
+    expect(HEADLINE[1].barKey).toBe("road_depth_p95_max_m");
+    expect(HEADLINE[2].barKey).toBeUndefined();
+  });
+
+  it("seriesByApproach date sort and tie-break", () => {
+    const runs: any[] = [
+      { date: "2026-01-03", approach: "A", metrics: { psnr: 1 } },
+      { date: "2026-01-01", approach: "A", metrics: { psnr: 2 } },
+      { date: "2026-01-02", approach: "A", metrics: { psnr: 3 } },
+      { date: "2026-01-02", approach: "A", metrics: { psnr: 4 } },
+    ];
+    const s = seriesByApproach(runs, "psnr" as any);
+    expect(s[0].points.map((p: any) => p.x)).toEqual([1, 2, 3, 0]);
   });
 
   it("fmtValue", () => {

@@ -1,4 +1,3 @@
-import { fmt } from "@/lib/latest";
 import {
   approachStyle,
   type EvalRun,
@@ -48,7 +47,7 @@ export default function EvalChart({
   }
 
   const { lo, hi } = domain;
-  const ariaLabel = `${info.name} by run (oldest → newest): ${series.length} approaches, ${bar === undefined ? "no pass bar defined" : `pass bar ${spec.dir === "up" ? "≥" : "≤"} ${fmt(bar)} ${spec.unit}`}, ${spec.log ? "log" : "linear"} scale`;
+  const ariaLabel = `${info.name} by run (oldest → newest): ${series.length} approaches, ${bar === undefined ? "no pass bar defined" : `pass bar ${spec.dir === "up" ? "≥" : "≤"} ${fmtValue(spec.key, bar)} ${spec.unit}`}, ${spec.log ? "log" : "linear"} scale`;
 
   return (
     <figure className={local.chart}>
