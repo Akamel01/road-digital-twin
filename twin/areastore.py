@@ -40,6 +40,7 @@ class Area:
     merged_dir: Path
     twin_dir: Path
     definition_path: Path | None = None  # where open_area found the definition; None when it is missing
+    ref_dir: Path | None = None  # the build folder the ref named, if it named one; its drives.json is the one read
 
     def definition(self) -> dict:
         """The area definition. Falls back to the only polygon .json in the root; FileNotFoundError when there is
@@ -63,10 +64,12 @@ class Area:
         raise FileNotFoundError(f"no area build for {self.name!r}")
 
     def drives(self, definition: dict | None = None) -> list[AreaDrive]:
-        """The build's drives.json order (merged, else the copy in the twin), tokens joined from the definition
-        (``definition`` overrides it). A drive the definition lacks has token None; [] when drives.json is unreadable."""
+        """The build's drives.json order, tokens joined from the definition (``definition`` overrides it). The build is
+        the one the ref named, else merged, else the copy in the twin. A drive the definition lacks has token None;
+        [] when drives.json is unreadable."""
         used = None
-        for d in (self.merged_dir, self.twin_dir, self.root / self.name):
+        builds = (self.ref_dir,) if self.ref_dir is not None else (self.merged_dir, self.twin_dir, self.root / self.name)
+        for d in builds:
             used = _read_json(d / "drives.json")
             if isinstance(used, list):
                 break
@@ -108,6 +111,7 @@ def open_area(store: Path | str, ref: str | Path, *, areas_root: Path | None = N
         merged_dir=root / f"{name}{MERGED_SUFFIX}",
         twin_dir=root / f"{name}{TWIN_SUFFIX}",
         definition_path=next((p for p in defs if isinstance(_read_json(p), dict)), None),
+        ref_dir=r if r.suffix != ".json" and r.is_dir() else None,
     )
 
 

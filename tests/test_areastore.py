@@ -89,3 +89,14 @@ def test_lone_polygon_json_is_the_fallback_and_two_are_ambiguous(tmp_path):
     (root / "third.json").write_text(json.dumps({"polygon": POLY}))
     with pytest.raises(ValueError):
         open_area(store, "a1").definition()
+
+
+def test_drives_read_from_the_build_the_ref_named(tmp_path):
+    root = tmp_path / "areas"
+    (root / "a2-merged").mkdir(parents=True)
+    (root / "a2.json").write_text(json.dumps({"polygon": {}, "drives": [{"scene": "s1", "scene_token": "t1"}]}))
+    (root / "a2-merged" / "drives.json").write_text(json.dumps([{"scene": "s1"}]))
+    (root / "a2-twin").mkdir()  # twin folder exists but has no drives.json yet (before the first area twin build)
+    assert open_area(tmp_path, root / "a2-twin").drive_tokens() == []
+    assert open_area(tmp_path, root / "a2-merged").drive_tokens() == ["t1"]
+    assert open_area(tmp_path, "a2").drive_tokens() == ["t1"]
