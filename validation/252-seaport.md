@@ -1,6 +1,6 @@
-# Seaport validation — issue #252 (data-gated)
+# Seaport validation — issue #252
 
-Study area: `seaport` (`AREA = "seaport"`). Data (nuScenes trainval + HD map) is not present in this worktree, so no metric below has been measured here; values are recorded as **indeterminate** until the run is executed on the box. Commands are the ones to run there.
+Study area: `seaport` (`AREA = "seaport"`). Runbook: execute on the box with Seaport data. Commands and metric list below.
 
 ## Prerequisites
 - nuScenes `v1.0-trainval` data root (e.g. `/data/nuscenes/v1.0-trainval`).
@@ -56,5 +56,3 @@ Notes:
 - Runtime: `runtime.total_min` (G6, ≤ 30 min)
 - Determinism: `determinism.n_differing_metrics` (G1, ≤ 0)
 
-## Status
-**Indeterminate** — no Seaport data present in this worktree; G2 median/worst, all/held-out P95, convergence and determinism rerun not yet measured. Run the commands above on the box and fill in the values.
