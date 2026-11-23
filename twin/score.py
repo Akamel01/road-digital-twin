@@ -15,8 +15,9 @@ import numpy as np
 import shapely
 from shapely.geometry import shape
 
+from twin.areastore import FEATURE_FILES, open_area
 from twin.contracts import AccuracyParams, SiteMeta, stage_dir
-from twin.labels import FEATURE_FILES, list_sites
+from twin.labels import list_sites
 from twin.stages import accuracy
 
 SCHEMA = 1
@@ -616,7 +617,7 @@ def score_target(store: Path, target: Path, sites: str = "audit", baseline: dict
         sites_out.append({"id": s["id"], "role": s["role"], "version": s["version"],
                           "label_hash": h, "n_labels": s["n_labels"]})
 
-    target_kind = "area" if (target / "merged.npz").is_file() else "run"
+    target_kind = "area" if open_area(store, target).cloud_dir() is not None else "run"
     target_name = target.name
     candidate = {"target_kind": target_kind, "sites": sites_out, "elements": partial["elements"]}
     compare = publish_decision(candidate, baseline)
@@ -646,7 +647,7 @@ def score_command(run: str, sites: str, store: Path | None = None) -> int:
     target = run_dir(run, st)
     if not target.is_dir():
         try:
-            target = site.resolve_area(st, run)
+            target = site.cloud_build(st, run)
         except (RuntimeError, OSError, ValueError, KeyError, TypeError) as exc:
             print(f"cannot score: {exc}", file=sys.stderr)
             return 2

@@ -63,18 +63,25 @@ class Area:
                 return c
         raise FileNotFoundError(f"no area build for {self.name!r}")
 
-    def drives(self, definition: dict | None = None) -> list[AreaDrive]:
-        """The build's drives.json order, tokens joined from the definition (``definition`` overrides it). The build is
-        the one the ref named, else merged, else the copy in the twin. A drive the definition lacks has token None;
-        [] when drives.json is unreadable."""
-        used = None
+    def cloud_dir(self) -> Path | None:
+        """The build the ref named (else the bare-named folder) when it holds ``merged.npz``, else None."""
+        d = self.ref_dir if self.ref_dir is not None else self.root / self.name
+        return d if (d / "merged.npz").is_file() else None
+
+    def drive_records(self) -> list[dict]:
+        """The build's drives.json entries as written. The build is the one the ref named, else merged, else the copy
+        in the twin; [] when drives.json is unreadable."""
         builds = (self.ref_dir,) if self.ref_dir is not None else (self.merged_dir, self.twin_dir, self.root / self.name)
         for d in builds:
             used = _read_json(d / "drives.json")
             if isinstance(used, list):
-                break
-        if not isinstance(used, list):
-            return []
+                return [r for r in used if isinstance(r, dict)]
+        return []
+
+    def drives(self, definition: dict | None = None) -> list[AreaDrive]:
+        """The build's drives.json order, tokens joined from the definition (``definition`` overrides it). A drive the
+        definition lacks has token None; [] when drives.json is unreadable."""
+        used = self.drive_records()
         try:
             defined = (definition if definition is not None else self.definition()).get("drives") or []
         except (OSError, ValueError, AttributeError):
@@ -85,17 +92,24 @@ class Area:
         return [
             AreaDrive(d["scene"], token.get(d["scene"]), self.merged_dir / "drives" / d["scene"], d.get("correction"))
             for d in used
-            if isinstance(d, dict) and d.get("scene")
+            if d.get("scene")
         ]
 
     def drive_tokens(self, definition: dict | None = None) -> list[str]:
         return [d.token for d in self.drives(definition) if d.token]
 
 
+def twin_ref(name: str) -> str:
+    """The ref that names an area's twin build, for callers that hold only the area name."""
+    return f"{name}{TWIN_SUFFIX}"
+
+
 def open_area(store: Path | str, ref: str | Path, *, areas_root: Path | None = None) -> Area:
     """ref: an area name, a build folder (<name>-twin or <name>-merged) or a definition .json path."""
     store = Path(store)
     r = Path(ref)
+    if len(r.parts) > 1 and not r.is_absolute() and not r.is_dir() and (store / r).exists():
+        r = store / r  # a path relative to the store, like areas/a1
     default_root = Path(areas_root) if areas_root is not None else store / "areas"
     if r.suffix == ".json" or r.is_dir() or len(r.parts) > 1:  # a path, even to a build not made yet
         name, root = _strip(r.stem if r.suffix == ".json" else r.name), r.parent

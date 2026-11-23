@@ -804,7 +804,7 @@ def test_window_for_raises_on_empty_union(tmp_path):
 
 
 def test_drive_tokens_uses_supplied_defined_not_sibling_json(tmp_path):
-    from twin.area import drive_tokens
+    from twin.areastore import open_area
 
     build = tmp_path / "a1-twin"
     build.mkdir()
@@ -822,8 +822,8 @@ def test_drive_tokens_uses_supplied_defined_not_sibling_json(tmp_path):
             {"scene": "s2", "scene_token": "NEW2"},
         ]
     }
-    assert drive_tokens(build, defined=defined) == ["NEW1", "NEW2"]
-    assert drive_tokens(build) == ["OLD1", "OLD2"]
+    assert open_area(tmp_path, build).drive_tokens(defined) == ["NEW1", "NEW2"]
+    assert open_area(tmp_path, build).drive_tokens() == ["OLD1", "OLD2"]
 
 
 # --- M6b2: generate / CLI support helpers ---

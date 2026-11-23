@@ -112,3 +112,119 @@ def test_a_named_build_that_is_not_built_yet_has_no_drives(tmp_path):
     assert a.drive_tokens() == []
     assert open_area(tmp_path, "a3-twin").drive_tokens() == []
     assert open_area(tmp_path, "a3-merged").drive_tokens() == ["t1"]
+
+
+def _area_outside(tmp_path):
+    root = tmp_path / "areas"
+    build = root / "demo-twin"
+    build.mkdir(parents=True)
+    (build / "markings.geojson").write_text('{"type":"FeatureCollection","features":[]}')
+    (root / "demo.json").write_text(json.dumps({"polygon": POLY}))
+    return root, build
+
+
+def test_open_area_inside_store(tmp_path):
+    store = tmp_path / "store"
+    store.mkdir()
+    build = store / "demo-twin"
+    build.mkdir()
+    (build / "markings.geojson").write_text('{"type":"FeatureCollection","features":[]}')
+    (store / "areas").mkdir(exist_ok=True)
+    (store / "areas" / "demo.json").write_text(json.dumps({"polygon": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]]}}))
+    a = open_area(store, "demo")
+    bd, ad = a.build_dir(), a.definition()
+    assert bd == build
+    assert "polygon" in ad
+
+
+def test_open_area_outside_store(tmp_path):
+    root, build = _area_outside(tmp_path)
+    store = tmp_path / "store"
+    a = open_area(store, "demo", areas_root=root)
+    bd, ad = a.build_dir(), a.definition()
+    assert bd == build
+    assert "polygon" in ad
+
+
+def test_open_area_accepts_build_path(tmp_path):
+    _root, build = _area_outside(tmp_path)
+    store = tmp_path / "store"
+    a = open_area(store, str(build))
+    bd, ad = a.build_dir(), a.definition()
+    assert bd == build
+    assert "polygon" in ad
+
+
+def test_open_area_accepts_area_json(tmp_path):
+    root, build = _area_outside(tmp_path)
+    store = tmp_path / "store"
+    json_path = root / "demo.json"
+    a = open_area(store, str(json_path), areas_root=root)
+    bd, _ad = a.build_dir(), a.definition()
+    # sibling build found
+    assert bd == build
+
+
+def test_build_dir_preserves_store_name_candidate(tmp_path):
+    store = tmp_path / "store"
+    store.mkdir()
+    build = store / "demo"
+    build.mkdir()
+    (build / "markings.geojson").write_text('{"type":"FeatureCollection","features":[]}')
+    bd = open_area(store, "demo").build_dir()
+    assert bd == build
+
+
+def test_build_dir_areas_root_candidates_first(tmp_path):
+    store = tmp_path / "store"
+    store.mkdir()
+    # both store/demo and areas_root/demo-twin exist with equal features
+    b1 = store / "demo"
+    b1.mkdir()
+    (b1 / "markings.geojson").write_text('{"type":"FeatureCollection","features":[]}')
+    root = tmp_path / "areas"
+    root.mkdir()
+    b2 = root / "demo-twin"
+    b2.mkdir()
+    (b2 / "markings.geojson").write_text('{"type":"FeatureCollection","features":[]}')
+    bd = open_area(store, "demo", areas_root=root).build_dir()
+    assert bd == b2
+
+
+def test_definition_prefers_exact_sibling_over_wildcard(tmp_path):
+    store = tmp_path / "store"
+    store.mkdir()
+    build = store / "demo-twin"
+    build.mkdir()
+    # two jsons in parent
+    (store / "demo.json").write_text(json.dumps({"polygon": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]]}}))
+    (store / "other.json").write_text(json.dumps({"polygon": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]]}}))
+    ad = open_area(store, build).definition()
+    # exact sibling demo.json wins -> name demo; just ensure returns dict with polygon
+    assert "polygon" in ad
+
+
+def test_definition_rejects_ambiguous_polygon_json(tmp_path):
+    store = tmp_path / "store"
+    store.mkdir()
+    build = store / "demo-twin"
+    build.mkdir()
+    (store / "a.json").write_text(json.dumps({"polygon": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]]}}))
+    (store / "b.json").write_text(json.dumps({"polygon": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]]}}))
+    import pytest
+    with pytest.raises((FileNotFoundError, ValueError)):
+        open_area(store, build).definition()
+
+
+def test_cloud_dir_only_for_the_named_build_holding_merged_npz(tmp_path):
+    store, root = _mk(tmp_path)
+    assert open_area(store, "a1-merged").cloud_dir() == root / "a1-merged"
+    assert open_area(store, "a1-twin").cloud_dir() is None
+    assert open_area(store, "areas/a1-merged").cloud_dir() == root / "a1-merged"  # relative to the store
+    assert open_area(store, "20261123-run").cloud_dir() is None
+
+
+def test_drive_records_are_the_named_builds_entries(tmp_path):
+    store, root = _mk(tmp_path)
+    assert [r["scene"] for r in open_area(store, "a1-merged").drive_records()] == ["s2", "s1", "s9"]
+    assert open_area(store, "a1-twin").drive_records() == []

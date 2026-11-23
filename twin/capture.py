@@ -30,6 +30,7 @@ from pathlib import Path
 
 import numpy as np
 
+from twin.areastore import open_area
 from twin.contracts import stage_dir
 from twin.dataset import DatasetConfig
 from twin.runner import default_store
@@ -297,11 +298,10 @@ def build_area_capture(
 
 def capture_area_command(name: str, store: Path | None = None) -> int:
     store = store or default_store()
-    areas = Path(store) / "areas"
-    area_path = areas / f"{name}.json"
-    merged_dir = areas / f"{name}-merged"
-    out = areas / f"{name}-capture"
-    if not area_path.is_file() or not merged_dir.is_dir():
+    area = open_area(store, name)
+    merged_dir = area.merged_dir
+    out = area.root / f"{area.name}-capture"
+    if area.definition_path is None or not merged_dir.is_dir():
         print(f"twin capture area: missing area or merged dir for {name}", file=sys.stderr)
         return 2
     try:

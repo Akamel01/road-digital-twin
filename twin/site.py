@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 
 from twin import prgate, publish, score
-from twin.area import drive_tokens
+from twin.areastore import open_area
 from twin.contracts import stage_dir
 from twin.gates import GO, GateReport
 from twin.publish import PublishReport
@@ -182,9 +182,9 @@ def area_runs(store: Path, area) -> list[str]:
     """For each drive of the area build, the newest full single-drive run (prgate.pick_baseline) that has
     every public file; drives without one are left out and logged."""
     store = Path(store)
-    area = area if isinstance(area, Path) else resolve_area(store, str(area))
+    area = area if isinstance(area, Path) else cloud_build(store, str(area))
     selected: list[str] = []
-    for scene in drive_tokens(area):
+    for scene in open_area(store, area).drive_tokens():
         base = prgate.pick_baseline(store, scene=scene)
         if base is None:
             print(f"publish: skip drive scene {scene}: no baseline", file=sys.stderr)
@@ -219,10 +219,10 @@ def publish_run(
     """Publish run_id (or an area name) if it improves on the published run. Returns a status line;
     a skip returns "skipped: reason". Raises SiteStop when it cannot go on."""
     store = Path(store)
-    # Area input: resolve_area -> use area twin gates.json.
+    # Area input: a build holding merged.npz -> use its gates.json.
     area = None
     try:
-        area = resolve_area(store, str(run_id))
+        area = cloud_build(store, str(run_id))
     except SiteStop:
         area = None
     if area is not None:
@@ -391,12 +391,12 @@ def latest_dir(store: Path) -> Path:
     return Path(store) / "published" / "latest"
 
 
-def resolve_area(store: Path, area: str) -> Path:
-    """AREA as a path, as `areas/<name>` or `<name>` under the store, or `<name>` under <store>/areas."""
-    for cand in (Path(area), Path(store) / area, Path(store) / "areas" / area):
-        if (cand / "merged.npz").is_file():
-            return cand
-    raise SiteStop(f"no merged area build for {area!r} (looked for merged.npz)")
+def cloud_build(store: Path, ref: str) -> Path:
+    """The build folder REF names (see areastore.open_area) when it holds merged.npz; SiteStop otherwise."""
+    build = open_area(store, ref).cloud_dir()
+    if build is None:
+        raise SiteStop(f"no merged area build for {ref!r} (looked for merged.npz)")
+    return build
 
 
 def decimate_cloud(npz, target: int = CLOUD_TARGET_POINTS) -> tuple[bytes, dict]:
@@ -444,15 +444,14 @@ def latest_payload(store: Path, area: str, now: datetime | None = None) -> dict:
     """Stage the latest-build bundle in <store>/published/latest/ and return its description.
     Pure file work (no Node, no network): this is what `--dry-run` shows."""
     store = Path(store)
-    src = resolve_area(store, area)
+    src = cloud_build(store, area)
     gates_file = src / "gates.json"
     if not gates_file.is_file():
         raise SiteStop(f"no gates.json in {src}: run `twin eval` first")
     report = json.loads(gates_file.read_text())
     at = (now or datetime.now(UTC)).isoformat(timespec="seconds")
     cloud, cmeta = decimate_cloud(src / "merged.npz")
-    drives_file = src / "drives.json"
-    drives = json.loads(drives_file.read_text()) if drives_file.is_file() else []
+    drives = open_area(store, src).drive_records()
     scorecard = {
         "area": src.name,
         "built_at": datetime.fromtimestamp(
