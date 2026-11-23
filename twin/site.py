@@ -16,6 +16,7 @@ import numpy as np
 
 from twin import prgate, publish, score
 from twin.area import drive_tokens
+from twin.contracts import stage_dir
 from twin.gates import GO, GateReport
 from twin.publish import PublishReport
 from twin.runner import default_store
@@ -198,7 +199,7 @@ def area_runs(store: Path, area) -> list[str]:
                 public_ok = False
         if public_ok:
             public_ok = all(
-                (publish._stage(run_dir, "outputs") / name).exists()
+                (stage_dir(run_dir, "outputs") / name).exists()
                 for name in publish.PUBLIC_FILES
             )
         if not public_ok:

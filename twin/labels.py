@@ -23,7 +23,7 @@ def valid_site(site: str) -> bool:
 
 from shapely.geometry import mapping, shape
 
-from twin.contracts import LabelFeature, SiteMeta
+from twin.contracts import LabelFeature, SiteMeta, stage_dir
 
 FEATURE_FILES = ("markings.geojson", "crosswalks.geojson", "curbs.geojson", "ramps.geojson")
 
@@ -154,12 +154,12 @@ def area_build_dir(store: Path | str, area: str, *, areas_root: Path | None = No
     existing = [c for c in uniq if c.is_dir()]
 
     def _has_features(c: Path) -> bool:
-        if (c / "5_features").is_dir():
+        if stage_dir(c, "features").is_dir():
             return True
         return any((c / f).is_file() for f in FEATURE_FILES)
 
     def _score(c: Path) -> tuple[int, int, int]:
-        twin_like = c.name.endswith("-twin") or (c / "5_features").is_dir()
+        twin_like = c.name.endswith("-twin") or stage_dir(c, "features").is_dir()
         return (0 if twin_like else 1, 0 if _has_features(c) else 1, 0 if (c / "merged.npz").is_file() else 1)
 
     existing.sort(key=_score)
@@ -271,7 +271,7 @@ def draft(
 
     build_dir, area_def = resolve_area(store, area, areas_root=areas_root)
 
-    features_dir = build_dir / "5_features" if (build_dir / "5_features").is_dir() else build_dir
+    features_dir = stage_dir(build_dir, "features") if stage_dir(build_dir, "features").is_dir() else build_dir
     site_poly = area_def["polygon"]
 
     def _clip_geom(geom):

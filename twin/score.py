@@ -15,7 +15,7 @@ import numpy as np
 import shapely
 from shapely.geometry import shape
 
-from twin.contracts import AccuracyParams, SiteMeta
+from twin.contracts import AccuracyParams, SiteMeta, stage_dir
 from twin.labels import FEATURE_FILES, list_sites
 from twin.stages import accuracy
 
@@ -584,9 +584,9 @@ def load_baseline(store: Path) -> dict | None:
 def score_target(store: Path, target: Path, sites: str = "audit", baseline: dict | None = None) -> tuple[dict | None, str]:
     store = Path(store)
     target = Path(target)
-    feat_dir = target / "5_features"
+    feat_dir = stage_dir(target, "features")
     if not feat_dir.is_dir():
-        return (None, "no 5_features")
+        return (None, f"no {feat_dir.name}")
     run_features: dict[str, list[dict]] = {}
     for fn in FEATURE_FILES:
         p = feat_dir / fn

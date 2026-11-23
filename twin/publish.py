@@ -53,10 +53,6 @@ class PublishReport(BaseModel):
     tile_version: str = ""
 
 
-def _stage(run_dir: Path, name: str) -> Path:
-    return stage_dir(run_dir, name)
-
-
 def _check_size(path: Path, out: Path, max_bytes: int) -> None:
     size = path.stat().st_size
     if size > max_bytes:
@@ -95,13 +91,13 @@ def _gsd(manifest: Manifest) -> float:
 
 def _resample_ortho(run_dir: Path, grid: tuple) -> np.ndarray | None:
     """colour/ortho.png resampled onto the plan grid, alpha kept."""
-    png = _stage(run_dir, "colour") / "ortho.png"
+    png = stage_dir(run_dir, "colour") / "ortho.png"
     if not png.exists():
         return None
     x0, y0, cell, side = grid
     img = np.asarray(Image.open(png).convert("RGBA"))
     a, _, _, e, c, f = map(
-        float, (_stage(run_dir, "colour") / "ortho.pgw").read_text().split()
+        float, (stage_dir(run_dir, "colour") / "ortho.pgw").read_text().split()
     )
     rows, cols = np.meshgrid(np.arange(side), np.arange(side), indexing="ij")
     east = x0 + (cols + 0.5) * cell
@@ -174,10 +170,10 @@ def _area(runs: list[tuple[Manifest, Path, tuple]]) -> AreaIndex:
     meta: dict[str, dict] = {}
     covered: dict[str, dict[str, tuple[float, Manifest]]] = {}
     for m, run_dir, _ in runs:
-        load = _stage(run_dir, "load") / "facilities.geojson"
+        load = stage_dir(run_dir, "load") / "facilities.geojson"
         for feat in json.loads(load.read_text())["features"]:
             meta.setdefault(feat["properties"]["id"], feat["properties"])
-        observed = json.loads((_stage(run_dir, "ground") / "qa.json").read_text())
+        observed = json.loads((stage_dir(run_dir, "ground") / "qa.json").read_text())
         for fid, value in observed["observed_core"].items():
             covered.setdefault(fid, {})[m.run_id] = (value, m)
     facilities = []
@@ -270,7 +266,7 @@ def publish_runs(
         manifest = read_manifest(run_dir)
         manifests.append(manifest)
         run_dirs.append(run_dir)
-        las = laspy.read(_stage(run_dir, "ground") / "ground.laz")
+        las = laspy.read(stage_dir(run_dir, "ground") / "ground.laz")
         all_drive_pts.append((np.asarray(las.x), np.asarray(las.y), np.asarray(las.z)))
     h_map_all = compute_height_above_road(all_drive_pts)
 
@@ -292,12 +288,12 @@ def publish_runs(
         dest = out / manifest.run_id
         dest.mkdir(exist_ok=True)
         shutil.copy(record_path(run_dir), dest / "run.json")
-        outputs = _stage(run_dir, "outputs")
+        outputs = stage_dir(run_dir, "outputs")
         for name in PUBLIC_FILES:
             shutil.copy(outputs / name, dest / name)
         for name in ("profile.csv", "centrelines.geojson"):
-            if (_stage(run_dir, "profile") / name).exists():
-                shutil.copy(_stage(run_dir, "profile") / name, dest / name)
+            if (stage_dir(run_dir, "profile") / name).exists():
+                shutil.copy(stage_dir(run_dir, "profile") / name, dest / name)
         _thin_laz(outputs / "twin.laz", dest / "twin.laz", max_file_bytes)
         xd, yd, _ = all_drive_pts[i]
         gx0, gy0, gcell, gside = _grid_from_points(xd, yd, max(_gsd(manifest), 0.05))
@@ -312,7 +308,7 @@ def publish_runs(
     all_xs = np.concatenate([p[0] for p in all_drive_pts])
     all_ys = np.concatenate([p[1] for p in all_drive_pts])
     all_int = np.concatenate([
-        np.clip(np.asarray(laspy.read(_stage(rd, "ground") / "ground.laz").intensity, dtype=np.float64) / INTENSITY_WHITE, 0.0, 1.0)
+        np.clip(np.asarray(laspy.read(stage_dir(rd, "ground") / "ground.laz").intensity, dtype=np.float64) / INTENSITY_WHITE, 0.0, 1.0)
         for rd in run_dirs
     ])
     lidar_mosaic = _bincount_intensity(all_xs, all_ys, all_int, grid)

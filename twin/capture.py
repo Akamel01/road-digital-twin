@@ -30,6 +30,7 @@ from pathlib import Path
 
 import numpy as np
 
+from twin.contracts import stage_dir
 from twin.dataset import DatasetConfig
 from twin.runner import default_store
 
@@ -168,8 +169,8 @@ def colmap_model(drives: list[dict], merged_dir: Path, origin: np.ndarray):
     for d in drives:
         scene = d["scene"]
         drive_dir = merged_dir / "drives" / scene
-        cams_path = drive_dir / "1_load" / "cameras.json"
-        poses_path = drive_dir / "3_align" / "poses.json"
+        cams_path = stage_dir(drive_dir, "load") / "cameras.json"
+        poses_path = stage_dir(drive_dir, "align") / "poses.json"
         if not cams_path.is_file() or not poses_path.is_file():
             raise FileNotFoundError(f"missing cameras/poses for drive {scene}")
         cams_doc = json.loads(cams_path.read_text())
