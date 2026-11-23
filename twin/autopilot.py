@@ -78,12 +78,121 @@ def say(text: str) -> None:
     print(f"autopilot: {text}", flush=True)
 
 
+
+# --- the world ----------------------------------------------------------------------------
+class RealWorld:
+    """The autopilot's outside effects, in one place: git, gh, disk, nuScenes, detached shells, the site
+    and the sweep/run stores. Tests and the pipeline smoke pass a fake or a partial subclass instead."""
+
+    def __init__(self, repo_root: Path = REPO_ROOT):
+        self.root = Path(repo_root)
+
+    # git
+    def main_commit(self) -> str | None:
+        out = subprocess.run(["git", "ls-remote", REPO_URL, "refs/heads/main"],
+                             capture_output=True, text=True, check=False)  # fmt: skip
+        return out.stdout.split()[0] if out.returncode == 0 and out.stdout.strip() else None
+
+    def head(self) -> str | None:
+        out = subprocess.run(["git", "-C", str(self.root), "rev-parse", "HEAD"],
+                             capture_output=True, text=True, check=False)  # fmt: skip
+        return out.stdout.strip() if out.returncode == 0 else None
+
+    def pull(self) -> tuple[bool, str]:
+        """Fast-forward the checkout: (ok, git's message)."""
+        done = subprocess.run(["git", "-C", str(self.root), "pull", "--ff-only"],
+                              capture_output=True, text=True, check=False)  # fmt: skip
+        return (False, done.stderr.strip()) if done.returncode else (True, done.stdout.strip())
+
+    def changed_files(self, old: str, new: str) -> list[str] | None:
+        """Paths changed between two commits, None when git cannot say."""
+        out = subprocess.run(["git", "-C", str(self.root), "diff", "--name-only", old, new],
+                             capture_output=True, text=True, check=False)  # fmt: skip
+        return None if out.returncode else out.stdout.split()
+
+    # GitHub: prgate asks it through gh
+    def has_gh(self) -> bool:
+        return shutil.which("gh") is not None
+
+    def gh(self, *args: str) -> str:
+        return prgate.gh(*args)
+
+    # disk and nuScenes
+    def free_gb(self, path: str) -> float | None:
+        return telemetry.free_gb(path)
+
+    def ranked_areas(self, path: Path = PASSES_FILE) -> dict:
+        """{"location/intersection": [scene names]}, most drives first (scripts/area_passes.py)."""
+        if not path.is_file():
+            subprocess.run([sys.executable, str(Path(__file__).parents[1] / "scripts" / "area_passes.py")],
+                           check=False)  # fmt: skip
+        try:
+            return json.loads(path.read_text())
+        except (OSError, ValueError):
+            return {}
+
+    def scene_tokens(self) -> dict[str, str] | None:
+        """{scene name: token} of the dataset, None when unreadable."""
+        try:
+            return {s["name"]: s["token"] for s in json.loads((NUSCENES / "scene.json").read_text())}
+        except (OSError, ValueError):
+            return None
+
+    # detached shell processes
+    def start(self, store: Path, name: str, cmd: str) -> tuple[int, str]:
+        """Run a shell command in its own session; its exit code lands in the returned file."""
+        logs = store / "autopilot"
+        logs.mkdir(parents=True, exist_ok=True)
+        exit_file = logs / f"{name}.exit"
+        exit_file.unlink(missing_ok=True)
+        proc = subprocess.Popen(
+            ["sh", "-c", f"{cmd}; echo $? > {exit_file}"],
+            stdout=(logs / f"{name}.log").open("w"), stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )  # fmt: skip
+        return proc.pid, str(exit_file)
+
+    def alive(self, pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return False
+        return True
+
+    def exit_code(self, job: dict) -> str:
+        path = Path(job["exit_file"])
+        return path.read_text().strip() if path.is_file() else "?"
+
+    # the site
+    def publish_latest(self, store: Path, twin: str) -> str:
+        return site.publish_latest(store, twin)
+
+    def publish_run(self, store: Path, twin: str) -> str:
+        return site.publish_run(store, twin)
+
+    def redeploy(self, store: Path) -> str:
+        return site.redeploy(store)
+
+    # runs and sweeps
+    def dataset_version(self) -> str:
+        return dataset_version()
+
+    def pick_baseline(self, store: Path, scene: str) -> Path | None:
+        return prgate.pick_baseline(store, scene=scene)
+
+    def leaderboard(self, store: Path, sweep_id: str) -> dict:
+        return sweep.leaderboard(store, sweep_id)
+
+    def queue_sweep(self, store: Path, target: str, space: dict, extra: dict) -> str:
+        return sweep.queue_sweep(store, target, space, extra)
+
+
 # --- P0 ---------------------------------------------------------------------------------
-def p0_prgate(store: Path, state: dict) -> int:
-    if shutil.which("gh") is None:
+def p0_prgate(store: Path, state: dict, world) -> int:
+    if not world.has_gh():
         return 0  # no gh on this machine: skip cleanly
     try:
-        lines = prgate.poll(store, extra=TAGS)
+        lines = prgate.poll(store, extra=TAGS, gh=world.gh)
     except prgate.PrGateError as exc:
         say(f"P0 skipped: {exc}")
         return 0
@@ -93,20 +202,6 @@ def p0_prgate(store: Path, state: dict) -> int:
 
 
 # --- P2 ---------------------------------------------------------------------------------
-def main_commit() -> str | None:
-    out = subprocess.run(["git", "ls-remote", REPO_URL, "refs/heads/main"],
-                         capture_output=True, text=True, check=False)  # fmt: skip
-    return out.stdout.split()[0] if out.returncode == 0 and out.stdout.strip() else None
-
-
-def _alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return False
-    return True
-
-
 def leave_one_drive_out(store: Path, area: str) -> int:
     return 0  # hook for #143 (leave-one-drive-out), not built yet: skipped
 
@@ -145,54 +240,28 @@ def record_g2(store: Path) -> None:
         say(f"G2 ratchet due: lower to {due}")
 
 
-def _detached(store: Path, name: str, cmd: str) -> tuple[int, str]:
-    """Run a shell command in its own session; its exit code lands in the returned file."""
-    logs = store / "autopilot"
-    logs.mkdir(parents=True, exist_ok=True)
-    exit_file = logs / f"{name}.exit"
-    exit_file.unlink(missing_ok=True)
-    proc = subprocess.Popen(
-        ["sh", "-c", f"{cmd}; echo $? > {exit_file}"],
-        stdout=(logs / f"{name}.log").open("w"), stderr=subprocess.STDOUT,
-        start_new_session=True,
-    )  # fmt: skip
-    return proc.pid, str(exit_file)
-
-
-def _exit_code(job: dict) -> str:
-    path = Path(job["exit_file"])
-    return path.read_text().strip() if path.is_file() else "?"
-
-
-def _head() -> str | None:
-    out = subprocess.run(["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"],
-                         capture_output=True, text=True, check=False)  # fmt: skip
-    return out.stdout.strip() if out.returncode == 0 else None
-
-
-def redeploy_web(store: Path, old: str | None, new: str | None) -> None:
+def redeploy_web(store: Path, old: str | None, new: str | None, world) -> None:
     """After a pull from old to new: redeploy the published build when web/ changed (#247).
     A failure is logged and never stops the loop."""
     if not old or not new or old == new:
         return
-    changed = subprocess.run(["git", "-C", str(REPO_ROOT), "diff", "--name-only", old, new],
-                             capture_output=True, text=True, check=False)  # fmt: skip
-    if changed.returncode or not any(p.startswith("web/") for p in changed.stdout.split()):
+    changed = world.changed_files(old, new)
+    if not changed or not any(p.startswith("web/") for p in changed):
         return
     try:
         with FileLock(str(store / jobqueue.PUBLISH_LOCK)):  # a worker publish writes the same site folder
-            say(f"web/ changed: redeploy: {site.redeploy(store)}")
+            say(f"web/ changed: redeploy: {world.redeploy(store)}")
     except site.SiteStop as exc:
         say(f"redeploy not done: {exc}")
     except Exception as exc:  # noqa: BLE001
         say(f"redeploy failed: {exc!r}")
 
 
-def publish_latest(store: Path) -> None:
+def publish_latest(store: Path, world) -> None:
     """Update the site's Latest build view after an area eval, whatever the verdict (#192).
     A failure is logged and never stops the loop."""
     try:
-        say(f"latest build: {site.publish_latest(store, TWIN)}")
+        say(f"latest build: {world.publish_latest(store, TWIN)}")
     except site.SiteStop as exc:
         say(f"latest build not published: {exc}")
     except Exception as exc:  # noqa: BLE001 - the autopilot loop must not die on a site problem
@@ -204,7 +273,7 @@ def area_scenes(store: Path) -> list[str]:
     return open_area(store, TWIN).drive_tokens()
 
 
-def publish_showcase(store: Path) -> bool:
+def publish_showcase(store: Path, world) -> bool:
     """Publish the newest area twin to / when it improves on the published one (#222). Logged, never fatal.
 
     Returns True when it actually tried to publish (runs finished), False when it had
@@ -218,7 +287,7 @@ def publish_showcase(store: Path) -> bool:
             say(f"showcase waits for {len(waiting)} drive runs")
             return False
     try:
-        say(f"showcase: {site.publish_run(store, TWIN)}")
+        say(f"showcase: {world.publish_run(store, TWIN)}")
     except site.SiteStop as exc:
         say(f"showcase not published: {exc}")
     except Exception as exc:  # noqa: BLE001
@@ -226,66 +295,63 @@ def publish_showcase(store: Path) -> bool:
     return True
 
 
-def p2_area(store: Path, state: dict) -> int:
+def _complete(store: Path, p2: dict, label: str, code: str, world) -> None:
+    """A P2 build or P2b re-eval ended with exit code `code`: publish the latest view and the showcase,
+    and on a pass run the #143/#144 hooks and record G2."""
+    say(f"{label} finished, exit {code}")
+    if code in ("0", "1"):
+        publish_latest(store, world)
+        p2["showcase_pending"] = not publish_showcase(store, world)
+    if code == "0":
+        leave_one_drive_out(store, AREA)
+        rain_test(store, AREA)
+        record_g2(store)
+
+
+def p2_area(store: Path, state: dict, world) -> int:
     """On a new main commit: area merge (it builds each drive itself), area twin (#142), then eval, in one
     detached shell. Then the #143 and #144 hooks. When main is unchanged but a gate changed since
     the last eval (P2b), re-run eval and the hooks on the latest area build. Returns 0: these
     are not queue jobs."""
     p2, p2b = state.setdefault("p2", {}), state.setdefault("p2b", {})
-    if any(j.get("pid") and _alive(j["pid"]) for j in (p2, p2b)):
+    if any(j.get("pid") and world.alive(j["pid"]) for j in (p2, p2b)):
         return 0  # still building
-    if p2.get("showcase_pending") and publish_showcase(store):
+    if p2.get("showcase_pending") and publish_showcase(store, world):
         p2["showcase_pending"] = False
     if p2.get("building"):  # it ended; the exit file says how
-        code = _exit_code(p2)
-        say(f"P2 {p2['building'][:7]} finished, exit {code}")
-        if code in ("0", "1"):
-            publish_latest(store)
-            p2["showcase_pending"] = not publish_showcase(store)
+        code = world.exit_code(p2)
+        _complete(store, p2, f"P2 {p2['building'][:7]}", code, world)
         if code == "0":
-            leave_one_drive_out(store, AREA)
-            rain_test(store, AREA)
             p2b["gates"] = gates_hash()  # that eval ran with today's gates
-            record_g2(store)
         p2.update(built=p2["building"], building=None, pid=None, exit=code)
     if p2b.get("running"):
-        code = _exit_code(p2b)
-        say(f"P2b re-eval finished, exit {code}")
-        if code in ("0", "1"):
-            publish_latest(store)
-            p2["showcase_pending"] = not publish_showcase(store)
-        if code == "0":
-            leave_one_drive_out(store, AREA)
-            rain_test(store, AREA)
-            record_g2(store)
+        code = world.exit_code(p2b)
+        _complete(store, p2, "P2b re-eval", code, world)
         p2b.update(running=False, pid=None, exit=code)
     twin = f"{sys.executable} -m twin.cli"
     # eval exit 1 is a no-go verdict, not a failure
     eval_cmd = f"({twin} eval areas/{TWIN} --store {store}; [ $? -le 1 ])"
-    commit = main_commit()
-    _new_commit = commit is not None and commit != p2.get("built")
-    if _new_commit:
-        before = _head()
+    commit = world.main_commit()
+    if commit is not None and commit != p2.get("built"):
+        before = world.head()
         try:
-            done = subprocess.run(["git", "-C", str(REPO_ROOT), "pull", "--ff-only"],
-                                  capture_output=True, text=True, check=False)
-            if done.returncode:
-                say(f"pull failed: {done.stderr.strip()}")
+            ok, text = world.pull()
+            if not ok:
+                say(f"pull failed: {text}")
             else:
-                say(f"pull: {done.stdout.strip()}")
+                say(f"pull: {text}")
                 if not p2.get("showcase_pending"):  # an area publish waiting: it ships the new web/ itself
-                    redeploy_web(store, before, _head())
+                    redeploy_web(store, before, world.head(), world)
         except Exception as exc:  # noqa: BLE001
             say(f"pull failed: {exc}")
-    if commit is not None and commit != p2.get("built"):
-        pid, exit_file = _detached(store, f"p2-{commit[:7]}", f"{twin} area merge {AREA} --store {store} && {twin} area twin {AREA} --store {store} && {eval_cmd}")
+        pid, exit_file = world.start(store, f"p2-{commit[:7]}", f"{twin} area merge {AREA} --store {store} && {twin} area twin {AREA} --store {store} && {eval_cmd}")
         p2.update(building=commit, pid=pid, exit_file=exit_file)
         say(f"P2 new main {commit[:7]}: area {AREA} merge + twin + eval, pid {pid}")
         # operator 2026-11-14 pipeline automation: a scene-0757 run of current main, so prgate.pick_baseline compares with it
         jobqueue.add(store, {"type": "run", "scene": prgate.SCENE, "eval": True, "tags": [*TAGS["tags"], "baseline"]})
         # per-scene full runs for the showcase: skip drives whose newest full run is already on this commit
         for scene in area_scenes(store):
-            newest = prgate.pick_baseline(store, scene=scene)
+            newest = world.pick_baseline(store, scene)
             if newest is not None:
                 try:
                     m = read_record(newest)
@@ -295,7 +361,7 @@ def p2_area(store: Path, state: dict) -> int:
                     pass
             jobqueue.add(store, {"type": "run", "scene": scene, "eval": True})
     elif p2.get("built") and p2b.get("gates") != (now := gates_hash()):
-        pid, exit_file = _detached(store, "p2b", eval_cmd)
+        pid, exit_file = world.start(store, "p2b", eval_cmd)
         p2b.update(running=True, pid=pid, exit_file=exit_file, gates=now)
         say(f"P2b gates changed: re-eval of area {AREA}, pid {pid}")
     return 0
@@ -324,36 +390,36 @@ def narrow(rows: list[dict]) -> dict:
     return {"mode": "random", "n": ROUND_N, "params": params}
 
 
-def _board(store: Path, sweep_id: str) -> dict | None:
+def _board(store: Path, sweep_id: str, world) -> dict | None:
     try:
-        return sweep.leaderboard(store, sweep_id)
+        return world.leaderboard(store, sweep_id)
     except (OSError, ValueError, KeyError):
         return None
 
 
-def _usable(store: Path, folder: Path) -> bool:
+def _usable(store: Path, folder: Path, world) -> bool:
     """A rerun sweep needs the base run built from the worker's dataset version."""
     try:
         target = json.loads((folder / "sweep.json").read_text())["target"]
         made = RunStore(store).get(target).dataset_version
     except (OSError, ValueError, KeyError):
         return False
-    return made == dataset_version()
+    return made == world.dataset_version()
 
 
-def _latest_scored(store: Path) -> str | None:
+def _latest_scored(store: Path, world) -> str | None:
     for folder in sorted((store / "sweeps").glob("*"), reverse=True):
-        if not _usable(store, folder):
+        if not _usable(store, folder, world):
             continue
-        board = _board(store, folder.name)
+        board = _board(store, folder.name, world)
         if board and board["rows"]:
             return folder.name
     return None
 
 
-def base_runs(store: Path) -> list[str]:
+def base_runs(store: Path, world) -> list[str]:
     """Dry drives: full runs of this dataset version whose accuracy stage passed, oldest first."""
-    runs = RunStore(store).runs(no_parent=True, dataset_version=dataset_version())
+    runs = RunStore(store).runs(no_parent=True, dataset_version=world.dataset_version())
     return [r.id for r in reversed(runs) if any(s.get("name") == "accuracy" and s.get("status") == "ok" for s in r.stages)]
 
 
@@ -369,10 +435,10 @@ def group_space(group: str, start: int) -> dict:
     return {"mode": "random", "n": ROUND_N, "params": dict(picked)}
 
 
-def new_line(store: Path, state: dict) -> int:
+def new_line(store: Path, state: dict, world) -> int:
     """Start a sweep line: the next base run, the next parameter group. Bases rotate fastest,
     groups after a full pass over the bases, so every pair is tried before any repeats."""
-    bases = base_runs(store)
+    bases = base_runs(store, world)
     if not bases:
         return 0
     n = state.get("p3_lines", 0)
@@ -381,7 +447,7 @@ def new_line(store: Path, state: dict) -> int:
         space = group_space(group, k // (len(bases) * len(GROUPS)))
         space["seed"] = k
         try:
-            new = sweep.queue_sweep(store, base, space, TAGS)
+            new = world.queue_sweep(store, base, space, TAGS)
         except ValueError as exc:
             say(f"P3 new line on {base} / {group} skipped: {exc}")
             continue
@@ -393,24 +459,24 @@ def new_line(store: Path, state: dict) -> int:
     return 0
 
 
-def p3_sweep(store: Path, state: dict) -> int:
+def p3_sweep(store: Path, state: dict, world) -> int:
     """Exploit: a narrowing random search seeded from the top 5 of the latest leaderboard.
     A line ends after STALL_LIMIT rounds without a better top score, or when it has no seed;
     then a new line starts on the next base run and parameter group. P3 never runs dry."""
     line = state.get("p3")
     if line is None:
-        seed = _latest_scored(store)
+        seed = _latest_scored(store, world)
         if seed is None:
-            return new_line(store, state)  # no passing leaderboard: explore a base run instead
+            return new_line(store, state, world)  # no passing leaderboard: explore a base run instead
         line = state["p3"] = {"sweep": seed, "best": None, "stall": 0, "round": 0}
     if line.get("stopped"):
-        return new_line(store, state)
-    board = _board(store, line["sweep"])
+        return new_line(store, state, world)
+    board = _board(store, line["sweep"], world)
     if board is None or board["waiting"]:
         return 0  # still running
     if not board["rows"]:
         line["stopped"] = True  # the round finished with nothing scored
-        return new_line(store, state)
+        return new_line(store, state, world)
     best = list(_key(board["rows"][0]))
     prev = line["best"]
     if prev is None or best[0] > prev[0] or (best[0] == prev[0] and best[1] > prev[1] + MIN_GAIN):
@@ -420,11 +486,11 @@ def p3_sweep(store: Path, state: dict) -> int:
     if line["stall"] >= STALL_LIMIT:
         line["stopped"] = True
         say(f"P3 sweep line stopped after {STALL_LIMIT} rounds without gain (best {line['best']})")
-        return new_line(store, state)
+        return new_line(store, state, world)
     space = narrow(board["rows"][:TOP])
     space["seed"] = line["round"] = line["round"] + 1
     try:
-        new = sweep.queue_sweep(store, board["target"], space, TAGS)
+        new = world.queue_sweep(store, board["target"], space, TAGS)
     except ValueError as exc:
         line["stall"] += 1  # an unusable space counts as a round without gain
         say(f"P3 round failed: {exc}")
@@ -435,17 +501,6 @@ def p3_sweep(store: Path, state: dict) -> int:
 
 
 # --- P4 ---------------------------------------------------------------------------------
-def ranked_areas(path: Path = PASSES_FILE) -> dict:
-    """{"location/intersection": [scene names]}, most drives first (scripts/area_passes.py)."""
-    if not path.is_file():
-        subprocess.run([sys.executable, str(Path(__file__).parents[1] / "scripts" / "area_passes.py")],
-                       check=False)  # fmt: skip
-    try:
-        return json.loads(path.read_text())
-    except (OSError, ValueError):
-        return {}
-
-
 def _covered(store: Path) -> set[str]:
     out = set()
     for f in (store / "areas").glob("*.json"):
@@ -457,27 +512,27 @@ def _covered(store: Path) -> set[str]:
     return out
 
 
-def p4_prefetch(store: Path, state: dict) -> int:
+def p4_prefetch(store: Path, state: dict, world) -> int:
     """Load + mask only, one more ranked area per call. Compute-only, never published. No cap on
     areas: the disk hold (root and the store's filesystem) is the only limit."""
     for path, need in (("/", PREFETCH_ROOT_MIN_GB), (str(store), PREFETCH_STORE_MIN_GB)):
-        free = telemetry.free_gb(path)
+        free = world.free_gb(path)
         if free is not None and free < need:
             say(f"P4 held: {free:.1f} GB free on {path}, need {need:.0f}")
             return 0
     done = state.setdefault("p4", {})
     skip = _covered(store) | set(done)
-    key = next((k for k in ranked_areas() if k not in skip), None)
+    ranked = world.ranked_areas()
+    key = next((k for k in ranked if k not in skip), None)
     if key is None:
         return 0
-    try:
-        tokens = {s["name"]: s["token"] for s in json.loads((NUSCENES / "scene.json").read_text())}
-    except (OSError, ValueError):
+    tokens = world.scene_tokens()
+    if tokens is None:
         return 0
     jobs = [
         jobqueue.add(store, {"type": "run", "scene": tokens[n], "stop_after": "mask",
                              "priority": 4, "prefetch": key, **TAGS})
-        for n in ranked_areas()[key][:PREFETCH_SCENES] if n in tokens
+        for n in ranked[key][:PREFETCH_SCENES] if n in tokens
     ]  # fmt: skip
     done[key] = jobs
     say(f"P4 prefetch {key}: {len(jobs)} load+mask runs")
@@ -588,16 +643,17 @@ def idle_alarm(store: Path, state: dict, now: datetime | None = None) -> bool:
     return True
 
 
-def step(store: Path, ready=None, skip: tuple = ()) -> str:
+def step(store: Path, ready=None, skip: tuple = (), world=None) -> str:
     """One pass. Returns a short status line."""
     store = Path(store)
+    world = world or RealWorld()
     if (store / PAUSE_FILE).exists():
         return "paused"
     state = load_state(store)
     fail_streaks(store, state)
     idle_alarm(store, state)
     skip = (*skip, *state["paused"])
-    queued = {} if "P0" in skip else {"P0": p0_prgate(store, state)}
+    queued = {} if "P0" in skip else {"P0": p0_prgate(store, state, world)}
     # the scheduler's active tasks (jobs in running/), not pending files: held jobs are no work
     n = telemetry.queue_counts(store)[0] if ready is None else ready
     if n < LOW_WATER:
@@ -606,13 +662,13 @@ def step(store: Path, ready=None, skip: tuple = ()) -> str:
                 continue
             if n >= TARGET:
                 break
-            queued[name] = source(store, state)
+            queued[name] = source(store, state, world)
             n += queued[name]
     save_state(store, state)
     return f"active {n}, queued {queued}"
 
 
-def autopilot_command(store: Path | None, poll: float, once: bool, skip: tuple = ()) -> int:
+def autopilot_command(store: Path | None, poll: float, once: bool, skip: tuple = (), world=None) -> int:
     from twin.runner import default_store
 
     store = Path(store or default_store())
@@ -623,11 +679,12 @@ def autopilot_command(store: Path | None, poll: float, once: bool, skip: tuple =
     except Timeout:
         print("twin autopilot: another autopilot is running", file=sys.stderr)
         return 3
+    world = world or RealWorld()
     watch = CodeWatch()
     try:
         while True:
             try:
-                say(step(store, skip=skip))
+                say(step(store, skip=skip, world=world))
             except Exception as exc:  # noqa: BLE001 - one bad pass must not end the loop
                 say(f"pass failed: {type(exc).__name__}: {exc}")
             changed = watch.changed()

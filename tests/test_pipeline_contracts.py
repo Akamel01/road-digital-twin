@@ -11,6 +11,7 @@ import shutil
 import pytest
 
 from twin import autopilot, fake_run, jobqueue, prgate, runner, site
+from twin.autopilot import RealWorld
 from twin.contracts import Params
 from twin.pipeline_check import check_job, check_queue, fake_area, stub_web
 
@@ -29,8 +30,38 @@ def store(built, tmp_path, monkeypatch):
     """A store with two finished fake drives, built from the worker's dataset version."""
     monkeypatch.setenv("NUSCENES_VERSION", "v1.0-mini")  # what fake_run's manifests record
     shutil.copytree(built, tmp_path, dirs_exist_ok=True)
-    monkeypatch.setattr(autopilot.telemetry, "free_gb", lambda path: 1000.0)
     return tmp_path
+
+
+class ContractWorld(RealWorld):
+    """The real world with the outside effects the contract tests need faked."""
+
+    def __init__(self, commit="c" * 40, ranked=None, tokens=None, board=None, round_n=3):
+        super().__init__()
+        self.commit, self.ranked, self.tokens, self.board, self.round_n = commit, ranked or {}, tokens, board, round_n
+        self.cmds = []
+
+    def main_commit(self):
+        return self.commit
+
+    def free_gb(self, path):
+        return 1000.0
+
+    def ranked_areas(self):
+        return self.ranked
+
+    def scene_tokens(self):
+        return self.tokens
+
+    def leaderboard(self, store, sweep_id):
+        return self.board if self.board is not None else super().leaderboard(store, sweep_id)
+
+    def queue_sweep(self, store, target, space, extra):
+        return super().queue_sweep(store, target, {**space, "n": self.round_n}, extra)
+
+    def start(self, store, name, cmd):
+        self.cmds.append(cmd)
+        return 0, str(store / "x.exit")
 
 
 def pending(store):
@@ -89,19 +120,14 @@ def test_p0_jobs_are_valid_and_n_a_status_posts_once_per_head(tmp_path, monkeypa
 def test_p2_commands_parse_as_twin_cli(store, monkeypatch):
     from twin.cli import build_parser
 
-    cmds = []
-    monkeypatch.setattr(autopilot, "main_commit", lambda: "c" * 40)
-    monkeypatch.setattr(
-        autopilot,
-        "_detached",
-        lambda s, name, cmd: cmds.append(cmd) or (0, str(store / "x.exit")),
-    )
+    world = ContractWorld()
+    cmds = world.cmds
     monkeypatch.setattr(autopilot, "gates_hash", lambda: "g1")
     state: dict = {}
-    autopilot.p2_area(store, state)  # P2: new main commit
+    autopilot.p2_area(store, state, world)  # P2: new main commit
     state["p2"].update(built="c" * 40, building=None, pid=None)
     state["p2b"] = {"gates": "old"}
-    autopilot.p2_area(store, state)  # P2b: gates changed
+    autopilot.p2_area(store, state, world)  # P2b: gates changed
     assert len(cmds) == 2
     for cmd in cmds:
         for part in cmd.replace("(", " ").replace(")", " ").split("&&"):
@@ -112,11 +138,11 @@ def test_p2_commands_parse_as_twin_cli(store, monkeypatch):
 
 # --- P3: sweep lines ----------------------------------------------------------------------
 def test_p3_new_line_jobs_validate_over_many_seeds(store, monkeypatch):
-    monkeypatch.setattr(autopilot, "ROUND_N", 3)
+    world = ContractWorld()
     for seed in range(len(autopilot.GROUPS) * 3):
         state = {"p3_lines": seed}
         before = {j["id"] for j in pending(store)}
-        n = autopilot.new_line(store, state)
+        n = autopilot.new_line(store, state, world)
         assert n > 0, f"seed {seed}: no variants queued"
         check_queue(store, {j["id"] for j in pending(store)} - before)
 
@@ -126,16 +152,16 @@ def test_p3_never_reruns_a_base_built_from_another_dataset_version(store, monkey
     monkeypatch.setenv(
         "NUSCENES_VERSION", TRAINVAL
     )  # the worker reads trainval; the runs on disk are mini
-    assert autopilot.base_runs(store) == []
-    assert autopilot.new_line(store, {}) == 0
+    assert autopilot.base_runs(store, RealWorld()) == []
+    assert autopilot.new_line(store, {}, RealWorld()) == 0
     assert pending(store) == []
     # a base run of the right version is used, and its jobs pass the worker's checks
     run = next(store.glob("20*/run.json"))
     doc = json.loads(run.read_text())
     doc["data"]["nuscenes_version"] = TRAINVAL
     run.write_text(json.dumps(doc))
-    assert autopilot.base_runs(store) == [run.parent.name]
-    assert autopilot.new_line(store, {}) > 0
+    assert autopilot.base_runs(store, RealWorld()) == [run.parent.name]
+    assert autopilot.new_line(store, {}, RealWorld()) > 0
     check_queue(store)
 
 
@@ -180,17 +206,16 @@ def test_p3_narrowed_space_stays_inside_params_ranges(store, monkeypatch):
 
 
 def test_p3_narrowed_rounds_queue_valid_jobs(store, monkeypatch):
-    monkeypatch.setattr(autopilot, "ROUND_N", 3)
     base = next(p.parent.name for p in store.glob("20*/run.json"))
     paths = _bounded_paths()
     for seed in range(40):
         rng = random.Random(seed)
         rows = _rows_around(rng, rng.sample(paths, 3))
         board = {"target": base, "waiting": 0, "rows": rows}
-        monkeypatch.setattr(autopilot, "_board", lambda s, i, board=board: board)
+        world = ContractWorld(board=board)
         state = {"p3": {"sweep": "s", "best": None, "stall": 0, "round": 0}}
         before = {j["id"] for j in pending(store)}
-        n = autopilot.p3_sweep(store, state)
+        n = autopilot.p3_sweep(store, state, world)
         assert state["p3"]["stall"] == 0 and n > 0, (
             f"seed {seed}: round refused (stall {state['p3']['stall']})"
         )
@@ -200,16 +225,11 @@ def test_p3_narrowed_rounds_queue_valid_jobs(store, monkeypatch):
 # --- P4: prefetch -------------------------------------------------------------------------
 def test_p4_jobs_pass_pipeline_validation(store, tmp_path, monkeypatch):
     """Bug: P4 jobs failed Pipeline validation ('stage align is required and cannot be disabled', 12 jobs on the box)."""
-    nusc = tmp_path / "nusc"
-    nusc.mkdir()
-    (nusc / "scene.json").write_text(
-        json.dumps([{"name": f"s{i}", "token": f"tok{i}"} for i in range(3)])
+    world = ContractWorld(
+        ranked={"loc/a": ["s0", "s1", "s2"]},
+        tokens={f"s{i}": f"tok{i}" for i in range(3)},
     )
-    monkeypatch.setattr(autopilot, "NUSCENES", nusc)
-    monkeypatch.setattr(
-        autopilot, "ranked_areas", lambda *a: {"loc/a": ["s0", "s1", "s2"]}
-    )
-    assert autopilot.p4_prefetch(store, {}) == 3
+    assert autopilot.p4_prefetch(store, {}, world) == 3
     jobs = pending(store)
     assert {j["stop_after"] for j in jobs} == {"mask"}
     check_queue(store)
