@@ -100,3 +100,15 @@ def test_drives_read_from_the_build_the_ref_named(tmp_path):
     assert open_area(tmp_path, root / "a2-twin").drive_tokens() == []
     assert open_area(tmp_path, root / "a2-merged").drive_tokens() == ["t1"]
     assert open_area(tmp_path, "a2").drive_tokens() == ["t1"]
+
+
+def test_a_named_build_that_is_not_built_yet_has_no_drives(tmp_path):
+    root = tmp_path / "areas"
+    (root / "a3-merged").mkdir(parents=True)
+    (root / "a3.json").write_text(json.dumps({"polygon": {}, "drives": [{"scene": "s1", "scene_token": "t1"}]}))
+    (root / "a3-merged" / "drives.json").write_text(json.dumps([{"scene": "s1"}]))
+    a = open_area(tmp_path, root / "a3-twin")  # autopilot asks before the first area twin build
+    assert (a.name, a.root) == ("a3", root)
+    assert a.drive_tokens() == []
+    assert open_area(tmp_path, "a3-twin").drive_tokens() == []
+    assert open_area(tmp_path, "a3-merged").drive_tokens() == ["t1"]

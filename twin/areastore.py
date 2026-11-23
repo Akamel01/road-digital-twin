@@ -97,7 +97,7 @@ def open_area(store: Path | str, ref: str | Path, *, areas_root: Path | None = N
     store = Path(store)
     r = Path(ref)
     default_root = Path(areas_root) if areas_root is not None else store / "areas"
-    if r.suffix == ".json" or r.is_dir():
+    if r.suffix == ".json" or r.is_dir() or len(r.parts) > 1:  # a path, even to a build not made yet
         name, root = _strip(r.stem if r.suffix == ".json" else r.name), r.parent
     else:
         name = _strip(str(ref))
@@ -111,7 +111,8 @@ def open_area(store: Path | str, ref: str | Path, *, areas_root: Path | None = N
         merged_dir=root / f"{name}{MERGED_SUFFIX}",
         twin_dir=root / f"{name}{TWIN_SUFFIX}",
         definition_path=next((p for p in defs if isinstance(_read_json(p), dict)), None),
-        ref_dir=r if r.suffix != ".json" and r.is_dir() else None,
+        # the build the ref named (even if not built yet): <name>-twin, <name>-merged or an existing folder
+        ref_dir=None if r.suffix == ".json" else root / r.name if r.name != name else r if r.is_dir() else None,
     )
 
 
