@@ -29,6 +29,7 @@ import shapely
 from PIL import Image
 from shapely.geometry import mapping, shape
 
+from twin.cameras import camera_count, posed_cameras
 from twin.contracts import AccuracyParams, ColourParams, SemanticsParams, StageResult
 from twin.dataset import DatasetConfig
 from twin.registry import register
@@ -538,28 +539,19 @@ def run_with(
     near = features._near_ground_nonground(gdir, 0.25 + features.CURB_ABOVE_SLACK_M)
     targets = np.vstack([ground, near])
 
-    align_rows = json.loads((ctx.input_dir("align") / "poses.json").read_text())[
-        "poses"
-    ]
-    ego = np.array([row["matrix"] for row in align_rows], float).reshape(-1, 4, 4)
-    times = np.array([row["timestamp_us"] for row in align_rows], np.int64)
-    cams = json.loads((ldir / "cameras.json").read_text())["cameras"]
+    posed = posed_cameras(ldir, ctx.input_dir("align"))
+    n_cams = camera_count(ldir)
     sweep_boxes = json.loads((ldir / "boxes.json").read_text())["sweeps"]
-    usable = [
-        c for c in cams if times[0] <= c["timestamp_us"] <= times[-1]
-    ]  # as in colour
     root = Path(DatasetConfig.from_env().root)
 
     def views():
-        for cam in usable:
-            t = int(cam["timestamp_us"])
-            c2w = zbuffer.camera_to_world(ego, times, t, cam["extrinsics"])
-            img = np.asarray(Image.open(root / cam["image"]).convert("RGB"))
+        for cam in posed:
+            img = np.asarray(Image.open(root / cam.image).convert("RGB"))
             yield (
-                c2w,
-                np.asarray(cam["intrinsics"], float),
+                cam.c2w,
+                cam.K,
                 img,
-                colour.boxes_at(sweep_boxes, t),
+                colour.boxes_at(sweep_boxes, cam.t_us),
             )
 
     stats: dict = {}
@@ -623,8 +615,8 @@ def run_with(
         "licences": LICENCES,
         "classes": VISTAS_CLASSES,
         "cell_m": params.cell_m,
-        "n_cameras": len(cams),
-        "n_cameras_skipped_outside_sweeps": len(cams) - len(usable),
+        "n_cameras": n_cams,
+        "n_cameras_skipped_outside_sweeps": n_cams - len(posed),
         "observed_cells": int((r["images"] >= params.min_images).sum()),
         "fusion": counts,
         "seconds_total": round(time.perf_counter() - t0, 2),

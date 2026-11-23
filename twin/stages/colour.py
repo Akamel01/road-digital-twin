@@ -26,6 +26,7 @@ import numpy as np
 from PIL import Image
 
 from twin import pose as pose_mod
+from twin.cameras import camera_count, posed_cameras
 from twin.contracts import HOLDOUT_EVERY, ColourParams, StageResult
 from twin.dataset import DatasetConfig
 from twin.registry import register
@@ -315,16 +316,10 @@ def _run(ctx: Any, params: ColourParams, refine: bool = False) -> StageResult:
     # Same order as outputs' twin cloud: ground first, then non-ground.
     points = np.vstack([ground_xyz, nonground_xyz])
 
-    align_rows = json.loads((ctx.input_dir("align") / "poses.json").read_text())[
-        "poses"
-    ]
-    ego = np.array([r["matrix"] for r in align_rows], float).reshape(-1, 4, 4)
-    times = np.array([r["timestamp_us"] for r in align_rows], np.int64)
     ldir = ctx.input_dir("load")
-    cams = json.loads((ldir / "cameras.json").read_text())["cameras"]
+    posed = posed_cameras(ldir, ctx.input_dir("align"))
+    n_cams = camera_count(ldir)
     sweep_boxes = json.loads((ldir / "boxes.json").read_text())["sweeps"]
-    # DECISION: a camera outside the sweep span has no refined pose, so it is skipped (counted in qa.json).
-    usable = [c for c in cams if times[0] <= c["timestamp_us"] <= times[-1]]
     root = Path(DatasetConfig.from_env().root)
 
     markings = json.loads((ctx.input_dir("features") / "markings.geojson").read_text())["features"]
@@ -340,16 +335,14 @@ def _run(ctx: Any, params: ColourParams, refine: bool = False) -> StageResult:
     pose_infos: list[dict] = []
 
     def views():
-        for cam in usable:
-            t = int(cam["timestamp_us"])
-            c2w = zbuffer.camera_to_world(ego, times, t, cam["extrinsics"])
-            K = np.asarray(cam["intrinsics"], float)
-            img = np.asarray(Image.open(root / cam["image"]).convert("RGB"))
+        for cam in posed:
+            t, c2w, K = cam.t_us, cam.c2w, cam.K
+            img = np.asarray(Image.open(root / cam.image).convert("RGB"))
             boxes = boxes_at(sweep_boxes, t)
             if refine:
                 c2w, _, info = colour_pose.refine_one(c2w, K, img, anchors, params, nonground_xyz, boxes)
                 pose_deltas.append(info["delta"])
-                pose_channels.append(str(cam.get("channel", "")))
+                pose_channels.append(str(cam.channel))
                 pose_infos.append(info)
             yield c2w, K, img, boxes
 
@@ -383,8 +376,8 @@ def _run(ctx: Any, params: ColourParams, refine: bool = False) -> StageResult:
         "views_median": float(np.median(n_views[observed])) if observed.any() else None,
         "observed_share": float(observed.mean()),
         "n_points": len(points),
-        "n_cameras": len(cams),
-        "n_cameras_skipped_outside_sweeps": len(cams) - len(usable),
+        "n_cameras": n_cams,
+        "n_cameras_skipped_outside_sweeps": n_cams - len(posed),
         "top_k": params.top_k,
         "gsd_m": cell,
         "device": stats["device"],
