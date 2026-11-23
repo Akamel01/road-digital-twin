@@ -181,8 +181,18 @@ def build_edges(drives, clouds, ground, anchors, centre):
     anchor_c = anchor_pts[:, :3] - centre if anchor_pts.shape[0] else anchor_pts
     A_tree = cKDTree(anchor_c[:, :2]) if anchor_pts.shape[0] else None
     P = {k: (thinned[k] - centre).astype(np.float32) for k in ids}
-    src_sets = {k: P[k].copy() for k in ids}
+    src_sets = P  # single shared centered array (no copy)
     anchor_src_c = {k: (anchor_src[k] - centre).astype(np.float32) for k in ids}
+    MAX_ANCHOR = 500
+    for k, arr in list(anchor_src_c.items()):
+        if anchor_c.shape[0] > 0 and len(arr) > 0:
+            _t = cKDTree(anchor_c[:, :2])
+            _d, _ = _t.query(arr[:, :2], k=1)
+            arr = arr[_d <= 5.0]
+        if len(arr) > MAX_ANCHOR:
+            sel = np.round(np.linspace(0, len(arr) - 1, MAX_ANCHOR)).astype(int)
+            arr = arr[sel]
+        anchor_src_c[k] = np.asarray(arr, dtype=np.float32)
     ref = min(ids, key=lambda k: (-len(thinned[k]), k)) if ids else None
     nonref = [k for k in ids if k != ref] if ref is not None else []
     x0 = np.zeros(3 * len(nonref))
@@ -192,8 +202,6 @@ def build_edges(drives, clouds, ground, anchors, centre):
         "ref": ref,
         "nonref": nonref,
         "pts_map": thinned,  # thinned only; raw clouds dropped
-        "thinned": thinned,
-        "anchor_src": anchor_src,
         "anchor_src_c": anchor_src_c,
         "anchor_pts": anchor_pts,
         "anchor_c": anchor_c,
@@ -201,7 +209,6 @@ def build_edges(drives, clouds, ground, anchors, centre):
         "P": P,
         "src_sets": src_sets,
         "x0": x0,
-        "ground": ground or {},
         "overlap_drives": overlap_drives,
         "n_overlap_drives": len(overlap_drives),
         "fallback_reason": None,
@@ -238,12 +245,21 @@ def _robust_cost(graph, x, gate_m=1.0):
     anchor_sets = graph.get("anchor_src_c", src_sets)
     poses = _unpack(graph, x)
     pair_corr = _pair_correspondences(graph, poses, gate_m=gate_m)
-    res_list = []
+    # Accumulate Huber cost incrementally over edges (no giant concat).
+    f = 0.5
+    total = 0.0
+    anyres = False
     for e in pair_corr:
         pa = _apply(poses[e["a"]], src_sets[e["a"]])[e["idx_a"]]
         pb = _apply(poses[e["b"]], src_sets[e["b"]])[e["idx_b"]]
         diff = (pa[:, :2] - pb[:, :2]) * e["weight"]
-        res_list.append(diff.ravel())
+        r = diff.ravel()
+        if r.size == 0:
+            continue
+        anyres = True
+        z = (r / f) ** 2
+        rho = np.where(z <= 1, z, 2 * np.sqrt(z) - 1)
+        total += float(np.sum(rho))
     if anchor_c.shape[0] > 0 and A_tree is not None:
         for k in ids:
             pk = _apply(poses[k], anchor_sets[k])
@@ -254,14 +270,16 @@ def _robust_cost(graph, x, gate_m=1.0):
             mask = dist <= 1.0
             diff = np.zeros((len(pk), 2), float)
             diff[mask] = (pk[mask, :2] - anchor_c[idx[mask], :2]) * 50.0
-            res_list.append(diff.ravel())
-    if not res_list:
+            r = diff.ravel()
+            if r.size == 0:
+                continue
+            anyres = True
+            z = (r / f) ** 2
+            rho = np.where(z <= 1, z, 2 * np.sqrt(z) - 1)
+            total += float(np.sum(rho))
+    if not anyres:
         return float("inf")
-    r = np.concatenate(res_list)
-    # least_squares cost with huber, f_scale=0.5: 0.5*sum(rho((r/f)^2))*f^2
-    z = (r / 0.5) ** 2
-    rho = np.where(z <= 1, z, 2 * np.sqrt(z) - 1)
-    return float(0.5 * np.sum(rho) * (0.5 ** 2))
+    return float(0.5 * total * (f ** 2))
 
 
 def _select_multistart(graph, candidates):
@@ -320,11 +338,19 @@ def _pair_correspondences(graph, poses, gate_m=None):
             n_in = int(mask.sum())
             if n_in < merge.MIN_OVERLAP_POINTS:
                 continue
+            idx_a_all = np.flatnonzero(mask)
+            idx_b_all = idx[mask].astype(np.int64)
+            MAX_CORR = 500
+            if len(idx_a_all) > MAX_CORR:
+                sel = np.round(np.linspace(0, len(idx_a_all) - 1, MAX_CORR)).astype(int)
+                idx_a_all = idx_a_all[sel]
+                idx_b_all = idx_b_all[sel]
+                n_in = len(idx_a_all)
             corr.append({
                 "a": a,
                 "b": b,
-                "idx_a": np.flatnonzero(mask),
-                "idx_b": idx[mask].astype(np.int64),
+                "idx_a": idx_a_all,
+                "idx_b": idx_b_all,
                 "weight": float(np.sqrt(n_in)),
             })
     return corr
@@ -437,10 +463,9 @@ def align_joint(drives, clouds, ground, anchors, centre):
     n_overlap = graph["n_overlap_drives"]
 
     if fallback_reason is not None:
-        ground_in = ground or {}
         res = merge.register_drives(
             {k: pts_map[k][:, :3] for k in ids}, centre, seed=0,
-            ground={k: np.asarray(ground_in.get(k, pts_map[k]), float)[:, :3] for k in ids},
+            ground={k: np.asarray((ground or {}).get(k, clouds[k] if k in clouds else pts_map[k]), float)[:, :3] for k in ids},
         )
         res.setdefault("anchor_residuals", [])
         res.setdefault("pair_residuals", [])
@@ -458,7 +483,7 @@ def align_joint(drives, clouds, ground, anchors, centre):
         return res
 
     ground_in = ground or {}
-    gpts = {k: np.asarray(ground_in.get(k, pts_map[k]), float)[:, :3] for k in ids}
+    gpts = {k: np.asarray(ground_in.get(k, clouds[k] if k in clouds else pts_map[k]), float)[:, :3] for k in ids}
 
     # seed from chained ICP; anchor pre-seed improves basin when anchors exist (CR1).
     chained_corr = {graph["ref"]: np.eye(4)}
@@ -670,7 +695,7 @@ def align_joint(drives, clouds, ground, anchors, centre):
 
     anchor_residuals = []
     for k in ids:
-        pk = _apply(corrections[k], (graph["anchor_src"][k] - centre).astype(float))
+        pk = _apply(corrections[k], graph["anchor_src_c"][k].astype(float))
         if anchor_c.shape[0] == 0:
             anchor_residuals.append(0.0)
             continue
@@ -781,7 +806,7 @@ def align_joint(drives, clouds, ground, anchors, centre):
 
     anchor_residuals = []
     for k in ids:
-        pk = _apply(corrections[k], (graph["anchor_src"][k] - centre).astype(float))
+        pk = _apply(corrections[k], graph["anchor_src_c"][k].astype(float))
         if anchor_c.shape[0] == 0:
             anchor_residuals.append(0.0)
             continue

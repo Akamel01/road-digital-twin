@@ -23,10 +23,10 @@ def _joint_expected(drives, clouds, anchors, centre):
     """Mirror align_joint seeding/solve for provenance checks."""
     graph = joint_align.build_edges(drives, clouds, clouds, anchors, centre)
     chained = merge.register_drives(
-        {k: np.asarray(clouds[k], float)[:, :3] for k in graph["ids"]},
+        {k: graph["pts_map"][k][:, :3].astype(float) for k in graph["ids"]},
         centre,
         seed=0,
-        ground={k: np.asarray(clouds[k], float)[:, :3] for k in graph["ids"]},
+        ground={k: (graph["anchor_src_c"][k].astype(float) + np.asarray(centre, float).ravel()) for k in graph["ids"]},
     )
     x0 = np.zeros(3 * len(graph["nonref"]))
     for i, k in enumerate(graph["nonref"]):
@@ -52,7 +52,7 @@ def _joint_expected(drives, clouds, anchors, centre):
 
         grid = (-0.6, -0.3, 0.0, 0.3, 0.6)
         for i, k in enumerate(graph["nonref"]):
-            pk = graph["src_sets"][k]
+            pk = graph["anchor_src_c"][k]
             if len(pk) == 0:
                 continue
             candidates = [np.clip(graph["x0"][3 * i : 3 * i + 3], -bnd, bnd), np.zeros(3)]
@@ -64,7 +64,8 @@ def _joint_expected(drives, clouds, anchors, centre):
                 xi = np.clip(np.array(xinit, float), -bnd, bnd)
                 scored.append((_anchor_cost(xi, pk), xi))
             scored.sort(key=lambda t: t[0])
-            best_x, best_c = scored[0][1], scored[0][0]
+            best_x, best_c = scored[0][1].copy(), scored[0][0]
+            raw_best = scored[0][1].copy()
             refine_n = 6 if len(graph["nonref"]) <= 2 else min(len(scored), 12)
             for _, xinit in scored[:refine_n]:
                 xi = np.clip(np.array(xinit, float), -bnd, bnd)
@@ -101,6 +102,9 @@ def _joint_expected(drives, clouds, anchors, centre):
                 cst = _anchor_cost(xi, pk)
                 if cst < best_c:
                     best_c, best_x = cst, xi
+            raw_c = _anchor_cost(raw_best, pk)
+            if raw_c <= best_c * 1.05:
+                best_x, best_c = raw_best, raw_c
             anchor_seeds[k] = best_x
         x_chained = np.array(graph["x0"], float)
         x_anchor = np.array(graph["x0"], float)
