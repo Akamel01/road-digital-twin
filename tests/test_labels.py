@@ -5,14 +5,11 @@ import pytest
 from twin.contracts import LabelFeature, SiteMeta
 from twin.labels import (
     FrozenSiteError,
-    _area_def,
     approve,
-    area_build_dir,
     draft,
     new_version,
     read_labels,
     read_site,
-    resolve_area,
     set_meta,
     valid_site,
     write_labels,
@@ -223,18 +220,6 @@ def test_draft_reads_twin_features_and_clips(tmp_path):
     assert coords != [[0, 0], [100, 100]]
 
 
-def _area_outside(tmp_path):
-    root = tmp_path / "areas"
-    root.mkdir()
-    build = root / "demo-twin"
-    build.mkdir()
-    # feature file
-    _write_fc(build / "markings.geojson", [{"type": "Feature", "geometry": {"type": "LineString", "coordinates": [[0, 0], [1, 1]]}, "properties": {"id": "m1", "marking_type": "solid"}}])
-    area_def = {"name": "demo", "polygon": {"type": "Polygon", "coordinates": [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]]}}
-    (root / "demo.json").write_text(json.dumps(area_def) + "\n")
-    return root, build
-
-
 def test_draft_empty_creates_no_features(tmp_path):
     store = tmp_path / "store"
     build = _make_area(tmp_path)
@@ -253,94 +238,6 @@ def test_draft_default_still_copies_features(tmp_path):
     labels = read_labels(store, "s1")
     assert len(labels["features"]) == 4
 
-
-def test_resolve_area_inside_store(tmp_path):
-    store = tmp_path / "store"
-    store.mkdir()
-    build = store / "demo-twin"
-    build.mkdir()
-    (build / "markings.geojson").write_text('{"type":"FeatureCollection","features":[]}')
-    (store / "areas").mkdir(exist_ok=True)
-    (store / "areas" / "demo.json").write_text(json.dumps({"polygon": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]]}}))
-    bd, ad = resolve_area(store, "demo")
-    assert bd == build
-    assert "polygon" in ad
-
-
-def test_resolve_area_outside_store(tmp_path):
-    root, build = _area_outside(tmp_path)
-    store = tmp_path / "store"
-    bd, ad = resolve_area(store, "demo", areas_root=root)
-    assert bd == build
-    assert "polygon" in ad
-
-
-def test_resolve_area_accepts_build_path(tmp_path):
-    _root, build = _area_outside(tmp_path)
-    store = tmp_path / "store"
-    bd, ad = resolve_area(store, str(build))
-    assert bd == build
-    assert "polygon" in ad
-
-
-def test_resolve_area_accepts_area_json(tmp_path):
-    root, build = _area_outside(tmp_path)
-    store = tmp_path / "store"
-    json_path = root / "demo.json"
-    bd, _ad = resolve_area(store, str(json_path), areas_root=root)
-    # sibling build found
-    assert bd == build
-
-
-def test_area_build_dir_preserves_store_name_candidate(tmp_path):
-    store = tmp_path / "store"
-    store.mkdir()
-    build = store / "demo"
-    build.mkdir()
-    (build / "markings.geojson").write_text('{"type":"FeatureCollection","features":[]}')
-    bd = area_build_dir(store, "demo")
-    assert bd == build
-
-
-def test_area_build_dir_areas_root_candidates_first(tmp_path):
-    store = tmp_path / "store"
-    store.mkdir()
-    # both store/demo and areas_root/demo-twin exist with equal features
-    b1 = store / "demo"
-    b1.mkdir()
-    (b1 / "markings.geojson").write_text('{"type":"FeatureCollection","features":[]}')
-    root = tmp_path / "areas"
-    root.mkdir()
-    b2 = root / "demo-twin"
-    b2.mkdir()
-    (b2 / "markings.geojson").write_text('{"type":"FeatureCollection","features":[]}')
-    bd = area_build_dir(store, "demo", areas_root=root)
-    assert bd == b2
-
-
-def test_area_def_prefers_exact_sibling_over_wildcard(tmp_path):
-    store = tmp_path / "store"
-    store.mkdir()
-    build = store / "demo-twin"
-    build.mkdir()
-    # two jsons in parent
-    (store / "demo.json").write_text(json.dumps({"polygon": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]]}}))
-    (store / "other.json").write_text(json.dumps({"polygon": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]]}}))
-    ad = _area_def(store, "demo", build)
-    # exact sibling demo.json wins -> name demo; just ensure returns dict with polygon
-    assert "polygon" in ad
-
-
-def test_area_def_rejects_ambiguous_polygon_json(tmp_path):
-    store = tmp_path / "store"
-    store.mkdir()
-    build = store / "demo-twin"
-    build.mkdir()
-    (store / "a.json").write_text(json.dumps({"polygon": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]]}}))
-    (store / "b.json").write_text(json.dumps({"polygon": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]]}}))
-    import pytest
-    with pytest.raises((FileNotFoundError, ValueError)):
-        _area_def(store, "demo", build)
 
 
 def test_set_meta_updates_control_and_notes(tmp_path):

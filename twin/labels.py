@@ -117,14 +117,6 @@ def write_site(store: Path | str, site: str, meta: SiteMeta) -> None:
     site_path(store, site).write_text(meta.model_dump_json(indent=2) + "\n")
 
 
-def area_build_dir(store: Path | str, area: str, *, areas_root: Path | None = None) -> Path:
-    return open_area(store, area, areas_root=areas_root).build_dir()
-
-
-def _area_def(store: Path | str, area: str, build_dir: Path, areas_root: Path | None = None) -> dict:
-    return open_area(store, build_dir, areas_root=areas_root).definition()
-
-
 def _map_feature(element: str, feat: dict, source_file: str, idx: int) -> dict:
     props = dict(feat.get("properties") or {})
     fid = props.get("id")
@@ -153,11 +145,6 @@ def _map_feature(element: str, feat: dict, source_file: str, idx: int) -> dict:
     return out
 
 
-def resolve_area(store: Path | str, area: str, *, areas_root: Path | None = None) -> tuple[Path, dict]:
-    a = open_area(store, area, areas_root=areas_root)
-    return a.build_dir(), a.definition()
-
-
 def draft(
     store: Path | str,
     site: str,
@@ -177,7 +164,8 @@ def draft(
         shutil.rmtree(d, ignore_errors=True)
     d.mkdir(parents=True, exist_ok=True)
 
-    build_dir, area_def = resolve_area(store, area, areas_root=areas_root)
+    src = open_area(store, area, areas_root=areas_root)
+    build_dir, area_def = src.build_dir(), src.definition()
 
     features_dir = stage_dir(build_dir, "features") if stage_dir(build_dir, "features").is_dir() else build_dir
     site_poly = area_def["polygon"]
@@ -227,7 +215,7 @@ def draft(
         approved_at=None,
         crs="EPSG:32619",
         created_at=created_at or _now(),
-        source_area=build_dir.name.removesuffix("-twin").removesuffix("-merged"),
+        source_area=src.name,
         frozen=False,
     )
     write_site(store, site, meta)

@@ -24,7 +24,7 @@ from pathlib import Path
 from filelock import FileLock, Timeout
 
 from twin import REPO, gates, jobqueue, prgate, site, sweep, telemetry
-from twin.area import drive_tokens
+from twin.areastore import open_area, twin_ref
 from twin.contracts import Params
 from twin.reload import CodeWatch
 from twin.runner import REPO as REPO_ROOT
@@ -37,7 +37,7 @@ LOW_WATER = 6  # active jobs below this: refill
 TARGET = 12  # ... up to this
 PAUSE_FILE = "autopilot.pause"
 AREA = "seaport"
-TWIN = f"{AREA}-twin"  # what `twin area twin` writes: the area build that eval and the latest view use (#142)
+TWIN = twin_ref(AREA)  # what `twin area twin` writes: the area build that eval and the latest view use (#142)
 REPO_URL = f"https://github.com/{REPO}.git"
 ROUND_N = 8  # variants per sweep round
 TOP = 5  # leaderboard rows that seed a round
@@ -126,7 +126,7 @@ def record_g2(store: Path) -> None:
     """Append the latest area build's G2 value and verdict to autopilot/g2_history.json, and say
     when gates.G2_RUN builds in a row passed at the current threshold. gates.yaml is never edited."""
     try:
-        report = gates.GateReport.load(store / "areas" / TWIN)
+        report = gates.GateReport.load(open_area(store, TWIN).twin_dir)
         check = next(c for c in report.checks if c.gate == "G2")
         entry = {"run_id": report.run_id, "value": check.value, "threshold": check.threshold, "status": check.status}
     except (OSError, ValueError, KeyError, StopIteration):
@@ -201,7 +201,7 @@ def publish_latest(store: Path) -> None:
 
 def area_scenes(store: Path) -> list[str]:
     """Scene tokens of the area twin's drives; [] before the first area build. Run jobs take tokens."""
-    return drive_tokens(Path(store) / "areas" / TWIN)
+    return open_area(store, TWIN).drive_tokens()
 
 
 def publish_showcase(store: Path) -> bool:

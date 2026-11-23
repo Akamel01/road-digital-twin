@@ -488,7 +488,8 @@ def generate(
     if not area_name:
         raise DraftError("area required")
 
-    build_dir, area_def = labels.resolve_area(store, area_name, areas_root=areas_root)
+    opened = open_area(store, area_name, areas_root=areas_root)
+    build_dir, area_def = opened.build_dir(), opened.definition()
     runs = runs_for_area(store, area_name, areas_root=areas_root)
 
     used_area = False
@@ -583,9 +584,9 @@ def generate(
         if used_area:
             data["unavailable"] = ["ortho", "fused"]
             if data.get("no_imagery") is False and not data["frames"]:
-                source_name = runs[0].name
+                source_name = opened.merged_dir.name
                 data["missing"].append(
-                    f"no usable camera frames (check {source_name}-merged/drives and the nuScenes root)"
+                    f"no usable camera frames (check {source_name}/drives and the nuScenes root)"
                 )
 
         html = render(data)

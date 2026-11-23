@@ -274,14 +274,6 @@ def drive_correction(c: dict | None, centre: np.ndarray | None = None) -> np.nda
     return t
 
 
-def drive_tokens(build: Path, defined: dict | None = None) -> list[str]:
-    """Scene tokens of the drives an area build used, in drives.json order; see areastore.Area.drive_tokens."""
-    from twin.areastore import open_area  # lazy: areastore imports this module
-
-    build = Path(build)
-    return open_area(build.parent, build).drive_tokens(defined)
-
-
 VERSION = "v1.0-trainval"
 # DECISION: a candidate scene counts when its ego path passes within this distance (m) of the area: LIDAR_TOP
 # scans the area from neighbouring streets. Every scene that drives through Seaport's area is already in it.
