@@ -6,8 +6,8 @@ from pathlib import Path
 
 from twin.contracts import STAGE_NAMES
 
-# areabuild/areasteps (locked by #404) still carry literals; fake_run builds run folders directly.
-ALLOW = {"contracts.py", "areabuild.py", "areasteps.py", "fake_run.py"}
+# areabuild/areasteps (locked by #404) still carry literals.
+ALLOW = {"contracts.py", "areabuild.py", "areasteps.py"}
 PATTERN = re.compile(r"\d+_(" + "|".join(STAGE_NAMES) + r")\b")
 
 
