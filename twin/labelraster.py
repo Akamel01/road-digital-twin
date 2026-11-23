@@ -17,9 +17,9 @@ import numpy as np
 from PIL import Image
 from scipy import ndimage
 
+from twin.cameras import posed_cameras
 from twin.contracts import stage_dir
 from twin.dataset import DatasetConfig
-from twin.stages.zbuffer import camera_to_world
 
 W_PX = 1600
 H_PX = 1500
@@ -451,24 +451,15 @@ def export_window(store, runs, *, site, x0, y1, width=1600, height=1500, cell=0.
         for rname, base, transform in (s for run in usable for s in _frame_drives(run)):
             base = Path(base)
             try:
-                with open(stage_dir(base, "align") / "poses.json") as _f:
-                    poses = json.load(_f)["poses"]
-                ego = np.array([q["matrix"] for q in poses], float).reshape(-1, 4, 4)
                 # shortcut: correction applied here assumes 3_align/poses.json is uncorrected; if merge ever bakes corrections into poses.json, remove this transform
-                if transform is not None:
-                    ego = transform @ ego
-                t = np.array([q["timestamp_us"] for q in poses], np.int64)
-                with open(stage_dir(base, "load") / "cameras.json") as _f:
-                    cams = json.load(_f)["cameras"]
+                cams = posed_cameras(stage_dir(base, "load"), stage_dir(base, "align"), correction=transform)
             except (OSError, ValueError, KeyError, json.JSONDecodeError):
                 continue
             cand = []
             for c in cams:
-                if c["channel"] not in ("CAM_FRONT", "CAM_FRONT_LEFT", "CAM_FRONT_RIGHT"):
+                if c.channel not in ("CAM_FRONT", "CAM_FRONT_LEFT", "CAM_FRONT_RIGHT"):
                     continue
-                if not (t[0] <= c["timestamp_us"] <= t[-1]):
-                    continue
-                M = camera_to_world(ego, t, int(c["timestamp_us"]), c["extrinsics"])
+                M = c.c2w
                 p = M[:3, 3]
                 f = M[:3, 2]
                 dd_ = np.hypot(cx - p[0], cy - p[1])
@@ -478,7 +469,7 @@ def export_window(store, runs, *, site, x0, y1, width=1600, height=1500, cell=0.
             cand.sort(key=lambda z: z[0])
             for dd_, c, M in cand[:: max(1, len(cand) // 3)][:3]:
                 try:
-                    im = Image.open(Path(nr) / c["image"]).convert("RGB")
+                    im = Image.open(Path(nr) / c.image).convert("RGB")
                 except (OSError, ValueError):
                     continue
                 s = 800 / im.size[0]
@@ -486,9 +477,9 @@ def export_window(store, runs, *, site, x0, y1, width=1600, height=1500, cell=0.
                 frames.append(
                     {
                         "run": rname,
-                        "channel": c["channel"],
-                        "t": c["timestamp_us"],
-                        "K": (np.array(c["intrinsics"]) * [[s], [s], [1]]).tolist(),
+                        "channel": c.channel,
+                        "t": c.t_us,
+                        "K": (c.K * [[s], [s], [1]]).tolist(),
                         "c2w": M.tolist(),
                         "img": _encode(np.asarray(im), ".jpg"),
                         "w": im.size[0],

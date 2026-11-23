@@ -29,6 +29,7 @@ import laspy
 import numpy as np
 from PIL import Image
 
+from twin.cameras import posed_cameras
 from twin.contracts import SplatsParams, StageResult
 from twin.dataset import DatasetConfig
 from twin.pose import pose_report
@@ -243,27 +244,22 @@ def initial_splats(ground: np.ndarray, nonground: np.ndarray, n_max: int, seed: 
 def _load_views(ctx: Any, p: SplatsParams, origin: np.ndarray, points: np.ndarray):
     """Per usable camera image: dict with channel, c2w (world minus `origin`), K, size, image uint8, depth, box mask."""
     ldir = ctx.input_dir("load")
-    rows = json.loads((ctx.input_dir("align") / "poses.json").read_text())["poses"]
-    ego = np.array([r["matrix"] for r in rows], float).reshape(-1, 4, 4)
-    times = np.array([r["timestamp_us"] for r in rows], np.int64)
-    cams = json.loads((ldir / "cameras.json").read_text())["cameras"]
     sweep_boxes = json.loads((ldir / "boxes.json").read_text())["sweeps"]
     root = Path(DatasetConfig.from_env().root)
     shifted = points - origin
     views = []
-    for cam in sorted(cams, key=lambda c: (c["timestamp_us"], c["channel"])):
-        t = int(cam["timestamp_us"])
-        if not times[0] <= t <= times[-1]:
-            continue
-        c2w_world = zbuffer.camera_to_world(ego, times, t, cam["extrinsics"])
+    posed = posed_cameras(ldir, ctx.input_dir("align"))
+    for cam in sorted(posed, key=lambda c: (c.t_us, c.channel)):
+        t = cam.t_us
+        c2w_world = cam.c2w
         c2w = c2w_world.copy()
         c2w[:3, 3] -= origin
-        img = Image.open(root / cam["image"]).convert("RGB")
-        k, size = scaled_intrinsics(cam["intrinsics"], img.size, p.long_side_px)
+        img = Image.open(root / cam.image).convert("RGB")
+        k, size = scaled_intrinsics(cam.K, img.size, p.long_side_px)
         img = np.asarray(img.resize(size, Image.BILINEAR))
         views.append(
             {
-                "channel": cam["channel"],
+                "channel": cam.channel,
                 "t": t,
                 "c2w": c2w,
                 "K": k,
