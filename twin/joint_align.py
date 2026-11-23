@@ -146,20 +146,33 @@ def build_edges(drives, clouds, ground, anchors, centre):
     centre = np.asarray(centre, float).ravel()
     ids = _ids(clouds, drives)
     anchor_pts = sample_anchors(anchors)
-    pts_map = {k: np.asarray(clouds[k], float) for k in ids}
+    # Thin early to float32 and drop the raw clouds to keep memory bounded.
     thinned = {}
+    ground_in = ground or {}
+    anchor_src = {}
     for k in ids:
-        arr = pts_map[k]
+        arr = np.asarray(clouds[k])
         if arr.ndim == 2 and arr.shape[1] >= 3:
-            thinned[k] = merge.thin(arr[:, :3], DRIVE_THIN_M)
+            thinned[k] = merge.thin(arr[:, :3].astype(float), DRIVE_THIN_M).astype(np.float32)
         else:
-            thinned[k] = arr[:, :3]
-    # overlap count
+            thinned[k] = np.asarray(arr[:, :3], dtype=np.float32)
+        g = np.asarray(ground_in.get(k, clouds[k]))
+        if g.ndim == 2 and g.shape[1] >= 3:
+            anchor_src[k] = merge.thin(g[:, :3].astype(float), DRIVE_THIN_M).astype(np.float32)
+        else:
+            anchor_src[k] = np.asarray(g[:, :3], dtype=np.float32)
+    # limit pairwise nearest_xy queries for overlap detection
+    PAIR_LIMIT = 2000
     overlap_drives = set()
     for i in range(len(ids)):
         for j in range(i + 1, len(ids)):
             try:
-                _, d = merge.nearest_xy(thinned[ids[i]], thinned[ids[j]])
+                a = thinned[ids[i]]
+                b = thinned[ids[j]]
+                if len(a) > PAIR_LIMIT:
+                    step = max(1, len(a) // PAIR_LIMIT)
+                    a = a[::step]
+                _, d = merge.nearest_xy(a, b)
                 if int((d <= merge.OVERLAP_DIST_M).sum()) >= merge.MIN_OVERLAP_POINTS:
                     overlap_drives.add(ids[i])
                     overlap_drives.add(ids[j])
@@ -167,9 +180,10 @@ def build_edges(drives, clouds, ground, anchors, centre):
                 pass
     anchor_c = anchor_pts[:, :3] - centre if anchor_pts.shape[0] else anchor_pts
     A_tree = cKDTree(anchor_c[:, :2]) if anchor_pts.shape[0] else None
-    P = {k: thinned[k] - centre for k in ids}
+    P = {k: (thinned[k] - centre).astype(np.float32) for k in ids}
     src_sets = {k: P[k].copy() for k in ids}
-    ref = min(ids, key=lambda k: (-len(pts_map[k]), k)) if ids else None
+    anchor_src_c = {k: (anchor_src[k] - centre).astype(np.float32) for k in ids}
+    ref = min(ids, key=lambda k: (-len(thinned[k]), k)) if ids else None
     nonref = [k for k in ids if k != ref] if ref is not None else []
     x0 = np.zeros(3 * len(nonref))
     graph = {
@@ -177,8 +191,10 @@ def build_edges(drives, clouds, ground, anchors, centre):
         "ids": ids,
         "ref": ref,
         "nonref": nonref,
-        "pts_map": pts_map,
+        "pts_map": thinned,  # thinned only; raw clouds dropped
         "thinned": thinned,
+        "anchor_src": anchor_src,
+        "anchor_src_c": anchor_src_c,
         "anchor_pts": anchor_pts,
         "anchor_c": anchor_c,
         "A_tree": A_tree,
@@ -219,6 +235,7 @@ def _robust_cost(graph, x, gate_m=1.0):
     anchor_c = graph["anchor_c"]
     A_tree = graph["A_tree"]
     src_sets = graph["src_sets"]
+    anchor_sets = graph.get("anchor_src_c", src_sets)
     poses = _unpack(graph, x)
     pair_corr = _pair_correspondences(graph, poses, gate_m=gate_m)
     res_list = []
@@ -229,11 +246,14 @@ def _robust_cost(graph, x, gate_m=1.0):
         res_list.append(diff.ravel())
     if anchor_c.shape[0] > 0 and A_tree is not None:
         for k in ids:
-            pk = _apply(poses[k], src_sets[k])
+            pk = _apply(poses[k], anchor_sets[k])
             if len(pk) == 0:
                 continue
             _, idx = A_tree.query(pk[:, :2], k=1)
-            diff = (pk[:, :2] - anchor_c[idx, :2]) * 50.0
+            dist = np.linalg.norm(pk[:, :2] - anchor_c[idx, :2], axis=1)
+            mask = dist <= 1.0
+            diff = np.zeros((len(pk), 2), float)
+            diff[mask] = (pk[mask, :2] - anchor_c[idx[mask], :2]) * 50.0
             res_list.append(diff.ravel())
     if not res_list:
         return float("inf")
@@ -257,14 +277,12 @@ def _select_multistart(graph, candidates):
     max_full = 2 if not multi else 3
     screened = []
     for cand in uniq[:max_scr]:
-        trial = dict(graph)
-        trial["x0"] = np.array(cand, float)
         nfev = 120 if not multi else 200
-        out = solve(trial, params={"max_nfev": nfev, "outer": 2})
+        out = solve(graph, params={"max_nfev": nfev, "outer": 2, "x0": np.array(cand, float)})
         sol = out.get("sol")
         if sol is None:
             continue
-        screened.append((_robust_cost(trial, sol.x, gate_m=merge.OVERLAP_DIST_M), np.array(cand, float)))
+        screened.append((_robust_cost(graph, sol.x, gate_m=merge.OVERLAP_DIST_M), np.array(cand, float)))
     if not screened:
         return np.array(uniq[0], float)
     screened.sort(key=lambda t: t[0])
@@ -273,13 +291,11 @@ def _select_multistart(graph, candidates):
     best_cost = float("inf")
     full_nfev = 500 if not multi else 800
     for cand in picks:
-        trial = dict(graph)
-        trial["x0"] = np.array(cand, float)
-        out = solve(trial, params={"max_nfev": full_nfev, "outer": 2})
+        out = solve(graph, params={"max_nfev": full_nfev, "outer": 2, "x0": np.array(cand, float)})
         sol = out.get("sol")
         if sol is None:
             continue
-        cost = _robust_cost(trial, sol.x, gate_m=merge.OVERLAP_DIST_M)
+        cost = _robust_cost(graph, sol.x, gate_m=merge.OVERLAP_DIST_M)
         if cost < best_cost:
             best_cost = cost
             best_x = np.array(sol.x, float)
@@ -329,7 +345,8 @@ def solve(graph, params=None):
     anchor_c = graph["anchor_c"]
     A_tree = graph["A_tree"]
     src_sets = graph["src_sets"]
-    x = np.array(graph["x0"], float)
+    anchor_src = graph.get("anchor_src_c", src_sets)
+    x = np.array(params.get("x0", graph["x0"]), float)
     bounds = ([-2.0, -2.0, -0.1] * len(nonref), [2.0, 2.0, 0.1] * len(nonref))
     max_nfev = int(params.get("max_nfev", 2000))
     outer = int(params.get("outer", 8))
@@ -356,11 +373,14 @@ def solve(graph, params=None):
                         res_list.append(diff.ravel())
                     if anchor_c.shape[0] > 0 and A_tree is not None:
                         for k in ids:
-                            pk = TP[k]
+                            pk = _apply(poses[k], anchor_src[k])
                             if len(pk) == 0:
                                 continue
                             _, idx = A_tree.query(pk[:, :2], k=1)
-                            diff = (pk[:, :2] - anchor_c[idx, :2]) * 50.0
+                            dist = np.linalg.norm(pk[:, :2] - anchor_c[idx, :2], axis=1)
+                            mask = dist <= 1.0
+                            diff = np.zeros((len(pk), 2), float)
+                            diff[mask] = (pk[mask, :2] - anchor_c[idx[mask], :2]) * 50.0
                             res_list.append(diff.ravel())
                     if not res_list:
                         return np.zeros(1)
@@ -407,7 +427,6 @@ def align_joint(drives, clouds, ground, anchors, centre):
     ids = graph["ids"]
     centre = graph["centre"]
     pts_map = graph["pts_map"]
-    thinned = graph["thinned"]
     anchor_pts = graph["anchor_pts"]
     anchor_c = graph["anchor_c"]
     A_tree = graph["A_tree"]
@@ -474,7 +493,7 @@ def align_joint(drives, clouds, ground, anchors, centre):
         anchor_seeds = {}
         grid = (-0.6, -0.3, 0.0, 0.3, 0.6)
         for i, k in enumerate(nonref):
-            pk = src_sets[k]
+            pk = graph["anchor_src_c"][k]
             if len(pk) == 0:
                 continue
             candidates = [np.clip(graph["x0"][3 * i : 3 * i + 3], -bnd, bnd), np.zeros(3)]
@@ -582,7 +601,7 @@ def align_joint(drives, clouds, ground, anchors, centre):
         bnd = np.array([2.0, 2.0, 0.1])
         x = np.array(sol.x, float)
         for i, k in enumerate(nonref):
-            pk = src_sets[k]
+            pk = graph["anchor_src_c"][k]
             if len(pk) == 0:
                 continue
             xi = np.clip(x[3 * i : 3 * i + 3], -bnd, bnd)
@@ -651,7 +670,7 @@ def align_joint(drives, clouds, ground, anchors, centre):
 
     anchor_residuals = []
     for k in ids:
-        pk = _apply(corrections[k], (thinned[k] - centre))
+        pk = _apply(corrections[k], (graph["anchor_src"][k] - centre).astype(float))
         if anchor_c.shape[0] == 0:
             anchor_residuals.append(0.0)
             continue
@@ -762,7 +781,7 @@ def align_joint(drives, clouds, ground, anchors, centre):
 
     anchor_residuals = []
     for k in ids:
-        pk = _apply(corrections[k], (thinned[k] - centre))
+        pk = _apply(corrections[k], (graph["anchor_src"][k] - centre).astype(float))
         if anchor_c.shape[0] == 0:
             anchor_residuals.append(0.0)
             continue

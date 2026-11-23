@@ -18,12 +18,8 @@ import os
 from pathlib import Path
 
 import numpy as np
+import open3d as o3d
 import shapely
-
-try:
-    import open3d as o3d
-except Exception:  # noqa: BLE001
-    o3d = None  # type: ignore[assignment]
 from shapely.geometry import shape
 
 from twin import heights, runner
@@ -72,8 +68,6 @@ MIN_CELLS = 200
 
 
 def _pcd(xyz: np.ndarray, normals: bool = False):
-    if o3d is None:
-        raise RuntimeError("open3d is required for ICP registration")
     p = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(xyz))
     if normals:
         p.estimate_normals(
@@ -87,15 +81,10 @@ def _pcd(xyz: np.ndarray, normals: bool = False):
 
 def nearest(query: np.ndarray, target: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Index and distance of the nearest target point for each query point."""
-    if o3d is not None:
-        nns = o3d.core.nns.NearestNeighborSearch(o3d.core.Tensor(target))
-        nns.knn_index()
-        idx, d2 = nns.knn_search(o3d.core.Tensor(query), 1)
-        return idx.numpy().ravel(), np.sqrt(d2.numpy().ravel())
-    from scipy.spatial import cKDTree
-
-    dist, idx = cKDTree(np.asarray(target, float)).query(np.asarray(query, float), k=1)
-    return np.asarray(idx, np.int64).ravel(), np.asarray(dist, float).ravel()
+    nns = o3d.core.nns.NearestNeighborSearch(o3d.core.Tensor(target))
+    nns.knn_index()
+    idx, d2 = nns.knn_search(o3d.core.Tensor(query), 1)
+    return idx.numpy().ravel(), np.sqrt(d2.numpy().ravel())
 
 
 def nearest_xy(query: np.ndarray, target: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -125,55 +114,8 @@ def apply(t: np.ndarray, xyz: np.ndarray) -> np.ndarray:
     return xyz @ t[:3, :3].T + t[:3, 3]
 
 
-def _register_numpy(src: np.ndarray, tgt: np.ndarray) -> tuple[np.ndarray, float, float]:
-    """Fallback ICP when open3d is unavailable (2D yaw+translation on XY, z by median)."""
-    from scipy.spatial import cKDTree
-
-    src = np.asarray(src, float)
-    tgt = np.asarray(tgt, float)
-    cur = np.eye(4)
-    cur[2, 3] = z_offset(src, tgt)
-    tree = cKDTree(tgt[:, :2])
-    for dist in ICP_STEPS_M:
-        for _ in range(ICP_MAX_ITER):
-            s2 = apply(cur, src)
-            d, idx = tree.query(s2[:, :2], k=1)
-            mask = d <= dist
-            if mask.sum() < 20:
-                break
-            a = s2[mask, :2]
-            b = tgt[idx[mask], :2]
-            ca, cb = a.mean(axis=0), b.mean(axis=0)
-            aa, bb = a - ca, b - cb
-            h = aa.T @ bb
-            u, _, vt = np.linalg.svd(h)
-            r2 = vt.T @ u.T
-            if np.linalg.det(r2) < 0:
-                vt[1, :] *= -1
-                r2 = vt.T @ u.T
-            t2 = cb - r2 @ ca
-            delta = np.eye(4)
-            delta[:2, :2] = r2
-            delta[0, 3] = t2[0]
-            delta[1, 3] = t2[1]
-            new = delta @ cur
-            new = yaw_translation(new)
-            if np.linalg.norm(new[:2, 3] - cur[:2, 3]) < 1e-5 and abs(np.arctan2(new[1, 0], new[0, 0]) - np.arctan2(cur[1, 0], cur[0, 0])) < 1e-5:
-                cur = new
-                break
-            cur = new
-    s2 = apply(cur, src)
-    d, _ = cKDTree(tgt[:, :2]).query(s2[:, :2], k=1)
-    mask = d <= ICP_STEPS_M[-1]
-    fitness = float(mask.mean()) if len(mask) else 0.0
-    rmse = float(np.sqrt((d[mask] ** 2).mean())) if mask.any() else float("nan")
-    return cur, fitness, rmse
-
-
 def register(src: np.ndarray, tgt: np.ndarray) -> tuple[np.ndarray, float, float]:
     """Point-to-plane ICP of src onto tgt ((N, 3), centred on the polygon). Returns (yaw + translation 4x4, fitness, rmse)."""
-    if o3d is None:
-        return _register_numpy(src, tgt)
     s, t = _pcd(src), _pcd(tgt, normals=True)
     est = o3d.pipelines.registration.TransformationEstimationPointToPlane()
     crit = o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=ICP_MAX_ITER)
@@ -357,12 +299,11 @@ def register_drives(
     ground disagreement per pair before, after ICP (registered) and after the planes (after). `ground` (drive id -> (N, 3), same frame) are the drives' ground-class points; the
     ground disagreement is measured on them (2026-11-10 amendment to ADR 0005), or on `clouds` when absent.
     """
-    if o3d is not None:
-        o3d.utility.random.seed(seed)
+    o3d.utility.random.seed(seed)
     pts = {k: thin(v - centre, ICP_VOXEL_M) for k, v in clouds.items()}
     gnd = {k: v - centre for k, v in (ground or clouds).items()}
     ids = sorted(clouds)
-    ref = min(ids, key=lambda k: (-len(clouds[k]), k))
+    ref = max(ids, key=lambda k: (len(clouds[k]), k))
     corr = {ref: np.eye(4)}
     info = {ref: {"role": "reference"}}
     target = pts[ref]
