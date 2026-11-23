@@ -23,9 +23,8 @@ def valid_site(site: str) -> bool:
 
 from shapely.geometry import mapping, shape
 
+from twin.areastore import FEATURE_FILES, open_area
 from twin.contracts import LabelFeature, SiteMeta, stage_dir
-
-FEATURE_FILES = ("markings.geojson", "crosswalks.geojson", "curbs.geojson", "ramps.geojson")
 
 _ELEMENT_BY_FILE = {
     "markings.geojson": "marking",
@@ -119,100 +118,11 @@ def write_site(store: Path | str, site: str, meta: SiteMeta) -> None:
 
 
 def area_build_dir(store: Path | str, area: str, *, areas_root: Path | None = None) -> Path:
-    # area may be a name or a path; prefer a -twin build (or one with 5_features),
-    # then a -merged build.
-    store = Path(store)
-    p = Path(area)
-    names = [area]
-    for suf in ("-twin", "-merged"):
-        if not area.endswith(suf):
-            names.append(area + suf)
-    root = Path(areas_root) if areas_root is not None else store / "areas"
-    cand_set: list[Path] = []
-    if p.is_dir():
-        cand_set.append(p)
-    # areas_root candidates first
-    for nm in (f"{area}-twin", area, f"{area}-merged"):
-        cand_set.append(root / nm)
-    for name in names:
-        cand_set.append(root / name)
-    # preserve current candidates
-    for name in names:
-        cand_set.append(store / name)
-        cand_set.append(store / "areas" / name)
-    # explicit *.json -> sibling builds
-    if p.suffix == ".json":
-        stem = p.stem
-        for suf in ("-twin", "-merged", ""):
-            cand_set.append(p.parent / (stem + suf if suf else stem))
-    seen: set[Path] = set()
-    uniq: list[Path] = []
-    for c in cand_set:
-        if c not in seen:
-            seen.add(c)
-            uniq.append(c)
-    existing = [c for c in uniq if c.is_dir()]
-
-    def _has_features(c: Path) -> bool:
-        if stage_dir(c, "features").is_dir():
-            return True
-        return any((c / f).is_file() for f in FEATURE_FILES)
-
-    def _score(c: Path) -> tuple[int, int, int]:
-        twin_like = c.name.endswith("-twin") or stage_dir(c, "features").is_dir()
-        return (0 if twin_like else 1, 0 if _has_features(c) else 1, 0 if (c / "merged.npz").is_file() else 1)
-
-    existing.sort(key=_score)
-    for c in existing:
-        if _has_features(c) or (c / "merged.npz").is_file():
-            return c
-    if p.is_dir():
-        return p
-    cand = store / "areas" / area
-    if cand.is_dir():
-        return cand
-    if areas_root is not None:
-        cand2 = root / area
-        if cand2.is_dir():
-            return cand2
-    raise FileNotFoundError(f"no area build for {area!r}")
+    return open_area(store, area, areas_root=areas_root).build_dir()
 
 
 def _area_def(store: Path | str, area: str, build_dir: Path, areas_root: Path | None = None) -> dict:
-    store = Path(store)
-    name = build_dir.name.removesuffix("-twin").removesuffix("-merged")
-    root = Path(areas_root) if areas_root is not None else store / "areas"
-    # named candidates
-    named = [
-        build_dir.parent / f"{name}.json",
-        root / f"{name}.json",
-        store / "areas" / f"{name}.json",
-    ]
-    p = Path(area)
-    if p.is_file():
-        named.append(p)
-    for cand in named:
-        if cand.is_file():
-            try:
-                d = json.loads(cand.read_text())
-            except (OSError, ValueError):
-                continue
-            if isinstance(d, dict):
-                return d
-    # wildcard next to build dir, only if exactly one parses to dict with polygon
-    wildcard = []
-    for cand in build_dir.parent.glob("*.json"):
-        try:
-            d = json.loads(cand.read_text())
-        except (OSError, ValueError):
-            continue
-        if isinstance(d, dict) and "polygon" in d:
-            wildcard.append(d)
-    if len(wildcard) == 1:
-        return wildcard[0]
-    if len(wildcard) == 0:
-        raise FileNotFoundError(f"area def for {area!r} not found")
-    raise ValueError(f"ambiguous area def for {area!r}: {len(wildcard)} polygon JSON files in {build_dir.parent}")
+    return open_area(store, build_dir, areas_root=areas_root).definition()
 
 
 def _map_feature(element: str, feat: dict, source_file: str, idx: int) -> dict:
@@ -244,10 +154,8 @@ def _map_feature(element: str, feat: dict, source_file: str, idx: int) -> dict:
 
 
 def resolve_area(store: Path | str, area: str, *, areas_root: Path | None = None) -> tuple[Path, dict]:
-    store = Path(store)
-    build_dir = area_build_dir(store, area, areas_root=areas_root)
-    area_def = _area_def(store, area, build_dir, areas_root=areas_root)
-    return build_dir, area_def
+    a = open_area(store, area, areas_root=areas_root)
+    return a.build_dir(), a.definition()
 
 
 def draft(
