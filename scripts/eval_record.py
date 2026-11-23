@@ -60,12 +60,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     registry = Path(args.registry)
-    if args.date is None:
-        run_date = datetime.now(UTC).date()
-    else:
-        run_date = datetime.strptime(args.date, "%Y-%m-%d").date()
 
     try:
+        if args.date is None:
+            run_date = datetime.now(UTC).date()
+        else:
+            run_date = datetime.strptime(args.date, "%Y-%m-%d").date()
         reg = load_registry(registry)
         if any(r.id == args.id for r in reg.runs):
             raise ValueError(f"duplicate id: {args.id}")

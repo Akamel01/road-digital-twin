@@ -72,6 +72,7 @@ def test_append(score, registry):
     seed = json.loads(SEED.read_text(encoding="utf-8"))
     live_raw = json.loads(registry.read_text(encoding="utf-8"))
     assert [list(r.keys()) for r in live_raw["runs"][:7]] == [list(r.keys()) for r in seed["runs"]]
+    assert live_raw["runs"][:7] == seed["runs"]
     assert set(after.runs[-1].metrics.keys()) == {
         "psnr", "ssim", "road_depth_p50_m", "road_depth_p95_m",
         "sidewalk_depth_p50_m", "sidewalk_depth_p95_m",
@@ -296,6 +297,22 @@ def test_eval_set_mismatch_stderr(score, registry, capsys):
     assert rc == 2
     err = capsys.readouterr().err
     assert "differs" in err or "mismatch" in err or "eval set" in err
+
+
+def test_malformed_date(score, registry, capsys):
+    before = _bytes(registry)
+    rc = main([
+        "--score", str(score), "--id", "md", "--approach", "OmniRe",
+        "--ticket", "1", "--iterations", "1",
+        "--eval-set", "scene-0297 held-out, 60 views",
+        "--date", "not-a-date",
+        "--registry", str(registry),
+    ])
+    assert rc == 2
+    assert _bytes(registry) == before
+    err = capsys.readouterr().err
+    assert "Traceback" not in err
+    assert len(err.strip().splitlines()) == 1
 
 
 def test_metrics_from_score_direct():
