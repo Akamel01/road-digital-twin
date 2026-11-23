@@ -4,7 +4,9 @@
   "private": true,
   "license": "Apache-2.0",
   "scripts": {
+    "predev": "node scripts/sync-evals.mjs",
     "dev": "next dev",
+    "prebuild": "node scripts/sync-evals.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",

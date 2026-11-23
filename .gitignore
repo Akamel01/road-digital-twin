@@ -26,6 +26,7 @@ web/.next/
 # deploy: real env file with Access settings (copy from twin.env.example)
 deploy/twin.env
 web/public/latest-build/
+web/public/evals/
 
 web/tsconfig.tsbuildinfo
 
