@@ -6,20 +6,18 @@ puts unfinished running jobs back to pending, so a crash loses nothing.
 
 import importlib.util
 import json
-import multiprocessing
 import os
 import secrets
 import subprocess
 import sys
 import time
-import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
 from filelock import FileLock, Timeout
 
-from twin import gpulease, memcap
+from twin import gpulease
 from twin.reload import CodeWatch
 from twin.runner import (
     LowDisk,
@@ -37,7 +35,6 @@ JOB_TYPES = ("run", "rerun", "eval", "publish", "prgate")
 DISK_RULES = (("/", 10), ("/data", 50))
 POLL_SECONDS = 30
 PUBLISH_LOCK = ".publish.lock"
-_HELD_NAMES = (RunBusy.__name__, LowDisk.__name__)
 
 
 def _dir(store: Path, state: str) -> Path:
@@ -231,49 +228,6 @@ def execute(store: Path, job: dict) -> dict:
     return out
 
 
-def _job_child(conn, store, job, cap_gb=0.0, key=None) -> None:
-    """Run one job in a forked child; enter the memory scope first."""
-    memcap.enter_scope(cap_gb, key)
-    try:
-        extra = execute(store, job)
-    except Exception as exc:  # noqa: BLE001 - reported to parent; held names handled there
-        conn.send(("err", type(exc).__name__, str(exc)))
-        return
-    conn.send(("ok", extra))
-
-
-def _run_job(store: Path, job: dict, cap_gb: float, key: str):
-    """Fork the job into its own capped child. Returns a (status, ...) tuple."""
-    memcap.launcher()
-    ctx = multiprocessing.get_context("fork")
-    parent, child = ctx.Pipe(duplex=False)
-    proc = ctx.Process(target=_job_child, args=(child, store, job, cap_gb, key))
-    proc.start()
-    child.close()
-    msg = None
-    try:
-        msg = parent.recv()
-    except EOFError:
-        msg = None
-    proc.join()
-    if proc.is_alive():
-        proc.terminate()
-        proc.join()
-    oom = False
-    if msg is None or (isinstance(msg, tuple) and msg and msg[0] != "ok"):
-        try:
-            oom = bool(memcap.oom_killed(key))
-        except Exception:  # noqa: BLE001
-            oom = False
-    memcap.cleanup_scope(key)
-    parent.close()
-    if oom:
-        return ("oom", None)
-    if msg is None:
-        return ("err", "ChildDied", f"child died (exit {proc.exitcode})")
-    return msg
-
-
 def process_one(store: Path | str, hold=disk_hold) -> str | None:
     """Take and run one job. Returns a status line, or None when nothing was done
     (queue empty, disk low, or the run store busy)."""
@@ -286,26 +240,19 @@ def process_one(store: Path | str, hold=disk_hold) -> str | None:
     job = take(store)
     if job is None:
         return None
-    cap = memcap.cap_gb(job.get("type", "stage"), job)
-    key = f"{os.getpid()}-{uuid.uuid4().hex[:8]}"
     held: dict = {}
-    if gpulease.needs_gpu(job, _load):
-        with gpulease.lease(held):
-            outcome = _run_job(store, job, cap, key)
-    else:
-        outcome = _run_job(store, job, cap, key)
-    if outcome and outcome[0] == "oom":
-        finish(store, {**job, **({"gpu_lease": held} if held else {})}, "oom-cap")
-        return f"failed {job['id']}: oom-cap"
-    if outcome and outcome[0] == "err":
-        exc_name = outcome[1]
-        text = outcome[2]
-        if exc_name in _HELD_NAMES:
-            release(store, job)
-            return f"held {job['id']}: {text}"
-        finish(store, {**job, **({"gpu_lease": held} if held else {})}, f"{exc_name}: {text}")
-        return f"failed {job['id']}: {exc_name}: {text}"
-    extra = outcome[1] if outcome else {}
+    try:
+        if gpulease.needs_gpu(job, _load):
+            with gpulease.lease(held):
+                extra = execute(store, job)
+        else:
+            extra = execute(store, job)
+    except (RunBusy, LowDisk) as exc:
+        release(store, job)
+        return f"held {job['id']}: {exc}"
+    except Exception as exc:  # noqa: BLE001 - any failure is recorded on the job
+        finish(store, {**job, **({"gpu_lease": held} if held else {})}, f"{type(exc).__name__}: {exc}")
+        return f"failed {job['id']}: {exc}"
     if held:
         extra = {**extra, "gpu_lease": held}
         print(f"gpu lease {job['id']}: {held}", flush=True)
@@ -320,7 +267,6 @@ def worker(
     Returns 3 when another worker holds the lock."""
     store = Path(store)
     store.mkdir(parents=True, exist_ok=True)
-    memcap.launcher()
     lock = FileLock(
         str(_dir(store, "pending").parent / ".worker.lock"), thread_local=False
     )
