@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 from pathlib import Path
 
 import numpy as np
 import pytest
 
+from twin.cameras import camera_count
 from twin.capture import build_area_capture
 from twin.cli import main
+from twin.stages.load import quat_to_matrix
+from twin.stages.zbuffer import matrix_to_quat
 
 
 def _write_merged(base: Path, *, drive_values=None, n_drives=2) -> Path:
@@ -64,6 +68,66 @@ def _write_area(base: Path, name="demo") -> None:
     areas = base / "areas"
     areas.mkdir(parents=True, exist_ok=True)
     (areas / f"{name}.json").write_text(json.dumps({"name": name, "polygon": {"type": "Polygon", "coordinates": [[[0,0],[1,0],[1,1],[0,0]]]}}))
+
+
+SWEEP_A = 1_000_000
+SWEEP_B = 2_000_000
+CAM_TIMES = [500_000, 1_000_000, 1_500_000, 2_000_000, 2_500_000]
+SYNTH_K = [[500.0, 0.0, 320.0], [0.0, 500.0, 240.0], [0.0, 0.0, 1.0]]
+SYNTH_EXT = {"translation": [1.0, 0.0, 2.0], "rotation_wxyz": [1.0, 0.0, 0.0, 0.0]}
+
+
+def _ego(x: float) -> list[list[float]]:
+    m = np.eye(4)
+    m[0, 3] = x
+    return m.tolist()
+
+
+def _write_one_drive_merged(base: Path, cam_times=CAM_TIMES) -> Path:
+    merged = base / "areas" / "demo-merged"
+    (merged / "drives").mkdir(parents=True)
+    np.savez(
+        merged / "merged.npz",
+        x=np.array([100.0], dtype=float),
+        y=np.array([200.0], dtype=float),
+        z=np.array([10.0], dtype=float),
+        intensity=np.ones(1),
+        drive=np.array([0], dtype=np.int64),
+    )
+    scene = "scene-0000"
+    (merged / "drives.json").write_text(
+        json.dumps([{"scene": scene, "date": "2018-05-01", "scene_token": "tok0"}])
+    )
+    ddir = merged / "drives" / scene
+    (ddir / "1_load").mkdir(parents=True)
+    (ddir / "3_align").mkdir(parents=True)
+    poses = {
+        "crs": "EPSG:32619",
+        "poses": [
+            {"sweep": 0, "timestamp_us": SWEEP_A, "matrix": _ego(0.0)},
+            {"sweep": 1, "timestamp_us": SWEEP_B, "matrix": _ego(10.0)},
+        ],
+    }
+    (ddir / "3_align" / "poses.json").write_text(json.dumps(poses))
+    cameras = {
+        "cameras": [
+            {
+                "channel": "CAM_FRONT",
+                "sample_token": f"s{i}",
+                "timestamp_us": t,
+                "image": f"samples/CAM_FRONT/{t}.jpg",
+                "intrinsics": SYNTH_K,
+                "extrinsics": SYNTH_EXT,
+            }
+            for i, t in enumerate(cam_times)
+        ]
+    }
+    (ddir / "1_load" / "cameras.json").write_text(json.dumps(cameras))
+    for t in cam_times:
+        img = base / "nuscenes" / "samples" / "CAM_FRONT" / f"{t}.jpg"
+        img.parent.mkdir(parents=True, exist_ok=True)
+        img.write_bytes(b"")
+    return merged
 
 
 def test_capture_meta_and_local_coordinates(tmp_path):
@@ -289,7 +353,10 @@ def test_capture_duplicate_image_name_different_path_rejected(tmp_path):
     )
     poses = {
         "crs": "EPSG:32619",
-        "poses": [{"sweep": 0, "timestamp_us": 1000, "matrix": np.eye(4).tolist()}],
+        "poses": [
+            {"sweep": 0, "timestamp_us": 1000, "matrix": np.eye(4).tolist()},
+            {"sweep": 1, "timestamp_us": 2000, "matrix": np.eye(4).tolist()},
+        ],
     }
     (merged / "drives" / "scene-0000" / "3_align" / "poses.json").write_text(json.dumps(poses))
     rel_a = "samples/CAM_FRONT/scene-0000-a.jpg"
@@ -351,3 +418,123 @@ def test_capture_writes_image_captures_for_multi_drive(tmp_path):
         "scene-0001/CAM_FRONT/1100.jpg": "scene-0001",
     }
     assert dict(cap.meta.image_captures) == mapping
+
+
+def _nearest_old_centre(t_us: int) -> np.ndarray:
+    """Old nearest-sweep camera centre in local metres for this fixture.
+
+    np.argmin picks the first sweep on the 1.5 s tie.
+    """
+    ego_x = 0.0 if abs(t_us - SWEEP_A) <= abs(t_us - SWEEP_B) else 10.0
+    return np.array([ego_x + 1.0 - 100.0, -200.0, 2.0])
+
+
+def test_capture_interpolates_pose_between_sweeps(tmp_path):
+    merged = _write_one_drive_merged(tmp_path)
+    out = tmp_path / "areas" / "demo-capture"
+    build_area_capture(merged, out, "demo", dataroot=tmp_path / "nuscenes")
+
+    from recon_core.capture import load_capture
+
+    cap = load_capture(out)
+
+    def colmap_centre(im) -> tuple[int, np.ndarray]:
+        t_us = int(im.name.rsplit("/", 1)[1].removesuffix(".jpg"))
+        R = _qvec_to_R(np.array(im.qvec, dtype=float))
+        return t_us, -R.T @ np.array(im.tvec, dtype=float)
+
+    centres = dict(colmap_centre(im) for im in cap.colmap.images.values())
+
+    # ego interpolates to x=5 at 1.5 s; + extrinsic [1,0,2]; - origin [100,200,0]
+    np.testing.assert_allclose(centres[1_500_000], [-94.0, -200.0, 2.0], atol=1e-9)
+    # the old nearest-sweep rule ties at 1.5 s and picks the 1.0 s sweep: ego x=0
+    old_nearest_centre = np.array([-99.0, -200.0, 2.0])
+    assert float(np.linalg.norm(centres[1_500_000] - old_nearest_centre)) == pytest.approx(5.0)
+
+    changes = {
+        t_us: float(np.linalg.norm(c - _nearest_old_centre(t_us))) for t_us, c in centres.items()
+    }
+    assert set(changes) == {1_000_000, 1_500_000, 2_000_000}
+    assert changes[1_000_000] == pytest.approx(0.0)
+    assert changes[1_500_000] == pytest.approx(5.0)
+    assert changes[2_000_000] == pytest.approx(0.0)
+    largest = max(changes.values())
+    assert largest == pytest.approx(5.0)
+    print(
+        "largest synthetic camera-position change "
+        f"(nearest sweep -> interpolated, 1 s sweep gap): {largest:.1f} m"
+    )
+
+
+def test_capture_drops_images_outside_sweep_span(tmp_path):
+    merged = _write_one_drive_merged(tmp_path)
+    out = tmp_path / "areas" / "demo-capture"
+    build_area_capture(merged, out, "demo", dataroot=tmp_path / "nuscenes")
+
+    from recon_core.capture import load_capture
+
+    cap = load_capture(out)
+    expected = {
+        "scene-0000/CAM_FRONT/1000000.jpg",
+        "scene-0000/CAM_FRONT/1500000.jpg",
+        "scene-0000/CAM_FRONT/2000000.jpg",
+    }
+    names = {im.name for im in cap.colmap.images.values()}
+    assert names == expected
+    assert "scene-0000/CAM_FRONT/500000.jpg" not in names
+    assert "scene-0000/CAM_FRONT/2500000.jpg" not in names
+    assert len(cap.colmap.images) == 3
+    total = camera_count(merged / "drives" / "scene-0000" / "1_load")
+    dropped = total - len(cap.colmap.images)
+    assert total == 5
+    assert dropped == 2
+    mapping = dict(cap.meta.image_captures)
+    assert set(mapping) == expected
+    assert set(mapping.values()) == {"scene-0000"}
+    assert not (out / "images" / "scene-0000" / "CAM_FRONT" / "500000.jpg").exists()
+    assert not (out / "images" / "scene-0000" / "CAM_FRONT" / "2500000.jpg").exists()
+    print(f"images dropped outside the sweep span: {dropped} of {total} (synthetic area)")
+
+
+def _reference_qvec(R: np.ndarray) -> tuple[float, float, float, float]:
+    """Ticket-required migration oracle: the pre-#433 _matrix_to_qvec algorithm, test-only."""
+    tr = float(R[0, 0] + R[1, 1] + R[2, 2])
+    if tr > 0:
+        s = math.sqrt(tr + 1.0) * 2
+        qw = 0.25 * s
+        qx = (R[2, 1] - R[1, 2]) / s
+        qy = (R[0, 2] - R[2, 0]) / s
+        qz = (R[1, 0] - R[0, 1]) / s
+    elif R[0, 0] > R[1, 1] and R[0, 0] > R[2, 2]:
+        s = math.sqrt(1.0 + R[0, 0] - R[1, 1] - R[2, 2]) * 2
+        qw = (R[2, 1] - R[1, 2]) / s
+        qx = 0.25 * s
+        qy = (R[0, 1] + R[1, 0]) / s
+        qz = (R[0, 2] + R[2, 0]) / s
+    elif R[1, 1] > R[2, 2]:
+        s = math.sqrt(1.0 + R[1, 1] - R[0, 0] - R[2, 2]) * 2
+        qw = (R[0, 2] - R[2, 0]) / s
+        qx = (R[0, 1] + R[1, 0]) / s
+        qy = 0.25 * s
+        qz = (R[1, 2] + R[2, 1]) / s
+    else:
+        s = math.sqrt(1.0 + R[2, 2] - R[0, 0] - R[1, 1]) * 2
+        qw = (R[1, 0] - R[0, 1]) / s
+        qx = (R[0, 2] + R[2, 0]) / s
+        qy = (R[1, 2] + R[2, 1]) / s
+        qz = 0.25 * s
+    q = np.array([qw, qx, qy, qz], dtype=float)
+    q /= np.linalg.norm(q)
+    return tuple(float(v) for v in q)
+
+
+def test_matrix_to_quat_agrees_with_reference_up_to_sign():
+    rng = np.random.default_rng(433)
+    for _ in range(200):
+        q = rng.normal(size=4)
+        R = quat_to_matrix(q / np.linalg.norm(q))
+        ref = np.array(_reference_qvec(R))
+        got = matrix_to_quat(R)
+        got_unit = got / np.linalg.norm(got)
+        assert abs(float(np.dot(got_unit, ref))) == pytest.approx(1.0)
+        np.testing.assert_allclose(quat_to_matrix(got), R, atol=1e-9)

@@ -10,9 +10,13 @@ Pose conventions (verified from twin code):
   (nuScenes calibrated_sensor, relative to ego body). See twin/stages/load.py
   DevkitSource.cameras and twin/stages/zbuffer.py camera_to_world.
 - 3_align/poses.json matrices are ego->world in the run CRS (EPSG:32619), the
-  refined sweep poses. See twin/stages/align.py _write and twin/areatwin.py
-  stand-in identity poses.
-- T_world_cam = T_world_ego(nearest sweep by timestamp_us) @ T_ego_cam.
+  refined sweep poses. See twin/stages/align.py _write. twin/cameras.py needs
+  timestamped rows with at least two sweeps; the identity stand-in in
+  twin/areasteps.py align_step (one row, no timestamp_us) is not consumable here.
+- T_world_cam = T_world_ego(interpolated at the image timestamp_us inside the
+  sweep span) @ T_ego_cam. See twin/cameras.py posed_cameras.
+- Images whose timestamp_us lies outside the sweep span are dropped: they have
+  no refined pose (same rule as the colour stage).
 - COLMAP images.txt stores world->camera (qvec, tvec) where X_cam = R*X_world + t,
   R from qvec, t = -R*C, C = camera center in world. This matches
   twin/stages/zbuffer.py project(): cam = R_cw^T (p - C).
@@ -31,9 +35,11 @@ from pathlib import Path
 import numpy as np
 
 from twin.areastore import open_area
+from twin.cameras import posed_cameras
 from twin.contracts import stage_dir
 from twin.dataset import DatasetConfig
 from twin.runner import default_store
+from twin.stages.zbuffer import matrix_to_quat
 
 EPSG = 32619
 DATA_LICENCE = "CC BY-NC-SA"
@@ -50,92 +56,22 @@ def area_origin(x: np.ndarray, y: np.ndarray) -> list[float]:
     return [float(math.floor(float(np.min(x)))), float(math.floor(float(np.min(y)))), 0.0]
 
 
-def _quat_to_matrix(q: list[float] | tuple[float, ...] | np.ndarray) -> np.ndarray:
-    """[w, x, y, z] -> 3x3 rotation matrix."""
-    q = np.asarray(q, dtype=float)
-    n = np.linalg.norm(q)
-    if n == 0:
-        raise ValueError("zero quaternion")
-    w, x, y, z = q / n
-    return np.array(
-        [
-            [1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)],
-            [2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)],
-            [2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)],
-        ],
-        dtype=float,
-    )
-
-
-def _matrix_to_qvec(R: np.ndarray) -> tuple[float, float, float, float]:
-    """3x3 rotation matrix -> COLMAP qvec [qw, qx, qy, qz], world->camera."""
-    tr = float(R[0, 0] + R[1, 1] + R[2, 2])
-    if tr > 0:
-        s = math.sqrt(tr + 1.0) * 2
-        qw = 0.25 * s
-        qx = (R[2, 1] - R[1, 2]) / s
-        qy = (R[0, 2] - R[2, 0]) / s
-        qz = (R[1, 0] - R[0, 1]) / s
-    elif R[0, 0] > R[1, 1] and R[0, 0] > R[2, 2]:
-        s = math.sqrt(1.0 + R[0, 0] - R[1, 1] - R[2, 2]) * 2
-        qw = (R[2, 1] - R[1, 2]) / s
-        qx = 0.25 * s
-        qy = (R[0, 1] + R[1, 0]) / s
-        qz = (R[0, 2] + R[2, 0]) / s
-    elif R[1, 1] > R[2, 2]:
-        s = math.sqrt(1.0 + R[1, 1] - R[0, 0] - R[2, 2]) * 2
-        qw = (R[0, 2] - R[2, 0]) / s
-        qx = (R[0, 1] + R[1, 0]) / s
-        qy = 0.25 * s
-        qz = (R[1, 2] + R[2, 1]) / s
-    else:
-        s = math.sqrt(1.0 + R[2, 2] - R[0, 0] - R[1, 1]) * 2
-        qw = (R[1, 0] - R[0, 1]) / s
-        qx = (R[0, 2] + R[2, 0]) / s
-        qy = (R[1, 2] + R[2, 1]) / s
-        qz = 0.25 * s
-    q = np.array([qw, qx, qy, qz], dtype=float)
-    q /= np.linalg.norm(q)
-    return tuple(float(v) for v in q)
-
-
-def _pose_matrix(translation: list[float] | np.ndarray, rotation_wxyz: list[float] | np.ndarray) -> np.ndarray:
-    m = np.eye(4, dtype=float)
-    m[:3, :3] = _quat_to_matrix(rotation_wxyz)
-    m[:3, 3] = np.asarray(translation, dtype=float)
-    return m
-
-
-def world_camera(ego_world: np.ndarray, extrinsics: dict) -> np.ndarray:
-    """T_world_cam = T_world_ego @ T_ego_cam."""
-    T_ego_cam = _pose_matrix(extrinsics["translation"], extrinsics["rotation_wxyz"])
-    return np.asarray(ego_world, dtype=float) @ T_ego_cam
-
-
-def nearest_pose(poses: np.ndarray, stamps: list[int] | np.ndarray, t_us: int) -> np.ndarray:
-    """Nearest ego->world pose by timestamp_us."""
-    stamps = np.asarray(stamps, dtype=np.int64)
-    if stamps.size == 0:
-        raise ValueError("no poses")
-    idx = int(np.argmin(np.abs(stamps - int(t_us))))
-    return np.asarray(poses[idx], dtype=float).reshape(4, 4)
-
-
 def _colmap_w2c(T_world_cam: np.ndarray) -> tuple[tuple[float, ...], tuple[float, ...]]:
     R_cw = T_world_cam[:3, :3]
     C = T_world_cam[:3, 3]
     R_wc = R_cw.T
     t = -R_wc @ C
-    return _matrix_to_qvec(R_wc), tuple(float(v) for v in t)
+    q = matrix_to_quat(R_wc)
+    q /= np.linalg.norm(q)
+    return tuple(float(v) for v in q), tuple(float(v) for v in t)
 
 
-def _camera_key(cam: dict) -> tuple:
-    K = np.asarray(cam["intrinsics"], dtype=float)
+def _camera_key(channel: str, K: np.ndarray) -> tuple:
     fx, fy = float(K[0, 0]), float(K[1, 1])
     cx, cy = float(K[0, 2]), float(K[1, 2])
     model = "SIMPLE_PINHOLE" if abs(fx - fy) <= 1e-6 else "PINHOLE"
     params = (fx, cx, cy) if model == "SIMPLE_PINHOLE" else (fx, fy, cx, cy)
-    return (cam["channel"], model, int(IMAGE_WIDTH), int(IMAGE_HEIGHT), params)
+    return (channel, model, int(IMAGE_WIDTH), int(IMAGE_HEIGHT), params)
 
 
 def _load_merged(merged_dir: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, list[dict]]:
@@ -155,7 +91,7 @@ def _load_merged(merged_dir: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray, 
 
 
 def colmap_model(drives: list[dict], merged_dir: Path, origin: np.ndarray):
-    """Build recon-core ColmapModel from per-drive cameras and align poses.
+    """Build recon-core ColmapModel from per-drive posed cameras.
 
     Also returns {COLMAP image name: dataroot-relative nuScenes image path}
     and {COLMAP image name: scene name}.
@@ -172,19 +108,13 @@ def colmap_model(drives: list[dict], merged_dir: Path, origin: np.ndarray):
     for d in drives:
         scene = d["scene"]
         drive_dir = merged_dir / "drives" / scene
-        cams_path = stage_dir(drive_dir, "load") / "cameras.json"
-        poses_path = stage_dir(drive_dir, "align") / "poses.json"
-        if not cams_path.is_file() or not poses_path.is_file():
+        load_dir = stage_dir(drive_dir, "load")
+        align_dir = stage_dir(drive_dir, "align")
+        if not (load_dir / "cameras.json").is_file() or not (align_dir / "poses.json").is_file():
             raise FileNotFoundError(f"missing cameras/poses for drive {scene}")
-        cams_doc = json.loads(cams_path.read_text())
-        poses_doc = json.loads(poses_path.read_text())
-        cam_records = cams_doc.get("cameras", cams_doc) if isinstance(cams_doc, dict) else cams_doc
-        pose_rows = poses_doc.get("poses", poses_doc) if isinstance(poses_doc, dict) else poses_doc
-        pose_mats = np.array([r["matrix"] for r in pose_rows], dtype=float).reshape(-1, 4, 4)
-        pose_stamps = [int(r["timestamp_us"]) for r in pose_rows]
 
-        for cam in cam_records:
-            key = _camera_key(cam)
+        for cam in posed_cameras(load_dir, align_dir):
+            key = _camera_key(cam.channel, cam.K)
             cam_id = cam_id_by_key.get(key)
             if cam_id is None:
                 cam_id = len(cameras) + 1
@@ -197,21 +127,18 @@ def colmap_model(drives: list[dict], merged_dir: Path, origin: np.ndarray):
                     params=tuple(float(p) for p in key[4]),
                 )
 
-            t_us = int(cam["timestamp_us"])
-            T_world_ego = nearest_pose(pose_mats, pose_stamps, t_us)
-            T_world_cam = world_camera(T_world_ego, cam["extrinsics"])
-            T_world_cam = T_world_cam.copy()
+            T_world_cam = cam.c2w.copy()
             T_world_cam[:3, 3] -= origin
             qvec, tvec = _colmap_w2c(T_world_cam)
-            name = f"{scene}/{cam['channel']}/{t_us}.jpg"
+            name = f"{scene}/{cam.channel}/{cam.t_us}.jpg"
             if any(ch.isspace() for ch in name):
                 raise ValueError(f"image name has whitespace: {name!r}")
             prev = sources.get(name)
-            if prev is not None and prev != str(cam["image"]):
+            if prev is not None and prev != str(cam.image):
                 raise ValueError(
-                    f"duplicate capture image name {name!r}: {prev!r} and {cam['image']!r}"
+                    f"duplicate capture image name {name!r}: {prev!r} and {cam.image!r}"
                 )
-            sources[name] = str(cam["image"])
+            sources[name] = str(cam.image)
             image_captures[name] = str(scene)
             images[image_id] = Image(
                 image_id=image_id,

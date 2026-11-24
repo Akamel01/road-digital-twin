@@ -469,7 +469,12 @@ def _make_synthetic_area(tmp_path: Path, name="site-tiny") -> Path:
 
         np.savez(ddir / "2_mask" / "parked.npz", x=np.array([]), y=np.array([]), z=np.array([]), intensity=np.array([]), sweep=np.array([], dtype=np.uint16))
 
-        align_poses = {"poses": [{"sweep": 0, "timestamp_us": 1000 + i * 100, "matrix": np.eye(4).tolist()}]}
+        align_poses = {
+            "poses": [
+                {"sweep": 0, "timestamp_us": 1000 + i * 100, "matrix": np.eye(4).tolist()},
+                {"sweep": 1, "timestamp_us": 2000 + i * 100, "matrix": np.eye(4).tolist()},
+            ]
+        }
         (ddir / "3_align" / "poses.json").write_text(json.dumps(align_poses))
         (ddir / "3_align" / "qa.json").write_text(json.dumps({"method": "merged-icp", "fallback_used": False, "xy_drift_p95_m": None}))
 
