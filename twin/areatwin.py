@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import shutil
 import time
 import warnings
 from pathlib import Path
@@ -32,8 +34,8 @@ from twin.areastore import (
     DRIVES_NAME,
     MERGED_NAME,
     TWIN_SUFFIX,
-    area_merged_dir,
-    area_twin_dir,
+    Area,
+    open_area,
 )
 from twin.contracts import Params, Pipeline, stage_dir
 from twin.merge import apply
@@ -71,15 +73,8 @@ SUPPORT_BAND_M = 0.3
 SUPPORT_MIN_POINTS = 5
 SUPPORT_TILE_M = 10.0
 
-FEATURE_FILES = ("markings.geojson", "crosswalks.geojson", "curbs.geojson", "ramps.geojson")
-STAGE_ORDER = ("ground", "features", "profile", "isd", "accuracy")
-
 
 # ------------------------------------------------------------------ inputs
-
-
-def _fc(feats: list[dict]) -> str:
-    return json.dumps({"type": "FeatureCollection", "features": feats})
 
 
 def area_inputs(drives: list[dict], work: Path, polygon) -> tuple[list[dict], list[dict]]:
@@ -409,12 +404,87 @@ def construction_check(regions: list[dict], drives: list[dict], work: Path, cent
 
 
 def _stage(ctx: StageContext, name: str, params: Params, pipeline: Pipeline) -> dict:
-    fn = registry.lookup(name, getattr(pipeline, name).method)
     t0 = time.time()
-    res = fn(ctx, getattr(params, params.groups_for(name)[0]))
+    res = registry.run_stage(ctx, name, getattr(pipeline, name).method, params)
     if res.status != "ok":
         raise RuntimeError(f"{name}: {res.message}")
     return {"seconds": round(time.time() - t0, 1), "metrics": res.metrics}
+
+
+def link_or_copy(src: Path, dst: Path) -> None:
+    """Make `dst` a symlink to `src`, or a copy where symlinks fail; replaces what is at `dst`."""
+    if dst.exists() or dst.is_symlink():
+        if dst.is_dir() and not dst.is_symlink():
+            shutil.rmtree(dst)
+        else:
+            dst.unlink()
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.symlink(src.resolve(), dst)
+    except OSError:
+        if src.is_dir():
+            shutil.copytree(src, dst)
+        else:
+            shutil.copy2(src, dst)
+
+
+def finish_area_twin(
+    area: Area, *, seconds: dict[str, float], metrics: dict[str, dict], change: dict, total_seconds: float,
+    check_date: str | None,
+) -> dict:
+    """Write change.json, the links to the merged cloud and drives, and the area twin's Run Record. Returns the summary.
+
+    seconds: per-stage seconds. metrics: the load, ground and accuracy metrics. change: the change step's metrics.
+    The twin folder already holds the stages' output and change.geojson.
+    """
+    out, merged_dir = area.twin_dir, area.merged_dir
+    construction = None
+    if check_date:
+        regions = json.loads((out / "change.geojson").read_text())["features"]
+        centre = np.array([*shape(area.definition()["polygon"]).centroid.coords[0], 0.0])
+        construction = construction_check(regions, area.drive_records(), merged_dir, centre, check_date)
+    summary = {
+        "area": area.name,
+        "n_drives": len(area.drive_records()),
+        "n_features": int(change.get("n_features", 0)),
+        "n_features_changed": int(change.get("n_features_changed", 0)),
+        "n_change_regions": int(change.get("n_change_regions", 0)),
+        "change_area_m2": float(change.get("change_area_m2", 0.0)),
+        "noise": change.get("noise", {}),
+        "seconds": seconds,
+        "twin_seconds": total_seconds,
+        "construction_check": construction,
+        "by_date": change.get("by_date", {}),
+    }
+    (out / "change.json").write_text(json.dumps(summary, indent=2) + "\n")
+    for f in (MERGED_NAME, DRIVES_NAME, "qa.json"):  # the site's latest view reads the cloud and drives from the area folder
+        if (merged_dir / f).exists():
+            link_or_copy(merged_dir / f, out / f)
+    # the Run Record `twin eval <folder>` reads G2 (from merge), G3 and G5 from
+    try:
+        merged_record = read_record(merged_dir)
+    except (OSError, ValueError):
+        merged_record = {}
+    # align comes from the joint (cross-drive) merge, with the convergence and fallback fields of its qa.json where the record has none
+    align = dict(merged_record.get("metrics", {}).get("align", {}) or {})
+    try:
+        qa = json.loads((merged_dir / "qa.json").read_text())
+    except (OSError, ValueError):
+        qa = {}
+    for key in ("convergence", "fallback_used", "fallback_reason", "fallback", "method",
+                "n_anchors", "n_drives_with_overlap", "elapsed", "anchor_residuals", "pair_residuals"):
+        if key in qa and key not in align:
+            align[key] = qa[key]
+    if isinstance(qa.get("convergence"), dict):
+        for k, v in qa["convergence"].items():
+            align.setdefault(k, v)
+    write_document(out, {
+        "run_id": f"area-{area.name}{TWIN_SUFFIX}",
+        "data": merged_record.get("data", {}),
+        "metrics": {"load": metrics["load"], "align": align, "ground": metrics["ground"], "accuracy": metrics["accuracy"]},
+        "stages": [{"seconds": v} for v in seconds.values()],
+    })
+    return summary
 
 
 def twin_area(base: Path, name: str, log: logging.Logger, check_date: str | None = None) -> dict:
@@ -422,24 +492,21 @@ def twin_area(base: Path, name: str, log: logging.Logger, check_date: str | None
     from twin import areasteps
 
     t_start = time.time()
-    area = json.loads((base / "areas" / f"{name}.json").read_text())
-    work = area_merged_dir(base, name)
-    out = area_twin_dir(base, name)
+    area = open_area(base, name)
+    definition = area.definition()
+    work, out = area.merged_dir, area.twin_dir
     out.mkdir(parents=True, exist_ok=True)
-    polygon = shape(area["polygon"])
-    centre = np.array([*polygon.centroid.coords[0], 0.0])
-    drives = json.loads((work / DRIVES_NAME).read_text())
-    dates = [d["date"] for d in drives]
+    drives = area.drive_records()
     params, pipeline = Params(), Pipeline()
     pipeline.features.method = "raster"
 
     log.info("merged cloud: %s", name)
 
     # D8 order: load/mask/align stand-ins -> ground -> features -> change -> profile -> isd -> accuracy
-    load_res = areasteps.load_step(work, area, out)
+    load_res = areasteps.load_step(work, definition, out)
     if load_res.status != "ok":
         raise RuntimeError(f"load: {load_res.status}")
-    mask_res = areasteps.mask_step(work, area, out)
+    mask_res = areasteps.mask_step(work, definition, out)
     if mask_res.status != "ok":
         raise RuntimeError(f"mask: {mask_res.status}")
     align_res = areasteps.align_step(out)
@@ -447,20 +514,20 @@ def twin_area(base: Path, name: str, log: logging.Logger, check_date: str | None
         raise RuntimeError(f"align: {align_res.status}")
 
     ground_res = areasteps.ground_step(
-        work, area, drives, stage_dir(out, "load"), stage_dir(out, "align"), out, params, log
+        work, definition, drives, stage_dir(out, "load"), stage_dir(out, "align"), out, params, log
     )
     if ground_res.status != "ok":
         raise RuntimeError(f"ground: {ground_res.status}")
     seconds = {"ground": float(ground_res.metrics.get("seconds", 0.0))}
     stage_metrics = {"ground": {k: v for k, v in ground_res.metrics.items() if k != "seconds"}}
 
-    ctx = StageContext(out, f"area-{name}", params.seed, log, params.facilities.min_observed)
+    ctx = StageContext.for_params(out, f"area-{name}", params, log)
     for st in ("features",):
         r = _stage(ctx, st, params, pipeline)
         seconds[st], stage_metrics[st] = r["seconds"], r["metrics"]
 
     change_res = areasteps.change_step(
-        work, area, drives, stage_dir(out, "features"), stage_dir(out, "load"), out
+        work, definition, drives, stage_dir(out, "features"), stage_dir(out, "load"), out
     )
     if change_res.status != "ok":
         raise RuntimeError(f"change: {change_res.status}")
@@ -469,39 +536,14 @@ def twin_area(base: Path, name: str, log: logging.Logger, check_date: str | None
         r = _stage(ctx, st, params, pipeline)
         seconds[st], stage_metrics[st] = r["seconds"], r["metrics"]
 
-    mman = read_record(work)
-    total = round(time.time() - t_start, 1)
-    regions = json.loads((out / "change.geojson").read_text())["features"]
-    summary = {
-        "area": name,
-        "n_drives": len(drives),
-        "n_features": int(change_res.metrics.get("n_features", 0)),
-        "n_features_changed": int(change_res.metrics.get("n_features_changed", 0)),
-        "n_change_regions": int(change_res.metrics.get("n_change_regions", len(regions))),
-        "change_area_m2": float(change_res.metrics.get("change_area_m2", 0.0)),
-        "noise": change_res.metrics.get("noise", {}),
-        "seconds": seconds,
-        "twin_seconds": total,
-        "construction_check": construction_check(regions, drives, work, centre, check_date) if check_date else None,
-        "by_date": change_res.metrics.get("by_date", {
-            d: {"regions": sum(d in r["properties"]["dates"] for r in regions),
-                "area_m2": round(sum(r["properties"]["area_m2"] for r in regions if d in r["properties"]["dates"]), 1)}
-            for d in sorted(set(dates))
-        }),
-    }
-    (out / "change.json").write_text(json.dumps(summary, indent=2))
-    for f in (MERGED_NAME, DRIVES_NAME, "qa.json"):  # the site's latest view reads the cloud and drives from the area folder
-        (out / f).unlink(missing_ok=True)
-        (out / f).symlink_to((work / f).resolve())
-    # a minimal Run Record so `twin eval <folder>` reads G2 (from merge), G3 and G5
-    acc = stage_metrics["accuracy"]
-    write_document(out, {
-        "run_id": f"area-{name}{TWIN_SUFFIX}",
-        "data": mman.get("data", {}),
-        "metrics": {"align": mman["metrics"]["align"], "ground": stage_metrics["ground"], "accuracy": acc},
-        "stages": [{"seconds": v} for v in seconds.values()],
-    })
-    return summary
+    return finish_area_twin(
+        area,
+        seconds=seconds,
+        metrics={"load": load_res.metrics, **stage_metrics},
+        change=change_res.metrics,
+        total_seconds=round(time.time() - t_start, 1),
+        check_date=check_date,
+    )
 
 
 def area_twin_command(name: str, store: Path | None, check_date: str | None = None) -> int:
