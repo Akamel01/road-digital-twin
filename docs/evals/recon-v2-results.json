@@ -251,6 +251,150 @@
     "lidar_ground_p50_m": 0.201,
     "lidar_ground_p95_m": 1.046
    }
+  },
+  {
+   "id": "omnire-single-lidar-depth",
+   "date": "2026-11-24",
+   "approach": "OmniRe",
+   "variant": "30k, single drive + LiDAR-ray depth + camera depth loss 0.1",
+   "ticket": 440,
+   "iterations": 30000,
+   "train_minutes": null,
+   "gaussian_cap": 1000000,
+   "eval_set": "scene-0297 held-out, 60 views",
+   "notes": "New best geometry: road p50 0.06 m, p95 0.75 m; PSNR 0.6 dB lower.",
+   "metrics": {
+    "psnr": 19.55663997043662,
+    "ssim": 0.6373721275341049,
+    "road_depth_p50_m": 0.0599057674407959,
+    "road_depth_p95_m": 0.7538484573364256,
+    "sidewalk_depth_p50_m": 0.04593181610107422,
+    "sidewalk_depth_p95_m": 0.8583822011947618,
+    "lidar_all_p50_m": 0.139,
+    "lidar_all_p95_m": 3.994,
+    "lidar_ground_p50_m": 0.058,
+    "lidar_ground_p95_m": 1.309
+   }
+  },
+  {
+   "id": "omnire-upd2",
+   "date": "2026-11-24",
+   "approach": "OmniRe",
+   "variant": "Update: single-drive scene + drive 2, 10k steps, default settings",
+   "ticket": 440,
+   "iterations": 10000,
+   "train_minutes": null,
+   "gaussian_cap": 1500000,
+   "eval_set": "scene-0297 held-out, 60 views",
+   "notes": "Incremental update. Drive 2's area ground p50 0.82 to 0.062 m; drive 1's camera road p50 0.08 to 0.13 m.",
+   "metrics": {
+    "psnr": 19.57559701546897,
+    "ssim": 0.6602156974023666,
+    "road_depth_p50_m": 0.1291484832763672,
+    "road_depth_p95_m": 1.325436210632324,
+    "sidewalk_depth_p50_m": 0.12064933776855469,
+    "sidewalk_depth_p95_m": 1.417544937133789,
+    "lidar_all_p50_m": 0.179,
+    "lidar_all_p95_m": 3.373,
+    "lidar_ground_p50_m": 0.087,
+    "lidar_ground_p95_m": 0.934
+   }
+  },
+  {
+   "id": "omnire-upd2-gentle",
+   "date": "2026-11-24",
+   "approach": "OmniRe",
+   "variant": "Update + drive 2, gentle (xyz lr x0.1, full SH and resolution from step 0)",
+   "ticket": 440,
+   "iterations": 10000,
+   "train_minutes": null,
+   "gaussian_cap": 1500000,
+   "eval_set": "scene-0297 held-out, 60 views",
+   "notes": "Drive 1 LiDAR ground holds (0.077 m); camera road p50 still 0.13 m.",
+   "metrics": {
+    "psnr": 19.641948878208275,
+    "ssim": 0.6573052257244677,
+    "road_depth_p50_m": 0.12827587127685547,
+    "road_depth_p95_m": 1.3728690147399902,
+    "sidewalk_depth_p50_m": 0.11734485626220703,
+    "sidewalk_depth_p95_m": 1.4386066436767566,
+    "lidar_all_p50_m": 0.162,
+    "lidar_all_p95_m": 3.226,
+    "lidar_ground_p50_m": 0.077,
+    "lidar_ground_p95_m": 0.838
+   }
+  },
+  {
+   "id": "omnire-upd2-depth",
+   "date": "2026-11-24",
+   "approach": "OmniRe",
+   "variant": "Update + drive 2, gentle + camera depth loss 0.1",
+   "ticket": 440,
+   "iterations": 10000,
+   "train_minutes": null,
+   "gaussian_cap": 1500000,
+   "eval_set": "scene-0297 held-out, 60 views",
+   "notes": "Camera road p50 0.097 m; drive 2's area ground p50 0.059 m.",
+   "metrics": {
+    "psnr": 19.570420471936863,
+    "ssim": 0.6531656521068058,
+    "road_depth_p50_m": 0.09675979614257812,
+    "road_depth_p95_m": 1.3987617492675735,
+    "sidewalk_depth_p50_m": 0.07171821594238281,
+    "sidewalk_depth_p95_m": 1.2121886253356908,
+    "lidar_all_p50_m": 0.146,
+    "lidar_all_p95_m": 3.731,
+    "lidar_ground_p50_m": 0.074,
+    "lidar_ground_p95_m": 1.298
+   }
+  },
+  {
+   "id": "omnire-upd2-from-sld",
+   "date": "2026-11-24",
+   "approach": "OmniRe",
+   "variant": "Update + drive 2 from the new best single-drive scene",
+   "ticket": 440,
+   "iterations": 10000,
+   "train_minutes": null,
+   "gaussian_cap": 1500000,
+   "eval_set": "scene-0297 held-out, 60 views",
+   "notes": "Drive 1 road p50 0.060 to 0.093 m: updates still cost drive 1's area.",
+   "metrics": {
+    "psnr": 19.524432059750723,
+    "ssim": 0.6499622941560631,
+    "road_depth_p50_m": 0.09310245513916016,
+    "road_depth_p95_m": 1.3326021194458004,
+    "sidewalk_depth_p50_m": 0.06400847434997559,
+    "sidewalk_depth_p95_m": 1.254852533340454,
+    "lidar_all_p50_m": 0.142,
+    "lidar_all_p95_m": 3.477,
+    "lidar_ground_p50_m": 0.075,
+    "lidar_ground_p95_m": 1.135
+   }
+  },
+  {
+   "id": "omnire-upd2-aligned",
+   "date": "2026-11-24",
+   "approach": "OmniRe",
+   "variant": "Update + drive 2 with drive 2's poses ICP-corrected onto drive 1",
+   "ticket": 440,
+   "iterations": 10000,
+   "train_minutes": null,
+   "gaussian_cap": 1500000,
+   "eval_set": "scene-0297 held-out, 60 views",
+   "notes": "Alignment recovers part of the loss: road p50 0.087 m, p95 1.01 m (vs 0.093 / 1.33).",
+   "metrics": {
+    "psnr": 19.489135972940385,
+    "ssim": 0.6492544596032567,
+    "road_depth_p50_m": 0.08665132522583008,
+    "road_depth_p95_m": 1.0055307626724241,
+    "sidewalk_depth_p50_m": 0.05416369438171387,
+    "sidewalk_depth_p95_m": 1.148848295211787,
+    "lidar_all_p50_m": 0.135,
+    "lidar_all_p95_m": 3.59,
+    "lidar_ground_p50_m": 0.064,
+    "lidar_ground_p95_m": 1.321
+   }
   }
  ]
 }
