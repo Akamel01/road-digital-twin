@@ -12,7 +12,7 @@ Method (gsplat, Apache-2.0):
 - The loss is photometric (L1 and SSIM) plus the relative error against the lidar depth projected into the image.
   Pixels covered by annotated boxes (cars, people) are left out: the lidar cloud had them removed (mask stage).
 - Every holdout_every-th image is held out and scores PSNR and SSIM, with the dataset pose.
-Inputs: load's cameras.json, boxes.json; align's poses.json; ground's ground.laz, nonground.laz, surface.npz.
+Inputs: load's cameras.json, boxes.json; align's poses.json; ground's ground.laz, nonground.laz, surface grid.
 Outputs: splats.npz, ortho.png (+ ortho.pgw, ground layer, transparent where unobserved), qa.json.
 """
 
@@ -34,7 +34,9 @@ from twin.contracts import SplatsParams, StageResult
 from twin.dataset import DatasetConfig
 from twin.pose import pose_report
 from twin.registry import register
+from twin.sightline import Surface
 from twin.stages import colour, zbuffer
+from twin.stages.ground import read_outputs
 
 log = logging.getLogger(__name__)
 OUTPUT_FILES = ("splats.npz", "ortho.png", "ortho.pgw", "qa.json")
@@ -112,22 +114,22 @@ def box_mask(boxes: list[dict], c2w: np.ndarray, k: np.ndarray, size: tuple[int,
     return out
 
 
-def ground_z_at(surface: dict, xy: np.ndarray) -> np.ndarray:
+def ground_z_at(surface: Surface, xy: np.ndarray) -> np.ndarray:
     """Lidar ground height at xy (N, 2) from ground's surface grid; NaN where the lidar saw no ground."""
-    c = float(surface["cell_m"])
-    ij = np.floor((xy - surface["origin"]) / c).astype(np.int64)
-    z = surface["z"]
+    c = surface.cell_m
+    ij = np.floor((xy - surface.origin) / c).astype(np.int64)
+    z = surface.z
     ny, nx = z.shape
     ok = (ij[:, 0] >= 0) & (ij[:, 0] < nx) & (ij[:, 1] >= 0) & (ij[:, 1] < ny)
     out = np.full(len(xy), np.nan)
     sel = np.flatnonzero(ok)
     v = z[ij[sel, 1], ij[sel, 0]].astype(float)
-    v[surface["count"][ij[sel, 1], ij[sel, 0]] <= 0] = np.nan
+    v[surface.count[ij[sel, 1], ij[sel, 0]] <= 0] = np.nan
     out[sel] = v
     return out
 
 
-def geometry_agreement(centres: np.ndarray, surface: dict) -> dict:
+def geometry_agreement(centres: np.ndarray, surface: Surface) -> dict:
     """How far the splat centres sit from the lidar ground.
 
     Per GEOM_CELL_M cell of the lidar ground surface that holds at least GEOM_MIN_SPLATS splat centres within
@@ -138,7 +140,7 @@ def geometry_agreement(centres: np.ndarray, surface: dict) -> dict:
     gz = ground_z_at(surface, centres[:, :2])
     near = np.isfinite(gz) & (np.abs(centres[:, 2] - gz) <= GEOM_WINDOW_M)
     c = centres[near]
-    ij = np.floor((c[:, :2] - surface["origin"]) / GEOM_CELL_M).astype(np.int64)
+    ij = np.floor((c[:, :2] - surface.origin) / GEOM_CELL_M).astype(np.int64)
     key = ij[:, 1] * 100000 + ij[:, 0]
     order = np.argsort(key)
     key, c, gzn = key[order], c[order], gz[near][order]
@@ -147,8 +149,8 @@ def geometry_agreement(centres: np.ndarray, surface: dict) -> dict:
     for idx in np.split(np.arange(len(key)), cuts):
         if len(idx) >= GEOM_MIN_SPLATS:
             diffs.append(np.percentile(c[idx, 2], GEOM_PCT) - gzn[idx].mean())
-    # Lidar-ground cells at the same resolution: surface cells are surface["cell_m"] wide, so count those with ground.
-    n_cells = int((surface["count"] > 0).sum() * (float(surface["cell_m"]) / GEOM_CELL_M) ** 2)
+    # Lidar-ground cells at the same resolution: surface cells are surface.cell_m wide, so count those with ground.
+    n_cells = int((surface.count > 0).sum() * (surface.cell_m / GEOM_CELL_M) ** 2)
     d = np.abs(np.asarray(diffs))
     return {
         "cell_m": GEOM_CELL_M,
@@ -408,7 +410,7 @@ def train(views: list[dict], init: dict, p: SplatsParams, log_every: int = 1000)
     }
 
 
-def render_ortho(splats: dict, surface: dict, ground_z: np.ndarray, p: SplatsParams, origin: np.ndarray):
+def render_ortho(splats: dict, surface: Surface, ground_z: np.ndarray, p: SplatsParams, origin: np.ndarray):
     """(rgba uint8 (h, w, 4), (x0, y_top)): the ground layer seen from above, one pixel = ortho_cm.
 
     Only splats within ground_band_m of the lidar ground surface are drawn; pixels the splats do not cover are transparent.
@@ -421,10 +423,10 @@ def render_ortho(splats: dict, surface: dict, ground_z: np.ndarray, p: SplatsPar
     sel = np.isfinite(ground_z) & (np.abs(means[:, 2] + origin[2] - ground_z) <= p.ground_band_m)
     sel &= 1 / (1 + np.exp(-splats["opacities"])) >= OPACITY_MIN
     # The picture covers the lidar's observed ground; stray splats outside it are not drawn.
-    c = float(surface["cell_m"])
-    j, i = np.nonzero(surface["count"] > 0)
-    lo = surface["origin"] + np.array([i.min(), j.min()]) * c
-    hi = surface["origin"] + np.array([i.max() + 1, j.max() + 1]) * c
+    c = surface.cell_m
+    j, i = np.nonzero(surface.count > 0)
+    lo = surface.origin + np.array([i.min(), j.min()]) * c
+    hi = surface.origin + np.array([i.max() + 1, j.max() + 1]) * c
     sel &= (means[:, :2] + origin[:2] >= lo).all(1) & (means[:, :2] + origin[:2] <= hi).all(1)
     tiles, (width, height) = ortho_tiles(lo, hi, pix)
     top = hi[1]
@@ -470,8 +472,7 @@ def run(ctx: Any, params: SplatsParams) -> StageResult:
     gdir = ctx.input_dir("ground")
     ground, nonground = laspy.read(gdir / "ground.laz").xyz, laspy.read(gdir / "nonground.laz").xyz
     pts = np.vstack([ground, nonground])
-    sf = np.load(gdir / "surface.npz")
-    surface = {k: sf[k] for k in sf.files}
+    surface = read_outputs(gdir).surface()
     origin = np.round(pts.mean(0), 0)
     t0 = time.perf_counter()
     views = _load_views(ctx, params, origin, pts)

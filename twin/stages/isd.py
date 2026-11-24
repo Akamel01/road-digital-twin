@@ -3,7 +3,7 @@
 Source of truth: docs/design/twin-v1-spec.md, sections 3, 4, 6 (ISD) and 8 (ISD).
 Prior work: docs/research/sight-line-heights.md (heights; ISD Case B passenger car 1.08 m eye and 1.08 m object)
 and docs/research/related-work.md sections 6 and 9 (gonzalez-gomez-2019, kilani-2021: no open code, nothing reused).
-Inputs: load's facilities.geojson (approach lines and eye points); ground's surface.npz, nonground.laz and qa.json;
+Inputs: load's facilities.geojson (approach lines and eye points); ground's surface grid, nonground.laz and qa.json;
 mask's parked.npz; the sweep poses (drivecloud moves them into the aligned frame).
 Output: isd.json. Access points are listed in metrics only: load stores no exit geometry for them yet.
 """
@@ -22,6 +22,7 @@ from twin.drivecloud import aligned_cloud
 from twin.facilities import isd_required_m
 from twin.registry import register
 from twin.sightline import CLEAR, INDETERMINATE, Surface, sight_line
+from twin.stages.ground import read_outputs
 
 OUTPUT_FILES = ("isd.json",)
 # DECISION: the object point moves along the crossing approach in 0.5 m steps (the surface cell size), from the
@@ -185,13 +186,9 @@ def _run(ctx: Any, params: IsdParams) -> StageResult:
     out.mkdir(exist_ok=True)
     ground = ctx.input_dir("ground")
     load = ctx.input_dir("load")
-    qa = json.loads((ground / "qa.json").read_text())
-    height_valid = bool(qa["height_valid"])
-    observed = qa["observed_core"]
-    with np.load(ground / "surface.npz") as f:
-        surface = Surface(
-            z=f["z"], count=f["count"], origin=f["origin"], cell_m=float(f["cell_m"])
-        )
+    outputs = read_outputs(ground)
+    height_valid = outputs.height_valid
+    surface = outputs.surface()
     nonground = np.asarray(laspy.read(ground / "nonground.laz").xyz, dtype=float)
     parked_all = aligned_cloud(ctx.run_dir, "parked").xyz
     features = json.loads((load / "facilities.geojson").read_text())["features"]
@@ -206,7 +203,7 @@ def _run(ctx: Any, params: IsdParams) -> StageResult:
             continue
         if props.get("type") != "intersection":
             continue
-        if observed.get(fid, 0.0) < ctx.min_observed:
+        if outputs.not_scanned(fid):
             not_scanned.append(fid)
             continue
         checked.append(fid)

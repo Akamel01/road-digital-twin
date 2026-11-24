@@ -3,7 +3,7 @@
 Source of truth: docs/design/twin-v1-spec.md, sections 3, 4, 6 (Outputs) and 8 (Profile).
 Prior work: docs/research/related-work.md section 6 (vertical profile from mobile lidar: holgado-barco-2014,
 which uses orthogonal regression on the road profile; we only sample the ground surface, descriptive).
-Input: ground's surface.npz and qa.json; load's facilities.geojson. Output: profile.csv, centrelines.geojson.
+Input: ground's surface grid and qa.json; load's facilities.geojson. Output: profile.csv, centrelines.geojson.
 Descriptive only (spec R1). Heights are written even when height_valid is false; metrics carry the flag.
 """
 
@@ -19,6 +19,8 @@ from shapely.geometry import LineString, mapping, shape
 from twin.contracts import ProfileParams, StageResult
 from twin.facilities import fallback_centreline
 from twin.registry import register
+from twin.sightline import Surface
+from twin.stages.ground import read_outputs
 
 CSV_HEADER = "facility,line,s_m,z_m,n"
 OUTPUT_FILES = ("profile.csv", "centrelines.geojson")
@@ -117,20 +119,20 @@ def sample_line(line: LineString, step_m: float) -> list[tuple[float, float, flo
     return [(float(s), p.x, p.y) for s, p in ((s, line.interpolate(s)) for s in s_vals)]
 
 
-def ground_z_at(surf: dict[str, Any], x: float, y: float) -> tuple[float, int] | None:
+def ground_z_at(surf: Surface, x: float, y: float) -> tuple[float, int] | None:
     """(z, n) of the surface cell holding (x, y), or None outside the grid or in an empty cell.
 
     # DECISION: nearest cell, no interpolation. The surface cell size (ground.qa_cell_m) caps the z resolution.
     """
-    ny, nx = surf["z"].shape
-    cell = float(surf["cell_m"])
-    ox, oy = surf["origin"]
+    ny, nx = surf.z.shape
+    cell = surf.cell_m
+    ox, oy = surf.origin
     i = int(np.floor((x - ox) / cell))
     j = int(np.floor((y - oy) / cell))
     if not (0 <= i < nx and 0 <= j < ny):
         return None
-    n = int(surf["count"][j, i])
-    z = float(surf["z"][j, i])
+    n = int(surf.count[j, i])
+    z = float(surf.z[j, i])
     if n == 0 or not np.isfinite(z):
         return None
     return z, n
@@ -140,11 +142,9 @@ def _run(ctx: Any, params: ProfileParams) -> StageResult:
     out = ctx.stage_dir("profile")
     out.mkdir(exist_ok=True)
     ground = ctx.input_dir("ground")
-    qa = json.loads((ground / "qa.json").read_text())
-    height_valid = bool(qa["height_valid"])
-    observed = qa["observed_core"]
-    with np.load(ground / "surface.npz") as f:
-        surf = {k: f[k] for k in ("z", "count", "origin", "cell_m")}
+    outputs = read_outputs(ground)
+    height_valid = outputs.height_valid
+    surf = outputs.surface()
     features = json.loads((ctx.input_dir("load") / "facilities.geojson").read_text())[
         "features"
     ]
@@ -154,7 +154,7 @@ def _run(ctx: Any, params: ProfileParams) -> StageResult:
     profiled, not_scanned = [], []
     for feature in features:
         fid = feature["properties"]["id"]
-        if observed.get(fid, 0.0) < ctx.min_observed:
+        if outputs.not_scanned(fid):
             not_scanned.append(fid)
             continue
         profiled.append(fid)

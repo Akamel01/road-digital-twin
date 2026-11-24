@@ -4,7 +4,7 @@ Source of truth: docs/design/twin-v1-spec.md, section 6 (ISD) and section 8.
 Heights: docs/research/sight-line-heights.md (defaults 1.08 m eye and 1.08 m object, ISD Case B).
 Prior work: docs/research/related-work.md section 6 (gonzalez-gomez-2019, kilani-2021 are the sight-distance
 sources; no open code, so nothing is reused) and section 9 (heights).
-Inputs: ground's surface.npz (as Surface), nonground points from nonground.laz, and parked points from
+Inputs: ground's surface grid (as Surface), nonground points from nonground.laz, and parked points from
 mask's parked.npz. This module is the test only; per-leg ISD is the next ticket.
 """
 
@@ -29,7 +29,7 @@ class SightResult:
 
 @dataclass(frozen=True)
 class Surface:
-    """Ground surface grid (ground stage surface.npz): mean z and ground point count per cell."""
+    """Ground surface grid (ground stage surface grid): mean z and ground point count per cell."""
 
     z: np.ndarray  # (ny, nx) mean ground z, NaN where the cell is empty
     count: np.ndarray  # (ny, nx) ground points per cell

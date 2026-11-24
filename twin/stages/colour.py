@@ -31,6 +31,7 @@ from twin.contracts import HOLDOUT_EVERY, ColourParams, StageResult
 from twin.dataset import DatasetConfig
 from twin.registry import register
 from twin.stages import colour_pose, zbuffer
+from twin.stages.ground import read_outputs
 
 log = logging.getLogger(__name__)
 OUTPUT_FILES = ("ortho.png", "ortho.pgw", "rgb.npz", "qa.json")
@@ -310,7 +311,7 @@ def _run(ctx: Any, params: ColourParams, refine: bool = False) -> StageResult:
     out: Path = ctx.stage_dir("colour")
     out.mkdir(exist_ok=True)
     gdir = ctx.input_dir("ground")
-    ground_qa = json.loads((gdir / "qa.json").read_text())
+    ground = read_outputs(gdir)
     ground_xyz = laspy.read(gdir / "ground.laz").xyz
     nonground_xyz = laspy.read(gdir / "nonground.laz").xyz
     # Same order as outputs' twin cloud: ground first, then non-ground.
@@ -329,7 +330,7 @@ def _run(ctx: Any, params: ColourParams, refine: bool = False) -> StageResult:
     anchors = None
     if refine:
         train = [m for m in markings if m["properties"]["id"] not in holdout_ids]
-        anchors = colour_pose.lidar_paint_edges(train, gdir / "surface.npz", nonground_xyz)
+        anchors = colour_pose.lidar_paint_edges(train, ground.surface(), nonground_xyz)
     pose_deltas: list[list[float]] = []
     pose_channels: list[str] = []
     pose_infos: list[dict] = []
@@ -349,7 +350,7 @@ def _run(ctx: Any, params: ColourParams, refine: bool = False) -> StageResult:
     stats: dict = {}
     rgb, observed, n_views = colour_points(points, nonground_xyz, views(), params, stats)
 
-    height_valid = bool(ground_qa["height_valid"])
+    height_valid = ground.height_valid
     ortho, origin = ortho_raster(
         points[: len(ground_xyz), :2],
         rgb[: len(ground_xyz)],

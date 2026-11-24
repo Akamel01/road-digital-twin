@@ -108,6 +108,7 @@ def _stage_run(tmp_path, monkeypatch, injects):
     _write_laz(dirs["ground"] / "ground.laz", ground, np.zeros(len(ground)), 2)
     _write_laz(dirs["ground"] / "nonground.laz", np.array([[-50.0, 0.0, 1.0]]), np.zeros(1), 1)
     (dirs["ground"] / "qa.json").write_text(json.dumps({"height_valid": True}))
+    np.savez(dirs["ground"] / "surface.npz", z=np.full((1, 1), np.nan), count=np.zeros((1, 1), int), origin=np.zeros(2), cell_m=0.5)
     feats = [{"type": "Feature", "properties": {"id": f"marking-{i:02d}", "reliability": "observed"},
               "geometry": {"type": "LineString", "coordinates": [[*a, 0.0], [*b, 0.0]]}} for i, (a, b) in enumerate(LINES)]
     (dirs["features"] / "markings.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": feats}))
