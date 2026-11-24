@@ -1,4 +1,5 @@
 import json
+from contextlib import ExitStack
 
 import pytest
 from filelock import FileLock
@@ -10,9 +11,10 @@ from twin.contracts import STAGE_NAMES, STAGES, StageResult
 
 @pytest.fixture
 def stubs(monkeypatch):
-    monkeypatch.setattr(registry, "_REGISTRY", {})
+    stack = ExitStack()
 
     def install(failing=None):
+        fns = {}
         for name in STAGE_NAMES:
 
             def run(ctx, params, name=name):
@@ -21,9 +23,11 @@ def stubs(monkeypatch):
                     return StageResult(status="failed", message="boom")
                 return StageResult(status="ok")
 
-            registry.register(name, STAGES[name].methods[0])(run)
+            fns[name, STAGES[name].methods[0]] = run
+        stack.enter_context(registry.substitute(fns))
 
-    return install
+    yield install
+    stack.close()
 
 
 def _states(store):

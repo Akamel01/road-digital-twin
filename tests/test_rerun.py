@@ -1,4 +1,5 @@
 import collections
+from contextlib import ExitStack
 
 import pytest
 import yaml
@@ -12,11 +13,12 @@ calls: collections.Counter = collections.Counter()
 
 @pytest.fixture
 def stubs(monkeypatch):
-    """Empty registry plus stub stages that write one file each and count calls."""
-    monkeypatch.setattr(registry, "_REGISTRY", {})
+    """Stub stages that write one file each and count calls."""
+    stack = ExitStack()
     calls.clear()
 
     def install(failing: str | None = None):
+        fns = {}
         for name in STAGE_NAMES:
 
             def run(ctx, params, name=name):
@@ -26,9 +28,11 @@ def stubs(monkeypatch):
                     return StageResult(status="failed", message="boom")
                 return StageResult(status="ok", metrics={"n": calls[name]})
 
-            registry.register(name, STAGES[name].methods[0])(run)
+            fns[name, STAGES[name].methods[0]] = run
+        stack.enter_context(registry.substitute(fns))
 
-    return install
+    yield install
+    stack.close()
 
 
 def _manifest(run_dir):

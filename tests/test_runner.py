@@ -1,4 +1,5 @@
 import re
+from contextlib import ExitStack
 
 import pytest
 import yaml
@@ -21,10 +22,11 @@ RUN_ID = re.compile(r"\d{8}-\d{6}-[0-9a-f]{6}")
 
 @pytest.fixture
 def stubs(monkeypatch):
-    """Empty registry plus stub stages that write one file each."""
-    monkeypatch.setattr(registry, "_REGISTRY", {})
+    """Stub stages that write one file each."""
+    stack = ExitStack()
 
     def install(failing: str | None = None):
+        fns = {}
         for name in STAGE_NAMES:
 
             def run(ctx, params, name=name):
@@ -33,9 +35,11 @@ def stubs(monkeypatch):
                     return StageResult(status="failed", message="boom")
                 return StageResult(status="ok", metrics={"n": 1})
 
-            registry.register(name, STAGES[name].methods[0])(run)
+            fns[name, STAGES[name].methods[0]] = run
+        stack.enter_context(registry.substitute(fns))
 
-    return install
+    yield install
+    stack.close()
 
 
 def _manifest(run_dir):
@@ -96,8 +100,12 @@ def test_invalid_params_exit_2_and_no_folder(tmp_path, stubs, capsys):
     assert not (tmp_path / "runs").exists()
 
 
-def test_unregistered_method_exit_2(tmp_path, stubs, capsys):
+def test_unregistered_method_exit_2(tmp_path, stubs, capsys, monkeypatch):
     stubs()
+    lookup = registry.lookup  # every listed method is registered now: pretend this one is not
+    monkeypatch.setattr(
+        registry, "lookup", lambda s, m: None if (s, m) == ("align", "dataset-poses") else lookup(s, m)
+    )
     pipeline = tmp_path / "pipeline.yaml"
     pipeline.write_text(
         "align:\n  method: dataset-poses\n"
@@ -184,8 +192,8 @@ def test_cancel_between_stages_marks_rest_cancelled(
         runner.cancel(tmp_path, ctx.run_dir.name)  # requested while mask runs
         return result
 
-    monkeypatch.setitem(registry._REGISTRY, key, cancelling)
-    assert main(["run", "--scene", "scene-1", "--store", str(tmp_path)]) == 1
+    with registry.substitute({key: cancelling}):
+        assert main(["run", "--scene", "scene-1", "--store", str(tmp_path)]) == 1
     assert "cancelled" in capsys.readouterr().err
 
     run_dir = next(p for p in tmp_path.iterdir() if p.is_dir())
@@ -227,8 +235,8 @@ def _load_stub(metrics):
 def test_manifest_osm_names_lifted_from_load_metric(tmp_path, stubs):
     stubs()
     osm = {"overpass_query_date": "2026-11-08", "licence": "ODbL"}
-    registry._REGISTRY[("load", "nuscenes")] = _load_stub({"osm_names": osm})
-    run_id = runner.start_run(tmp_path, "scene-1", Pipeline(), Params())
+    with registry.substitute({("load", "nuscenes"): _load_stub({"osm_names": osm})}):
+        run_id = runner.start_run(tmp_path, "scene-1", Pipeline(), Params())
     manifest = _manifest(tmp_path / run_id)
     assert manifest.data.osm_names is not None
     assert manifest.data.osm_names.overpass_query_date.isoformat() == "2026-11-08"
@@ -237,8 +245,8 @@ def test_manifest_osm_names_lifted_from_load_metric(tmp_path, stubs):
 
 def test_manifest_osm_names_null_when_load_has_no_query(tmp_path, stubs):
     stubs()
-    registry._REGISTRY[("load", "nuscenes")] = _load_stub({"osm_names": None})
-    run_id = runner.start_run(tmp_path, "scene-1", Pipeline(), Params())
+    with registry.substitute({("load", "nuscenes"): _load_stub({"osm_names": None})}):
+        run_id = runner.start_run(tmp_path, "scene-1", Pipeline(), Params())
     assert _manifest(tmp_path / run_id).data.osm_names is None
 
 

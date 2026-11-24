@@ -209,29 +209,8 @@ def stage_command(
             link.parent.mkdir(parents=True, exist_ok=True)
             os.symlink(src_dir, link)
 
-        ctx = StageContext(
-            run_dir=tmp_root,
-            scene_token=scene_token,
-            seed=params.seed,
-            log=log,
-            min_observed=params.facilities.min_observed,
-        )
-        fn = registry.lookup(name, resolved_method)
-        if fn is None:
-            result = StageResult(status="failed", message=f"no registered method {resolved_method!r}")
-        else:
-            groups = params.groups_for(name)
-            stage_params = getattr(params, groups[0]) if groups else None
-            try:
-                got = fn(ctx, stage_params)
-            except Exception as exc:
-                log.exception("stage %s crashed", name)
-                result = StageResult(status="failed", message=f"{type(exc).__name__}: {exc}")
-            else:
-                if isinstance(got, StageResult):
-                    result = got
-                else:
-                    result = StageResult(status="failed", message=f"returned {type(got).__name__}")
+        ctx = StageContext.for_params(tmp_root, scene_token, params, log)
+        result = registry.run_stage(ctx, name, resolved_method, params)
 
         _move_stage_output(tmp_root, out, name)
         _carry_top_level(tmp_root, out, name)

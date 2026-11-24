@@ -6,9 +6,12 @@ import logging
 
 import numpy as np
 
-from twin import fixtures, merge
+from twin import fixtures, merge, registry
 from twin.contracts import Params, StageResult
 from twin.drivecloud import AlignedCloud
+from twin.stages import mask
+
+BUILD_DRIVE_STAGES = (("load", "nuscenes"), ("mask", "boxes"), ("align", "kiss-icp"))
 
 
 def _cloud(seed):
@@ -244,7 +247,7 @@ def test_build_drive_cache_key_changes_with_params():
 def test_build_drive_reuses_cached_clip_when_key_matches(tmp_path, monkeypatch):
     scene = _scene()
     params = Params()
-    monkeypatch.setattr(merge.runner, "_git", lambda *a: "abc\n")
+    monkeypatch.setattr(merge.runner, "repo_head", lambda: "abc")
     monkeypatch.setattr(merge.runner, "dataset_version", lambda: "v1")
     key = merge.build_drive_cache_key(scene, params)
     arr = np.arange(10, dtype=float).reshape(2, 5)
@@ -257,19 +260,16 @@ def test_build_drive_reuses_cached_clip_when_key_matches(tmp_path, monkeypatch):
         called["n"] += 1
         return StageResult(status="ok", files=[], metrics={})
 
-    monkeypatch.setattr(merge.load, "run", fake_run)
-    monkeypatch.setattr(merge.mask, "run", fake_run)
-    monkeypatch.setattr(merge.align, "run_icp", fake_run)
-
-    out = merge.build_drive(scene, tmp_path, None, params, logging.getLogger("t"))
+    with registry.substitute({k: fake_run for k in BUILD_DRIVE_STAGES}):
+        out = merge.build_drive(scene, tmp_path, None, params, logging.getLogger("t"))
     assert called["n"] == 0
     assert np.array_equal(out, arr)
 
 
 def test_cache_key_changes_with_head(monkeypatch):
-    monkeypatch.setattr(merge.runner, "_git", lambda *a: "abc\n")
+    monkeypatch.setattr(merge.runner, "repo_head", lambda: "abc")
     k1 = merge.build_drive_cache_key(_scene(), Params())
-    monkeypatch.setattr(merge.runner, "_git", lambda *a: "def\n")
+    monkeypatch.setattr(merge.runner, "repo_head", lambda: "def")
     assert merge.build_drive_cache_key(_scene(), Params()) != k1
 
 
@@ -285,8 +285,7 @@ def test_missing_key_file_rebuilds(tmp_path, monkeypatch):
     def boom(ctx, p):
         raise RuntimeError("rebuild")
 
-    monkeypatch.setattr(merge.load, "run", boom)
-    with pytest.raises(RuntimeError, match="rebuild"):
+    with registry.substitute({("load", "nuscenes"): boom}), pytest.raises(RuntimeError, match="rebuild"):
         merge.build_drive(_scene(), tmp_path, None, Params(), logging.getLogger("t"))
 
 
@@ -295,7 +294,7 @@ def test_build_drive_rebuilds_and_writes_key(tmp_path, monkeypatch):
 
     scene = _scene()
     params = Params()
-    monkeypatch.setattr(merge.runner, "_git", lambda *a: "abc\n")
+    monkeypatch.setattr(merge.runner, "repo_head", lambda: "abc")
     monkeypatch.setattr(merge.runner, "dataset_version", lambda: "v1")
     work = tmp_path
     np.save(work / "clip.npy", np.zeros((1, 5)))
@@ -310,7 +309,7 @@ def test_build_drive_rebuilds_and_writes_key(tmp_path, monkeypatch):
                     json.dumps({"poses": [{"matrix": __import__("numpy").eye(4).flatten().tolist()}]})
                 )
             elif name == "mask":
-                data = {f: np.array([0.0, 1.0, 2.0]) for f in merge.mask.POINT_FIELDS}
+                data = {f: np.array([0.0, 1.0, 2.0]) for f in mask.POINT_FIELDS}
                 __import__("numpy").savez(d / "points.npz", **data)
             elif name == "align":
                 (d / "poses.json").write_text(
@@ -320,9 +319,6 @@ def test_build_drive_rebuilds_and_writes_key(tmp_path, monkeypatch):
 
         return run
 
-    monkeypatch.setattr(merge.load, "run", stage_run_factory("load"))
-    monkeypatch.setattr(merge.mask, "run", stage_run_factory("mask"))
-    monkeypatch.setattr(merge.align, "run_icp", stage_run_factory("align"))
 
     xyz = np.array([[0.0, 0.0, 0.0], [1.0, 1.0, 1.0], [2.0, 2.0, 2.0]])
     monkeypatch.setattr(
@@ -332,6 +328,8 @@ def test_build_drive_rebuilds_and_writes_key(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(merge.shapely, "contains_xy", lambda poly, x, y: np.array([True, True, True]))
 
-    out = merge.build_drive(scene, work, None, params, logging.getLogger("t"))
+    stages = {k: stage_run_factory(k[0]) for k in BUILD_DRIVE_STAGES}
+    with registry.substitute(stages):
+        out = merge.build_drive(scene, work, None, params, logging.getLogger("t"))
     assert out.shape == (3, 5)
     assert (work / "clip.npy.key").read_text().strip() == merge.build_drive_cache_key(scene, params)
