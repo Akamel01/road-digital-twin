@@ -16,12 +16,12 @@ import numpy as np
 
 from twin.area import drive_correction
 from twin.contracts import stage_dir
+from twin.elements import FEATURE_FILES
 
 TWIN_SUFFIX = "-twin"
 MERGED_SUFFIX = "-merged"
 DRIVES_NAME = "drives.json"
 MERGED_NAME = "merged.npz"
-FEATURE_FILES = ("markings.geojson", "crosswalks.geojson", "curbs.geojson", "ramps.geojson")
 
 
 def area_merged_dir(store: Path | str, name: str) -> Path:

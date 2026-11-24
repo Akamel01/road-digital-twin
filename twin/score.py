@@ -17,6 +17,7 @@ from shapely.geometry import shape
 
 from twin.areastore import FEATURE_FILES, open_area
 from twin.contracts import AccuracyParams, SiteMeta, stage_dir
+from twin.elements import ELEMENTS, by_file, score_slots
 from twin.labels import list_sites
 from twin.stages import accuracy
 
@@ -28,15 +29,15 @@ BUFFER_M = _BUFFER.buffer_m
 RADIUS_M = _BUFFER.match_radius_m
 ELEMENT_ORDER = ("marking", "crosswalk", "curb", "curb_ramp")
 MARKING_TYPE_ORDER = ("divider", "stop_line", "crosswalk_stripe", "other_paint")
-LABEL_METRICS: dict[tuple[str, str], tuple[str | None, str | None, str, bool]] = {
-    ("marking", "divider"): ("marking", "divider", "markings.geojson", False),
-    ("marking", "stop_line"): ("marking", "stop_line", "markings.geojson", False),
-    ("marking", "crosswalk_stripe"): (None, "crosswalk_stripe", "markings.geojson", False),
-    ("marking", "other_paint"): ("marking", "other_paint", "markings.geojson", False),
-    ("crosswalk", "zebra"): ("crosswalk", None, "crosswalks.geojson", True),
-    ("crosswalk", "parallel"): ("crosswalk", None, "crosswalks.geojson", True),
-    ("curb", "curb"): ("curb", None, "curbs.geojson", False),
-    ("curb_ramp", "curb_ramp"): ("curb_ramp", None, "ramps.geojson", False),
+LABEL_METRICS: dict[tuple[str, str], tuple[str | None, str | None]] = {
+    ("marking", "divider"): ("marking", "divider"),
+    ("marking", "stop_line"): ("marking", "stop_line"),
+    ("marking", "crosswalk_stripe"): (None, "crosswalk_stripe"),
+    ("marking", "other_paint"): ("marking", "other_paint"),
+    ("crosswalk", "zebra"): ("crosswalk", None),
+    ("crosswalk", "parallel"): ("crosswalk", None),
+    ("curb", "curb"): ("curb", None),
+    ("curb_ramp", "curb_ramp"): ("curb_ramp", None),
 }
 RAMP_FIELDS = ("running_slope_pct", "cross_slope_pct", "flare_slope_pct", "gutter_step_m")
 NOISE = {
@@ -125,25 +126,8 @@ def _areal_parts(g):
     return parts
 
 
-def _feeds(file_name: str, props: dict):
-    """Return list of (element_slot or None, marking_type_slot or None)."""
-    if file_name == "markings.geojson":
-        mt = props.get("marking_type")
-        if mt == "crosswalk_stripe":
-            return [(None, "crosswalk_stripe")]
-        mm = mt if mt in _MARKING_TYPES else "other_paint"
-        return [("marking", mm)]
-    if file_name == "crosswalks.geojson":
-        return [("crosswalk", None)]
-    if file_name == "curbs.geojson":
-        return [("curb", None)]
-    if file_name == "ramps.geojson":
-        return [("curb_ramp", None)]
-    return []
-
-
 def score_elements(run_features: dict[str, list[dict]], sites: list[tuple[SiteMeta, list[dict]]]) -> dict:
-    area_by_slot = {"crosswalk": True}
+    area_by_slot = {e.name: e.geometry == "area" for e in ELEMENTS}
 
     element_runs = {s: [] for s in ELEMENT_ORDER}
     element_labels = {s: [] for s in ELEMENT_ORDER}
@@ -175,7 +159,7 @@ def score_elements(run_features: dict[str, list[dict]], sites: list[tuple[SiteMe
             _geoms, excl = accuracy._observed(run_features.get(fn, []) or [])
             n_excluded_not_observed += excl
             # count observed stripes
-            if fn == "markings.geojson":
+            if by_file(fn).name == "marking":
                 for f in (run_features.get(fn) or []):
                     if accuracy._observed([f])[0] and _props(f).get("marking_type") == "crosswalk_stripe":
                         n_excluded_stripes += 1
@@ -222,36 +206,19 @@ def score_elements(run_features: dict[str, list[dict]], sites: list[tuple[SiteMe
                 if g is None or g.is_empty:
                     continue
                 props = _props(f)
-                # determine if any slot is area
-                feeds = _feeds(fn, props)
-                is_point = fn == "ramps.geojson"
-                # clip
-                if is_point:
+                element = by_file(fn)
+                feeds = score_slots(element, props)
+                if element.geometry == "point":
                     if not site_poly.covers(g):
                         continue
+                    clipped_list = [g]
                 else:
                     inter = _make_valid(g.intersection(site_poly))
                     if inter is None or inter.is_empty:
                         continue
-                    if fn == "crosswalks.geojson":
-                        parts = _areal_parts(inter)
-                    elif fn == "ramps.geojson":
-                        parts = [inter]
-                    else:
-                        # markings/curbs lines
-                        if "crosswalk" in [x[0] for x in feeds] and fn == "crosswalks.geojson":
-                            parts = _areal_parts(inter)
-                        else:
-                            parts = _lineal_parts(inter)
-                    if not parts:
+                    clipped_list = _areal_parts(inter) if element.geometry == "area" else _lineal_parts(inter)
+                    if not clipped_list:
                         continue
-                    # if multiple parts, keep as separate? We'll extend per feed for each part
-                    clipped_parts = parts
-                # For points, single
-                if is_point:
-                    clipped_list = [g]
-                else:
-                    clipped_list = clipped_parts
 
                 for clipped_g in clipped_list:
                     site_run_any = True
@@ -260,9 +227,9 @@ def score_elements(run_features: dict[str, list[dict]], sites: list[tuple[SiteMe
                             site_run_slots[eslot].append(clipped_g)
                         if mtslot is not None:
                             site_run_mt[mtslot].append(clipped_g)
-                    if fn == "curbs.geojson":
+                    if element.name == "curb":
                         site_run_curbs.append((clipped_g, props))
-                    if fn == "ramps.geojson":
+                    if element.name == "curb_ramp":
                         site_run_ramps.append((clipped_g, props))
 
         # labels effective mapping
@@ -283,7 +250,7 @@ def score_elements(run_features: dict[str, list[dict]], sites: list[tuple[SiteMe
             if element == "crosswalk" and g.geom_type not in ("Polygon", "MultiPolygon"):
                 unmapped.append({"id": eid, "reason": "non-polygon crosswalk label"})
                 continue
-            slot, mtslot, _run_source, _area = mapping
+            slot, mtslot = mapping
             if slot is not None:
                 site_label_slots[slot].append(g)
             if mtslot is not None:

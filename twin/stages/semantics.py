@@ -32,12 +32,13 @@ from shapely.geometry import mapping, shape
 from twin.cameras import camera_count, posed_cameras
 from twin.contracts import AccuracyParams, ColourParams, SemanticsParams, StageResult
 from twin.dataset import DatasetConfig
+from twin.elements import FEATURE_FILES
 from twin.registry import register
 from twin.stages import accuracy, colour, features, zbuffer
 
 log = logging.getLogger(__name__)
 OUTPUT_FILES = ("prob.npz", "prob.pgw", "paint_prob.png", "curb_prob.png", "qa.json")
-KINDS = ("markings.geojson", "crosswalks.geojson", "curbs.geojson", "ramps.geojson")
+KINDS = FEATURE_FILES
 
 # Our classes. Everything else is 0.
 MARKING, CROSSWALK, CURB, SIGN, SIGNAL, CURB_RAMP = 1, 2, 3, 4, 5, 6
