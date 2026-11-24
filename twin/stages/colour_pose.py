@@ -15,7 +15,6 @@ the pose_max_deg / pose_max_m bound.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -23,6 +22,7 @@ from scipy.ndimage import map_coordinates
 from scipy.optimize import least_squares
 from scipy.spatial.transform import Rotation
 
+from twin.sightline import Surface
 from twin.stages import colour, profile, zbuffer
 
 # DECISION: image cross-sections reach this far (m, at the anchor's depth) either side of the projected lidar line.
@@ -38,19 +38,12 @@ OUTLIER_PX = 2.0
 PRIOR_PX = 1.0
 
 
-def lidar_paint_edges(markings: Any, ground_surface: Any, points_3d: Any = None, step_m: float | None = None) -> np.ndarray:
+def lidar_paint_edges(markings: Any, ground_surface: Surface | None, points_3d: Any = None, step_m: float | None = None) -> np.ndarray:
     """(N, 4) anchors: x, y, z and marking index, every step_m along each observed marking.
 
-    z comes from the marking's own 3D coordinates; 2D markings take it from ground_surface (surface.npz path or
-    dict), then from the nearest of points_3d. Markings with fewer than colour.EDGE_MIN_SAMPLES anchors are dropped.
+    z comes from the marking's own 3D coordinates; 2D markings take it from ground_surface, then from the nearest of points_3d. Markings with fewer than colour.EDGE_MIN_SAMPLES anchors are dropped.
     """
     step_m = colour.EDGE_STEP_M if step_m is None else step_m
-    surf = None
-    if isinstance(ground_surface, dict):
-        surf = ground_surface
-    elif isinstance(ground_surface, (str, Path)) and Path(ground_surface).exists():
-        with np.load(ground_surface) as f:
-            surf = {k: f[k] for k in f.files}
     pts = None if points_3d is None or len(points_3d) == 0 else np.asarray(points_3d, float)
     out = []
     for li, feat in enumerate(markings or []):
@@ -66,14 +59,14 @@ def lidar_paint_edges(markings: Any, ground_surface: Any, points_3d: Any = None,
         if xyz.shape[1] >= 3:
             z = np.interp(s, s_vert, xyz[:, 2])
         else:
-            z = np.array([_ground_z(surf, pts, a, b) for a, b in zip(x, y, strict=True)], float)
+            z = np.array([_ground_z(ground_surface, pts, a, b) for a, b in zip(x, y, strict=True)], float)
         ok = np.isfinite(z)
         if ok.sum() >= colour.EDGE_MIN_SAMPLES:
             out.append(np.column_stack([x[ok], y[ok], z[ok], np.full(ok.sum(), float(li))]))
     return np.vstack(out) if out else np.zeros((0, 3), float)
 
 
-def _ground_z(surf: dict | None, pts: np.ndarray | None, x: float, y: float) -> float:
+def _ground_z(surf: Surface | None, pts: np.ndarray | None, x: float, y: float) -> float:
     hit = profile.ground_z_at(surf, x, y) if surf is not None else None
     if hit is not None:
         return float(hit[0])

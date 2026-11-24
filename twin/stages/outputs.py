@@ -17,6 +17,7 @@ from shapely.geometry import shape
 from twin import drawings
 from twin.contracts import StageResult
 from twin.registry import register
+from twin.stages.ground import read_outputs
 
 CRS_EPSG = 32619
 LICENCE = "Derived from nuScenes (CC BY-NC-SA 4.0). Non-commercial research demo."
@@ -38,18 +39,8 @@ def _ground_points(ctx: Any) -> tuple[np.ndarray, np.ndarray]:
         ground = laspy.read(gdir / "ground.laz")
         parts.append(ground.xyz)
         classes.append(np.full(len(ground.x), GROUND_CLASS, np.uint8))
-    elif (gdir / "surface.npz").is_file():
-        # Fallback when the LAZ is missing. Assumes the grid cells were saved as x, y, z arrays.
-        with np.load(gdir / "surface.npz") as surf:
-            if not {"x", "y", "z"} <= set(surf.files):
-                raise ValueError(
-                    "surface.npz has no x, y, z arrays; cannot place ground"
-                )
-            xyz = np.column_stack([surf["x"], surf["y"], surf["z"]])
-        parts.append(xyz)
-        classes.append(np.full(len(xyz), GROUND_CLASS, np.uint8))
     else:
-        raise FileNotFoundError("ground stage has neither ground.laz nor surface.npz")
+        raise FileNotFoundError("ground stage has no ground.laz")
     if (gdir / "nonground.laz").is_file():
         non = laspy.read(gdir / "nonground.laz")
         parts.append(non.xyz)
@@ -230,13 +221,6 @@ def _profile_inputs(ctx: Any) -> list:
     return [(line, s_list, z_list) for line, (s_list, z_list) in rows.items()]
 
 
-def _height_valid(ctx: Any) -> bool:
-    qa = ctx.stage_dir("ground") / "qa.json"
-    if not qa.is_file():
-        return False  # no evidence of valid heights; show indeterminate
-    return bool(json.loads(qa.read_text()).get("height_valid", False))
-
-
 def _sheets(ctx: Any, features: list[dict], files: list[str]) -> None:
     out = ctx.stage_dir("outputs")
     source = (
@@ -259,7 +243,7 @@ def _sheets(ctx: Any, features: list[dict], files: list[str]) -> None:
     drawings.write_profile(
         out / "profile.dxf",
         profiles=_profile_inputs(ctx),
-        height_valid=_height_valid(ctx),
+        height_valid=read_outputs(ctx.stage_dir("ground")).height_valid,
         source=source,
         licence=SHEET_LICENCE,
     )

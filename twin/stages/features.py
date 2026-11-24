@@ -33,6 +33,7 @@ from twin.contracts import CurbsParams, FeaturesParams, SelectParams, StageResul
 from twin.registry import register
 from twin.select import go, paint_contrast, road_density
 from twin.stages import features_raster
+from twin.stages.ground import read_outputs
 
 OUTPUT_FILES = ("markings.geojson", "crosswalks.geojson", "qa.json")
 # Lidarseg gate. DECISION: ground.laz does not carry the lidarseg label (align and ground are separate stages), so
@@ -221,14 +222,14 @@ def extract_curbs(xyz: np.ndarray, params: CurbsParams, min_points: int) -> list
 def _near_ground_nonground(ground_dir, max_above_m: float) -> np.ndarray:
     """Non-ground points at most max_above_m above the ground surface of their cell.
 
-    Cells with no surface (no ground point in them) are skipped. Heights come from surface.npz (mean
+    Cells with no surface (no ground point in them) are skipped. Heights come from ground's surface grid (mean
     ground z per cell).
     """
     las = laspy.read(ground_dir / "nonground.laz")
     xyz = np.column_stack([las.x, las.y, las.z]).astype(np.float64)
-    with np.load(ground_dir / "surface.npz") as f:
-        zg, origin, cell = f["z"], f["origin"], float(f["cell_m"])
-    zg = _fill_surface(zg, cell)
+    surface = read_outputs(ground_dir).surface()
+    origin, cell = surface.origin, surface.cell_m
+    zg = _fill_surface(surface.z, cell)
     ny, nx = zg.shape
     ij = np.floor((xyz[:, :2] - origin) / cell).astype(np.int64)
     inside = (ij >= 0).all(axis=1) & (ij[:, 0] < nx) & (ij[:, 1] < ny)
@@ -536,8 +537,8 @@ def type_markings(markings: list[dict], reference: list[dict]) -> dict[str, int]
 
 def _measured_footprint(ground_dir) -> list:
     """Union of the 0.5 m surface cells that have ground points: the area road_density divides by."""
-    with np.load(ground_dir / "surface.npz") as f:
-        measured, origin, cell = f["count"] > 0, f["origin"], float(f["cell_m"])
+    surface = read_outputs(ground_dir).surface()
+    measured, origin, cell = surface.count > 0, surface.origin, surface.cell_m
     iy, ix = np.nonzero(measured)
     x0, y0 = origin[0] + ix * cell, origin[1] + iy * cell
     return [shapely.union_all(shapely.box(x0, y0, x0 + cell, y0 + cell))]
@@ -565,7 +566,7 @@ def _run(ctx: Any, params: FeaturesParams, method: str) -> StageResult:
     out = ctx.stage_dir("features")
     out.mkdir(exist_ok=True)
     ground_dir = ctx.input_dir("ground")
-    ground_qa = json.loads((ground_dir / "qa.json").read_text())
+    ground = read_outputs(ground_dir)
     xyz = _read_ground(ground_dir / "ground.laz")
     if len(xyz) == 0:
         return StageResult(status="failed", message="no ground points to extract from")
@@ -619,8 +620,7 @@ def _run(ctx: Any, params: FeaturesParams, method: str) -> StageResult:
             )
             # Gate ramp status on the drive's height validity (M1/M2): when height is invalid,
             # all slope fields are null and every ramp is indeterminate.
-            height_valid = ground_qa.get("height_valid", True)
-            if not height_valid:
+            if not ground.height_valid:
                 for r in ramps:
                     p = r["properties"]
                     p["running_slope_pct"] = None
@@ -684,8 +684,8 @@ def _run(ctx: Any, params: FeaturesParams, method: str) -> StageResult:
         "lidarseg_min_points": params.lidarseg_min_points,
         "n_ground": len(xyz),
         # Copied from ground so consumers read one place. Markings are not gated on them here.
-        "height_valid": ground_qa.get("height_valid"),
-        "not_scanned_enough": ground_qa.get("not_scanned_enough", []),
+        "height_valid": ground.height_valid,
+        "not_scanned_enough": ground.not_scanned_enough(),
         "markings_extractable": go(density, contrast, SelectParams()),
         "density_pts_m2": round(density, 3),
         "paint_contrast": round(contrast, 3),

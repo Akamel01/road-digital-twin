@@ -162,20 +162,6 @@ def test_curbs_absent(run_dir):
     assert result.metrics["n_features"] == 3
 
 
-def test_surface_fallback_when_laz_missing(run_dir):
-    (run_dir / "4_ground" / "ground.laz").unlink()
-    xyz = np.array([[331000.0, 4690000.0, 10.0], [331000.5, 4690000.0, 10.0]])
-    np.savez(
-        run_dir / "4_ground" / "surface.npz", x=xyz[:, 0], y=xyz[:, 1], z=xyz[:, 2]
-    )
-
-    result = _run(run_dir)
-
-    assert result.status == "ok"
-    las = laspy.read(run_dir / "10_outputs" / "twin.laz")
-    assert len(las.points) == 2 + 50  # surface cells plus non-ground
-
-
 def test_missing_ground_fails_cleanly(run_dir):
     (run_dir / "4_ground" / "ground.laz").unlink()
     with pytest.raises(FileNotFoundError):

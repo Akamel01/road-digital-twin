@@ -19,6 +19,7 @@ from twin.contracts import AreaFacility, AreaIndex, Drive, Manifest, stage_dir
 from twin.height_raster import compute_height_above_road, render_height_rgba
 from twin.runner import default_store
 from twin.runrecord import read_manifest, record_path
+from twin.stages.ground import read_outputs
 from twin.tiles import TILE, write_mosaic_tiles
 
 MAX_FILE_BYTES = 25 * 1024 * 1024  # Pages limit per file
@@ -173,8 +174,7 @@ def _area(runs: list[tuple[Manifest, Path, tuple]]) -> AreaIndex:
         load = stage_dir(run_dir, "load") / "facilities.geojson"
         for feat in json.loads(load.read_text())["features"]:
             meta.setdefault(feat["properties"]["id"], feat["properties"])
-        observed = json.loads((stage_dir(run_dir, "ground") / "qa.json").read_text())
-        for fid, value in observed["observed_core"].items():
+        for fid, value in read_outputs(stage_dir(run_dir, "ground")).observed_core.items():
             covered.setdefault(fid, {})[m.run_id] = (value, m)
     facilities = []
     for fid, by_run in covered.items():
