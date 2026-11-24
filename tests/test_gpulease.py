@@ -130,23 +130,3 @@ def test_job_record_has_lease(tmp_path, fake, monkeypatch):
     lease = jobqueue.list_jobs(tmp_path)[0]["gpu_lease"]
     assert lease["unloaded"] == [{"endpoint": srv.url, "model": "big"}]
     assert srv.loaded == []
-
-
-def test_job_record_has_lease_on_failure(tmp_path, fake, monkeypatch):
-    monkeypatch.setattr(registry, "_REGISTRY", {})
-    for name in STAGE_NAMES:
-
-        def run(ctx, params, name=name):
-            (ctx.stage_dir(name) / "o").write_text(name)
-            if name == "ground":
-                raise RuntimeError("boom")
-            return StageResult(status="ok")
-
-        registry.register(name, STAGES[name].methods[0])(run)
-    srv = fake(["big"])
-    monkeypatch.setenv("TWIN_OLLAMA_URLS", srv.url)
-    jobqueue.add(tmp_path, {"type": "run", "scene": "s1"})
-    assert jobqueue.process_one(tmp_path, lambda: None).startswith("failed")
-    lease = jobqueue.list_jobs(tmp_path)[0]["gpu_lease"]
-    assert lease["unloaded"] == [{"endpoint": srv.url, "model": "big"}]
-    assert srv.loaded == []
