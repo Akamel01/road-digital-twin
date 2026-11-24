@@ -13,6 +13,7 @@ import os
 import resource
 import sys
 import time
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from multiprocessing.connection import wait
@@ -21,7 +22,7 @@ from typing import Any, NamedTuple
 
 from filelock import FileLock, Timeout
 
-from twin import gpulease, jobqueue, runner
+from twin import gpulease, jobqueue, memcap, runner
 from twin.contracts import STAGE_NAMES, Pipeline
 from twin.gpulease import GPU_STAGES
 from twin.reload import CodeWatch
@@ -73,8 +74,10 @@ def _peak_gb() -> float:
     return rss / (1024**3 if sys.platform == "darwin" else 1024**2)
 
 
-def _child(conn, fn: Callable, args: tuple) -> None:
+def _child(conn, fn: Callable, args: tuple, cap_gb: float = 0.0, key: str | None = None) -> None:
     """Run one task. Sends (status, result or message, peak GB)."""
+    if cap_gb > 0 and key and not memcap.enter_scope(cap_gb, key):
+        print(f"twin memcap: WARNING: streaming child runs UNCAPPED (enter failed, cap {cap_gb} GB)", file=sys.stderr)
     try:
         msg: tuple = ("ok", fn(*args))
     except BaseException as exc:  # noqa: BLE001 - reported to the scheduler, which fails the job
@@ -129,6 +132,7 @@ class Running:
     proc: Any
     conn: Any
     cost: Cost
+    scope: str | None = None
 
 
 class Scheduler:
@@ -153,6 +157,7 @@ class Scheduler:
         self._lease = None
         self._watch = CodeWatch()
         self._drain_until: float | None = None  # set when code changed: admit nothing new
+        memcap.launcher()
 
     # --- costs -------------------------------------------------------------------------
     def cost(self, name: str, enabled: bool = True) -> Cost:
@@ -309,12 +314,14 @@ class Scheduler:
         )
 
     def _start(self, t: Task) -> None:
+        cap = memcap.cap_gb("stage" if t.stage else t.name, t.job.job, stage=t.name if t.stage else None)
+        key = f"{os.getpid()}-{uuid.uuid4().hex[:8]}"
         parent, child = self.ctx.Pipe(duplex=False)
-        proc = self.ctx.Process(target=_child, args=(child, t.fn, t.args))
+        proc = self.ctx.Process(target=_child, args=(child, t.fn, t.args, cap, key))
         proc.start()
         child.close()
         t.job.busy = True
-        self.running.append(Running(t, proc, parent, t.cost))
+        self.running.append(Running(t, proc, parent, t.cost, key))
 
     def reap(self, timeout: float) -> None:
         """Block until a task ends (or timeout), then settle every finished task."""
@@ -329,12 +336,21 @@ class Scheduler:
             except EOFError:  # the child died before it could report
                 msg = None
             r.conn.close()
-            self._settle(r.task, msg, r.proc.exitcode)
+            oom = False
+            if r.scope:
+                # a task that reported success is not turned into oom-cap: the kernel may
+                # have killed an unrelated descendant, not this task.
+                if msg is None or (isinstance(msg, tuple) and msg and msg[0] != "ok"):
+                    oom = memcap.oom_killed(r.scope)
+                memcap.cleanup_scope(r.scope)
+            self._settle(r.task, msg, r.proc.exitcode, cap_killed=oom)
 
-    def _settle(self, t: Task, msg: tuple | None, exitcode: int | None) -> None:
+    def _settle(self, t: Task, msg: tuple | None, exitcode: int | None, cap_killed: bool = False) -> None:
         a = t.job
         a.busy = False
-        if msg is None:
+        if cap_killed:
+            msg = ("err", "oom-cap", 0.0)
+        elif msg is None:
             msg = ("err", f"task {t.name} died (exit {exitcode})", 0.0)
         status, out, peak = msg
         if t.cost.gpu:  # a snapshot: the lease goes on after this task

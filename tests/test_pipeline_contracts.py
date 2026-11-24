@@ -59,9 +59,14 @@ class ContractWorld(RealWorld):
     def queue_sweep(self, store, target, space, extra):
         return super().queue_sweep(store, target, {**space, "n": self.round_n}, extra)
 
-    def start(self, store, name, cmd):
+    def start(self, store, name, cmd, cap_gb=0.0):
         self.cmds.append(cmd)
+        self.cap_calls = getattr(self, "cap_calls", [])
+        self.cap_calls.append((name, cap_gb))
         return 0, str(store / "x.exit")
+
+    def ram_gb(self):
+        return (0.0, 1024.0)
 
 
 def pending(store):

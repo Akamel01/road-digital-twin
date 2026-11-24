@@ -2,9 +2,10 @@ import json
 import subprocess
 from datetime import UTC, datetime, timedelta
 
-from twin import autopilot, jobqueue, site
+from twin import autopilot, jobqueue, memcap, site
 from twin.autopilot import RealWorld
 from twin.contracts import Params
+from twin.memcap import Launcher
 
 
 class FakeWorld:
@@ -28,6 +29,9 @@ class FakeWorld:
         self.latest_effects = []  # publish_latest: an exception to raise, or None, per call
         self.redeploy_effect = None
         self.started, self.queued, self.published, self.redeployed = [], [], [], []
+        self.cap_calls = []
+        self.pulls = []
+        self.ram = (0.0, 1024.0)
         self.__dict__.update(knobs)
 
     def asked(self):
@@ -44,6 +48,7 @@ class FakeWorld:
         return "h" * 40
 
     def pull(self):
+        self.pulls.append(True)
         return True, "Already up to date."
 
     def changed_files(self, old, new):
@@ -69,9 +74,13 @@ class FakeWorld:
         return self.tokens
 
     # detached shells
-    def start(self, store, name, cmd):
+    def start(self, store, name, cmd, cap_gb=0.0):
         self.started.append((name, cmd))
+        self.cap_calls.append((name, cap_gb))
         return 999999, "x"
+
+    def ram_gb(self):
+        return self.ram if not callable(self.ram) else self.ram()
 
     def alive(self, pid):
         return False
@@ -359,6 +368,7 @@ def test_p2_chain_is_merge_then_twin_then_eval_on_the_twin_folder(tmp_path):
     merge, twin, ev = (c.strip() for c in world.started[0][1].split("&&"))
     assert "area merge seaport" in merge and "area twin seaport" in twin
     assert "eval areas/seaport-twin" in ev
+    assert world.cap_calls == [("p2-aaaaaaa", 20.0)]
 
 
 def test_new_main_queues_a_baseline_run_once(tmp_path):
@@ -432,3 +442,98 @@ def test_pull_redeploys_only_when_web_changed(tmp_path):
     assert world.redeployed == [tmp_path]  # web/ touched: redeployed once
     world.redeploy_effect = site.SiteStop("no token")
     autopilot.redeploy_web(tmp_path, base, web, world)  # failure is logged, not raised
+
+
+def test_p2b_shell_is_capped_at_eight_gb(tmp_path):
+    world = FakeWorld(commit="a" * 40)
+    state = {"p2": {"built": "a" * 40}, "p2b": {"gates": "old"}}
+    autopilot.p2_area(tmp_path, state, world)
+    assert world.cap_calls == [("p2b", 8.0)]
+
+
+def test_p2_held_when_headroom_is_low_then_retries(tmp_path, capsys):
+    world = FakeWorld(commit="a" * 40, ram=(44.0, 64.0))
+    state = {}
+    autopilot.p2_area(tmp_path, state, world)
+    assert world.started == []
+    assert world.pulls == []
+    assert jobqueue.list_jobs(tmp_path) == []
+    assert "building" not in state.get("p2", {}) and "built" not in state.get("p2", {})
+    out = capsys.readouterr().out
+    assert "held: area-merge needs 20.0 GB cap + 10.0 GB headroom; 20.0 GB available" in out
+    world.ram = (10.0, 64.0)
+    autopilot.p2_area(tmp_path, state, world)
+    assert world.cap_calls[-1] == ("p2-aaaaaaa", 20.0)
+
+
+def test_realworld_start_wraps_argv_with_the_launcher(tmp_path, monkeypatch):
+    memcap.set_launcher(Launcher("/usr/bin/systemd-run", None))
+    recorded = {}
+
+    class Stub:
+        pid = 12345
+
+    def fake_popen(argv, *a, **kw):
+        recorded["argv"] = argv
+        recorded["kw"] = kw
+        return Stub()
+
+    monkeypatch.setattr(autopilot.subprocess, "Popen", fake_popen)
+    rw = RealWorld()
+    store = tmp_path
+    (store / "autopilot").mkdir(parents=True, exist_ok=True)
+    _pid, _exit_file = rw.start(store, "p2-abc", "echo hi", cap_gb=20.0)
+    assert any("systemd-run" in str(x) for x in recorded["argv"])
+    assert "MemoryMax=21474836480" in recorded["argv"]
+    assert "MemorySwapMax=0" in recorded["argv"]
+    assert "--" in recorded["argv"]
+    assert recorded["kw"].get("start_new_session") is True
+    # shell command present after --
+    joined = " ".join(recorded["argv"])
+    assert "echo hi" in joined
+
+
+def test_realworld_exit_code_reports_oom_cap_from_log(tmp_path):
+    rw = RealWorld()
+    logs = tmp_path / "autopilot"
+    logs.mkdir(parents=True, exist_ok=True)
+    # case: exit 137 + OOM text -> oom-cap
+    exit_file = logs / "x.exit"
+    exit_file.write_text("137")
+    (logs / "x.log").write_text("Memory cgroup out of memory: Killed process")
+    job = {"exit_file": str(exit_file)}
+    assert rw.exit_code(job) == "oom-cap"
+    # missing exit + OOM text -> oom-cap
+    (logs / "y.exit").unlink(missing_ok=True)
+    (logs / "y.log").write_text("oom-kill")
+    assert rw.exit_code({"exit_file": str(logs / "y.exit")}) == "oom-cap"
+    # normal log + 137 -> "137"
+    exit_file.write_text("137")
+    (logs / "x.log").write_text("something else")
+    assert rw.exit_code(job) == "137"
+    # missing + non-OOM -> "?"
+    (logs / "z.exit").unlink(missing_ok=True)
+    (logs / "z.log").write_text("no oom here")
+    assert rw.exit_code({"exit_file": str(logs / "z.exit")}) == "?"
+
+
+def test_realworld_exit_code_keeps_zero_when_the_log_has_oom_text(tmp_path):
+    rw = RealWorld()
+    logs = tmp_path / "autopilot"
+    logs.mkdir(parents=True, exist_ok=True)
+    exit_file = logs / "a.exit"
+    (logs / "a.log").write_text("oom-kill Memory cgroup out of memory")
+    exit_file.write_text("0")
+    assert rw.exit_code({"exit_file": str(exit_file)}) == "0"
+    exit_file.write_text("1")
+    assert rw.exit_code({"exit_file": str(exit_file)}) == "1"
+
+
+def test_oom_cap_is_not_published(tmp_path):
+    world = FakeWorld(exit="oom-cap")
+    state = {"p2": {"building": "a" * 40, "pid": 1}, "p2b": {"gates": autopilot.gates_hash()}}
+    # make p2 finished by setting building and pid alive False (FakeWorld.alive returns False)
+    autopilot.p2_area(tmp_path, state, world)
+    assert state["p2"].get("exit") == "oom-cap"
+    assert state["p2"].get("built") == "a" * 40
+    assert world.published == []

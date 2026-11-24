@@ -1,12 +1,13 @@
 import contextlib
 import hashlib
 import json
+import multiprocessing
 import os
 import time
 
 import pytest
 
-from twin import gpulease, jobqueue, registry, runner, scheduler
+from twin import gpulease, jobqueue, memcap, registry, runner, scheduler
 from twin.contracts import STAGE_NAMES, STAGES, ManifestStage, Pipeline, StageResult
 from twin.parallel import pmap
 
@@ -58,6 +59,20 @@ def _done(store):
 
 def _log(store):
     return [line.split() for line in (store / "log").read_text().splitlines()]
+
+
+@pytest.fixture(autouse=True)
+def _inert_memcap_launcher():
+    saved_launcher = memcap._LAUNCHER
+    saved_warned = memcap._WARNED
+    saved_overrides = set(memcap._WARNED_OVERRIDES)
+    saved_reader = memcap._WARNED_READER
+    memcap.set_launcher(memcap.Launcher(None, None))
+    yield
+    memcap._LAUNCHER = saved_launcher
+    memcap._WARNED = saved_warned
+    memcap._WARNED_OVERRIDES = saved_overrides
+    memcap._WARNED_READER = saved_reader
 
 
 def test_chain_runs_in_order_and_streams(tmp_path, stubs, monkeypatch):
@@ -285,3 +300,170 @@ def test_no_change_normal_admission(tmp_path, stubs, monkeypatch):
     s = scheduler.Scheduler(tmp_path, cores=16, gb=64, hold=lambda: None, max_tasks=8)
     s.run(poll=0.05, exit_when_idle=True)
     assert set(_done(tmp_path)) == {"a", "b"}
+
+
+
+class RecordingLauncher:
+    def __init__(self, path):
+        self.path = path
+
+    def argv(self, cmd, cap_gb):
+        return list(cmd)
+
+    def enter(self, cap_gb, key):
+        with open(self.path, "a") as f:
+            f.write(f"{cap_gb}\n")
+        return True
+
+    def oom_killed(self, key):
+        return False
+
+    def cleanup(self, key):
+        pass
+
+
+def test_child_warns_when_enter_fails(tmp_path, monkeypatch, capfd):
+    class FailingLauncher:
+        def argv(self, cmd, cap_gb):
+            return list(cmd)
+
+        def enter(self, cap_gb, key):
+            return False
+
+        def oom_killed(self, key):
+            return False
+
+        def cleanup(self, key):
+            pass
+
+    memcap.set_launcher(FailingLauncher())
+    s = scheduler.Scheduler(tmp_path, cores=4, gb=64, hold=lambda: None, max_tasks=4)
+    jobqueue.add(tmp_path, {"type": "run", "scene": "s"})
+    job = jobqueue.take(tmp_path)
+    a = scheduler.Active(job, None, None, 0)
+    s.active.append(a)
+    task = scheduler.Task(a, "load", lambda: None, (), scheduler.Cost(1, 1), stage=True)
+    s._start(task)
+    s.reap(5)
+    captured = capfd.readouterr()
+    assert "twin memcap: WARNING: streaming child runs UNCAPPED (enter failed, cap 8.0 GB)" in captured.err
+
+
+def test_stage_child_enters_scope_with_stage_cap(tmp_path, monkeypatch):
+    rec = tmp_path / "rec.txt"
+    rl = RecordingLauncher(rec)
+    memcap.set_launcher(rl)
+    s = scheduler.Scheduler(tmp_path, cores=4, gb=64, hold=lambda: None, max_tasks=4)
+    jobqueue.add(tmp_path, {"type": "run", "scene": "s"})
+    job = jobqueue.take(tmp_path)
+    a = scheduler.Active(job, None, None, 0)
+    s.active.append(a)
+    task = scheduler.Task(a, "load", lambda: None, (), scheduler.Cost(1, 1), stage=True)
+    s._start(task)
+    s.reap(5)
+    assert rec.read_text().splitlines() == ["8.0"]
+
+
+def test_stage_cap_env_override_reaches_the_child(tmp_path, monkeypatch):
+    monkeypatch.setenv("TWIN_MEM_CAP_STAGE_LOAD_GB", "3")
+    rec = tmp_path / "rec.txt"
+    memcap.set_launcher(RecordingLauncher(rec))
+    s = scheduler.Scheduler(tmp_path, cores=4, gb=64, hold=lambda: None, max_tasks=4)
+    jobqueue.add(tmp_path, {"type": "run", "scene": "s"})
+    job = jobqueue.take(tmp_path)
+    a = scheduler.Active(job, None, None, 0)
+    s.active.append(a)
+    task = scheduler.Task(a, "load", lambda: None, (), scheduler.Cost(1, 1), stage=True)
+    s._start(task)
+    s.reap(5)
+    assert rec.read_text().splitlines() == ["3.0"]
+
+
+@pytest.mark.parametrize("name", ["eval", "publish", "prgate"])
+def test_whole_task_cap_reaches_the_child(tmp_path, monkeypatch, name):
+    rec = tmp_path / "rec.txt"
+    memcap.set_launcher(RecordingLauncher(rec))
+    s = scheduler.Scheduler(tmp_path, cores=4, gb=64, hold=lambda: None, max_tasks=4)
+    if name == "prgate":
+        jobqueue.add(tmp_path, {"type": "prgate", "pr": "p", "sha": "s"})
+    else:
+        jobqueue.add(tmp_path, {"type": name, "run_id": "r"})
+    job = jobqueue.take(tmp_path)
+    a = scheduler.Active(job, None, None, 0)
+    s.active.append(a)
+
+    def fn(*a, **k):
+        return None
+
+    task = scheduler.Task(a, name, fn, (), scheduler.Cost(1, 1), stage=False)
+    s._start(task)
+    s.reap(5)
+    assert rec.read_text().splitlines() == ["8.0"]
+
+
+def test_cap_killed_stage_fails_job_oom_cap(tmp_path, stubs, monkeypatch):
+    stubs()
+    monkeypatch.setenv("TWIN_DIE", "bad")
+    monkeypatch.setattr(memcap, "oom_killed", lambda key: True)
+    jobqueue.add(tmp_path, {"type": "run", "scene": "bad"})
+    jobqueue.add(tmp_path, {"type": "run", "scene": "good"})
+    _sched(tmp_path)
+    states = {j["scene"]: j["state"] for j in jobqueue.list_jobs(tmp_path)}
+    assert states == {"bad": "failed", "good": "done"}
+    bad_job = next(j for j in jobqueue.list_jobs(tmp_path) if j["scene"] == "bad")
+    assert bad_job.get("error") == "oom-cap"
+
+
+def test_cap_kill_overrides_a_reported_err(tmp_path, monkeypatch):
+    memcap.set_launcher(memcap.Launcher(None, None))
+    monkeypatch.setattr(memcap, "oom_killed", lambda key: True)
+    s = scheduler.Scheduler(tmp_path, cores=4, gb=64, hold=lambda: None, max_tasks=4)
+    jobqueue.add(tmp_path, {"type": "run", "scene": "s"})
+    job = jobqueue.take(tmp_path)
+    a = scheduler.Active(job, None, None, 0)
+    s.active.append(a)
+
+    def boom():
+        raise ValueError("boom")
+
+    task = scheduler.Task(a, "load", boom, (), scheduler.Cost(1, 1), stage=False)
+    s._start(task)
+    s.reap(5)
+    failed = [j for j in jobqueue.list_jobs(tmp_path) if j["state"] == "failed"]
+    assert failed and failed[0].get("error") == "oom-cap"
+
+
+def test_reap_tolerates_a_keyless_running(tmp_path, monkeypatch):
+    memcap.set_launcher(memcap.Launcher(None, None))
+    calls = {"oom": 0, "cleanup": 0}
+
+    def oom(key):
+        calls["oom"] += 1
+        return False
+
+    def cleanup(key):
+        calls["cleanup"] += 1
+
+    monkeypatch.setattr(memcap, "oom_killed", oom)
+    monkeypatch.setattr(memcap, "cleanup_scope", cleanup)
+
+    ctx = multiprocessing.get_context("fork")
+
+    def noop():
+        pass
+
+    parent, child = ctx.Pipe(duplex=False)
+    proc = ctx.Process(target=noop)
+    proc.start()
+    child.close()
+
+    jobqueue.add(tmp_path, {"type": "run", "scene": "s"})
+    job = jobqueue.take(tmp_path)
+    a = scheduler.Active(job, None, None, 0)
+    s = scheduler.Scheduler(tmp_path, cores=4, gb=64, hold=lambda: None, max_tasks=4)
+    s.active.append(a)
+    task = scheduler.Task(a, "load", lambda: None, (), scheduler.Cost(1, 1))
+    r = scheduler.Running(task, proc, parent, scheduler.Cost(1, 1))
+    s.running.append(r)
+    s.reap(5)
+    assert calls == {"oom": 0, "cleanup": 0}
