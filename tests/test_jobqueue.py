@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 from filelock import FileLock
@@ -148,3 +149,126 @@ def test_cli_add_and_ls(tmp_path, capsys):
     assert job_id in capsys.readouterr().out
     job.write_text("{}")
     assert main(["queue", "add", str(job), "--store", str(tmp_path / "st")]) == 2
+
+
+import os
+import sys
+
+
+def test_serial_job_runs_in_scope_with_its_cap(tmp_path, stubs, monkeypatch):
+    stubs()
+    calls_file = tmp_path / "caps.txt"
+
+    class RecordingLauncher:
+        systemd = None
+        cgroup = None
+
+        def enter(self, cap, key):
+            with open(calls_file, "a") as f:
+                f.write(f"{cap}\n")
+            return True
+
+        def oom_killed(self, key):
+            return False
+
+        def cleanup(self, key):
+            pass
+
+    def _launcher():
+        inst = RecordingLauncher()
+        jobqueue.memcap._LAUNCHER = inst
+        return inst
+
+    monkeypatch.setattr(jobqueue.memcap, "_LAUNCHER", None)
+    monkeypatch.setattr(jobqueue.memcap, "launcher", _launcher)
+    jobqueue.add(tmp_path, {"type": "run", "scene": "s1"})
+    assert jobqueue.process_one(tmp_path, no_hold).startswith("done")
+    assert _states(tmp_path)["done"] == 1
+    assert calls_file.read_text().strip() == "8.0"
+
+
+def test_serial_job_cap_override_from_job_field(tmp_path, stubs, monkeypatch):
+    stubs()
+    calls_file = tmp_path / "caps.txt"
+
+    class RecordingLauncher:
+        systemd = None
+        cgroup = None
+
+        def enter(self, cap, key):
+            with open(calls_file, "a") as f:
+                f.write(f"{cap}\n")
+            return True
+
+        def oom_killed(self, key):
+            return False
+
+        def cleanup(self, key):
+            pass
+
+    def _launcher():
+        inst = RecordingLauncher()
+        jobqueue.memcap._LAUNCHER = inst
+        return inst
+
+    monkeypatch.setattr(jobqueue.memcap, "_LAUNCHER", None)
+    monkeypatch.setattr(jobqueue.memcap, "launcher", _launcher)
+    jobqueue.add(tmp_path, {"type": "run", "scene": "s1", "mem_cap_gb": 5})
+    assert jobqueue.process_one(tmp_path, no_hold).startswith("done")
+    assert calls_file.read_text().strip() == "5.0"
+
+
+def test_serial_job_cap_killed_marks_failed_oom_cap(tmp_path, stubs, monkeypatch):
+    import os as _os
+
+    stubs()
+    real_execute = jobqueue.execute
+
+    def fake_execute(store, job):
+        counter_file = Path(store) / "exec_counter.txt"
+        n = 0
+        if counter_file.exists():
+            n = int(counter_file.read_text())
+        n += 1
+        counter_file.write_text(str(n))
+        if n == 1:
+            _os._exit(9)
+        return real_execute(store, job)
+
+    monkeypatch.setattr(jobqueue, "execute", fake_execute)
+    monkeypatch.setattr(jobqueue.memcap, "oom_killed", lambda key: True)
+    jobqueue.add(tmp_path, {"type": "run", "scene": "s1"})
+    jobqueue.add(tmp_path, {"type": "run", "scene": "s1"})
+    assert jobqueue.worker(tmp_path, jobs=2, poll=0, hold=no_hold) == 0
+    jobs = jobqueue.list_jobs(tmp_path)
+    states = [j["state"] for j in jobs]
+    assert "failed" in states and "done" in states
+    failed = [j for j in jobs if j["state"] == "failed"][0]
+    assert failed["error"] == "oom-cap"
+
+
+def test_err_with_a_cap_kill_maps_to_oom_cap(tmp_path, stubs, monkeypatch):
+    stubs()
+
+    def fake_execute(store, job):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(jobqueue, "execute", fake_execute)
+    monkeypatch.setattr(jobqueue.memcap, "oom_killed", lambda key: True)
+    jobqueue.add(tmp_path, {"type": "run", "scene": "s1"})
+    assert jobqueue.process_one(tmp_path, no_hold).startswith("failed")
+    job = jobqueue.list_jobs(tmp_path)[0]
+    assert job["state"] == "failed" and job["error"] == "oom-cap"
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="/proc/self/fd")
+def test_serial_jobs_leave_no_children_or_fds(tmp_path, stubs, monkeypatch):
+    stubs()
+    jobqueue.add(tmp_path, {"type": "run", "scene": "s1"})
+    jobqueue.add(tmp_path, {"type": "run", "scene": "s1"})
+    jobqueue.add(tmp_path, {"type": "run", "scene": "s1"})
+    before = len(os.listdir("/proc/self/fd"))
+    assert jobqueue.worker(tmp_path, jobs=3, poll=0, hold=no_hold) == 0
+    after = len(os.listdir("/proc/self/fd"))
+    assert _states(tmp_path)["done"] == 3
+    assert after - before <= 1
