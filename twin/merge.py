@@ -22,11 +22,11 @@ import open3d as o3d
 import shapely
 from shapely.geometry import shape
 
-from twin import drivecloud, heights, runner
+from twin import drivecloud, heights, registry, runner
 from twin.areastore import DRIVES_NAME, MERGED_NAME, area_merged_dir
-from twin.contracts import Params, stage_dir
+from twin.contracts import Params, Pipeline, stage_dir
 from twin.runrecord import read_record, record_path, write_document
-from twin.stages import align, ground, load, mask
+from twin.stages import ground
 
 # DECISION: registration works on points thinned to one per 0.3 m voxel.
 ICP_VOXEL_M = 0.3
@@ -384,7 +384,7 @@ def correction_summary(t: np.ndarray) -> dict:
 
 def build_drive_cache_key(scene, params):
     payload = {
-        "git_sha": (runner._git("rev-parse", "HEAD") or "").strip() or "unknown",
+        "git_sha": runner.repo_head() or "unknown",
         "facilities": params.facilities.model_dump(mode="json"),
         "mask": params.mask.model_dump(mode="json"),
         "align": params.align.model_dump(mode="json"),
@@ -397,8 +397,6 @@ def build_drive_cache_key(scene, params):
 
 def build_drive(scene: dict, work: Path, polygon, params: Params, log) -> np.ndarray:
     """load, mask, align for one scene; its aligned points inside polygon, (N, 5): x, y, z, intensity, sweep."""
-    from twin.runner import StageContext
-
     cache = work / "clip.npy"
     key_path = work / "clip.npy.key"
     key = build_drive_cache_key(scene, params)
@@ -407,13 +405,10 @@ def build_drive(scene: dict, work: Path, polygon, params: Params, log) -> np.nda
         log.info("build_drive: reuse cached clip for %s", scene["scene_token"])
         return np.load(cache)
     log.info("build_drive: rebuild clip for %s", scene["scene_token"])
-    ctx = StageContext(work, scene["scene_token"], params.seed, log)
-    for name, fn, p in (
-        ("load", load.run, params.facilities),
-        ("mask", mask.run, params.mask),
-        ("align", align.run_icp, params.align),
-    ):
-        res = fn(ctx, p)
+    ctx = runner.StageContext.for_params(work, scene["scene_token"], params, log)
+    pipeline = Pipeline()
+    for name in ("load", "mask", "align"):
+        res = registry.run_stage(ctx, name, getattr(pipeline, name).method, params)
         if res.status != "ok":
             raise RuntimeError(f"{name}: {res.message}")
     cloud = drivecloud.aligned_cloud(work)

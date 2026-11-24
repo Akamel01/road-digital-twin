@@ -64,9 +64,9 @@ def test_stage_is_marked_running_while_it_runs(tmp_path, monkeypatch):
     from twin import registry, runner
     from twin.contracts import STAGE_NAMES, STAGES, Params, Pipeline, StageResult
 
-    monkeypatch.setattr(registry, "_REGISTRY", {})
     monkeypatch.setattr(runner, "free_bytes", lambda path: 100 * 1024**3)
     seen = {}
+    fns = {}
 
     for name in STAGE_NAMES:
 
@@ -75,7 +75,7 @@ def test_stage_is_marked_running_while_it_runs(tmp_path, monkeypatch):
             seen[name] = manifest.stages[-1].status
             return StageResult(status="ok")
 
-        registry.register(name, STAGES[name].methods[0])(run)
-
-    runner.start_run(tmp_path, "scene-1", Pipeline(), Params())
+        fns[name, STAGES[name].methods[0]] = run
+    with registry.substitute(fns):
+        runner.start_run(tmp_path, "scene-1", Pipeline(), Params())
     assert seen and set(seen.values()) == {"running"}

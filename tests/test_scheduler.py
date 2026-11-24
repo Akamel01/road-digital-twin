@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import time
+from contextlib import ExitStack
 
 import pytest
 
@@ -14,10 +15,11 @@ from twin.parallel import pmap
 @pytest.fixture
 def stubs(monkeypatch):
     """Fast stages. Each logs start/end to <store>/log; ground exits hard when TWIN_DIE is set."""
-    monkeypatch.setattr(registry, "_REGISTRY", {})
+    stack = ExitStack()
     monkeypatch.setattr(jobqueue, "disk_hold", lambda *a: None)
 
     def install(sleep=0.0):
+        fns = {}
         for name in STAGE_NAMES:
 
             def run(ctx, params, name=name):
@@ -37,9 +39,11 @@ def stubs(monkeypatch):
                     f.write(f"e {name} {ctx.scene_token} {time.time()}\n")
                 return StageResult(status="ok")
 
-            registry.register(name, STAGES[name].methods[0])(run)
+            fns[name, STAGES[name].methods[0]] = run
+        stack.enter_context(registry.substitute(fns))
 
-    return install
+    yield install
+    stack.close()
 
 
 def _sched(store, **kw):
