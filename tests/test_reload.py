@@ -55,6 +55,9 @@ def test_pull_failure_path(monkeypatch, tmp_path, capsys):
         def main_commit(self):
             return "abc123"
 
+        def ram_gb(self):
+            return (0.0, 1024.0)
+
     # store state
     (tmp_path / "autopilot").mkdir(parents=True, exist_ok=True)
     state = {"p2": {}, "p2b": {}}

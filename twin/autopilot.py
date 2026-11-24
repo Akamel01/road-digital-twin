@@ -23,7 +23,7 @@ from pathlib import Path
 
 from filelock import FileLock, Timeout
 
-from twin import REPO, gates, jobqueue, prgate, site, sweep, telemetry
+from twin import REPO, gates, jobqueue, memcap, prgate, site, sweep, telemetry
 from twin.areastore import open_area, twin_ref
 from twin.contracts import Params
 from twin.reload import CodeWatch
@@ -139,14 +139,15 @@ class RealWorld:
             return None
 
     # detached shell processes
-    def start(self, store: Path, name: str, cmd: str) -> tuple[int, str]:
+    def start(self, store: Path, name: str, cmd: str, cap_gb: float = 0.0) -> tuple[int, str]:
         """Run a shell command in its own session; its exit code lands in the returned file."""
         logs = store / "autopilot"
         logs.mkdir(parents=True, exist_ok=True)
         exit_file = logs / f"{name}.exit"
         exit_file.unlink(missing_ok=True)
+        argv = memcap.scope_argv(["sh", "-c", f"{cmd}; echo $? > {exit_file}"], cap_gb)
         proc = subprocess.Popen(
-            ["sh", "-c", f"{cmd}; echo $? > {exit_file}"],
+            argv,
             stdout=(logs / f"{name}.log").open("w"), stderr=subprocess.STDOUT,
             start_new_session=True,
         )  # fmt: skip
@@ -159,9 +160,32 @@ class RealWorld:
             return False
         return True
 
+    def ram_gb(self) -> tuple:
+        return telemetry.read_ram()
+
     def exit_code(self, job: dict) -> str:
         path = Path(job["exit_file"])
-        return path.read_text().strip() if path.is_file() else "?"
+        if path.is_file():
+            code = path.read_text().strip()
+        else:
+            code = "?"
+        if code in ("0", "1"):
+            return code
+        # code missing or not in ("0","1"): consult the log tail
+        log = path.with_suffix(".log")
+        try:
+            size = log.stat().st_size
+        except OSError:
+            return code
+        try:
+            with log.open("rb") as f:
+                f.seek(max(0, size - 65536))
+                tail = f.read().decode("utf-8", errors="replace")
+        except OSError:
+            return code
+        if memcap.oom_in_text(tail):
+            return "oom-cap"
+        return code
 
     # the site
     def publish_latest(self, store: Path, twin: str) -> str:
@@ -333,6 +357,10 @@ def p2_area(store: Path, state: dict, world) -> int:
     eval_cmd = f"({twin} eval areas/{TWIN} --store {store}; [ $? -le 1 ])"
     commit = world.main_commit()
     if commit is not None and commit != p2.get("built"):
+        reason = memcap.headroom_reason("area-merge", reader=world.ram_gb)
+        if reason:
+            say(f"held: {reason}")
+            return 0
         before = world.head()
         try:
             ok, text = world.pull()
@@ -344,7 +372,7 @@ def p2_area(store: Path, state: dict, world) -> int:
                     redeploy_web(store, before, world.head(), world)
         except Exception as exc:  # noqa: BLE001
             say(f"pull failed: {exc}")
-        pid, exit_file = world.start(store, f"p2-{commit[:7]}", f"{twin} area merge {AREA} --store {store} && {twin} area twin {AREA} --store {store} && {eval_cmd}")
+        pid, exit_file = world.start(store, f"p2-{commit[:7]}", f"{twin} area merge {AREA} --store {store} && {twin} area twin {AREA} --store {store} && {eval_cmd}", cap_gb=memcap.cap_gb("area-merge"))
         p2.update(building=commit, pid=pid, exit_file=exit_file)
         say(f"P2 new main {commit[:7]}: area {AREA} merge + twin + eval, pid {pid}")
         # operator 2026-11-14 pipeline automation: a scene-0757 run of current main, so prgate.pick_baseline compares with it
@@ -361,7 +389,7 @@ def p2_area(store: Path, state: dict, world) -> int:
                     pass
             jobqueue.add(store, {"type": "run", "scene": scene, "eval": True})
     elif p2.get("built") and p2b.get("gates") != (now := gates_hash()):
-        pid, exit_file = world.start(store, "p2b", eval_cmd)
+        pid, exit_file = world.start(store, "p2b", eval_cmd, cap_gb=memcap.cap_gb("eval"))
         p2b.update(running=True, pid=pid, exit_file=exit_file, gates=now)
         say(f"P2b gates changed: re-eval of area {AREA}, pid {pid}")
     return 0

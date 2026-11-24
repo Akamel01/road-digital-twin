@@ -28,6 +28,8 @@ class FakeWorld:
         self.latest_effects = []  # publish_latest: an exception to raise, or None, per call
         self.redeploy_effect = None
         self.started, self.queued, self.published, self.redeployed = [], [], [], []
+        self.cap_calls = []
+        self.ram = (0.0, 1024.0)
         self.__dict__.update(knobs)
 
     def asked(self):
@@ -69,9 +71,13 @@ class FakeWorld:
         return self.tokens
 
     # detached shells
-    def start(self, store, name, cmd):
+    def start(self, store, name, cmd, cap_gb=0.0):
         self.started.append((name, cmd))
+        self.cap_calls.append((name, cap_gb))
         return 999999, "x"
+
+    def ram_gb(self):
+        return self.ram if not callable(self.ram) else self.ram()
 
     def alive(self, pid):
         return False

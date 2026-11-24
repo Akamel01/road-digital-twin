@@ -388,6 +388,9 @@ class SmokeWorld(RealWorld):
     def free_gb(self, path):
         return 1000.0
 
+    def ram_gb(self):
+        return (0.0, 1024.0)
+
     def ranked_areas(self):
         return self.passes
 
