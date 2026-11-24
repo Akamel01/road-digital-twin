@@ -19,12 +19,10 @@ import shapely
 from recon_core.checks import Check, write_checks
 from shapely.geometry import shape
 
-from twin.areastore import DRIVES_NAME, MERGED_NAME
+from twin.areastore import DRIVES_NAME, FEATURE_FILES, MERGED_NAME
 from twin.contracts import Params, flatten, stage_dir
 from twin.reference_split import split_reference
 from twin.runner import StageContext
-
-STAGE_ORDER = ("ground", "features", "profile", "isd", "accuracy")
 
 
 @dataclass(frozen=True)
@@ -159,7 +157,7 @@ def align_step(out: Path) -> StepResult:
 def _stage_dir_for(name: str, base: Path) -> Path:
     """Accept a node dir containing <n>_<name> or the stage dir itself."""
     base = Path(base)
-    if base.name == f"{__import__('twin.contracts', fromlist=['STAGES']).STAGES[name].number}_{name}":
+    if base.name == stage_dir(Path(), name).name:
         return base
     candidate = stage_dir(base, name)
     if candidate.is_dir():
@@ -193,7 +191,7 @@ def ground_step(
 
     polygon = shape(area["polygon"])
     np.array([*polygon.centroid.coords[0], 0.0])
-    ctx = StageContext(out, f"area-{area.get('name', 'area')}", params.seed, log, params.facilities.min_observed)
+    ctx = StageContext.for_params(out, f"area-{area.get('name', 'area')}", params, log)
     t0 = time.time()
     perm = np.random.default_rng(params.seed).permutation(len(x))
     xyz = np.column_stack([x, y, z])[perm]
@@ -297,7 +295,7 @@ def change_step(
         shutil.copy2(qa_src, qa_dst)
 
     all_feats: dict[str, list[dict]] = {}
-    for fn in at.FEATURE_FILES:
+    for fn in FEATURE_FILES:
         fp = out_feat / fn
         if fp.is_file():
             all_feats[fn] = json.loads(fp.read_text())["features"]

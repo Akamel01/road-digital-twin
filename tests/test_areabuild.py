@@ -542,3 +542,30 @@ def test_area_build_rebuilds_stale_multi_drive_capture(tmp_path, monkeypatch):
     assert len(calls) == 1  # stale multi-drive capture rebuilt
     areabuild.area_build(base, name, log)
     assert len(calls) == 1  # complete capture reused
+
+
+def test_area_twin_and_area_build_finish_the_same_way(tmp_path, monkeypatch):
+    """`twin area twin` and `twin area build` write one Run Record shape and one change.json shape."""
+    from twin import areatwin
+
+    name = "site-tiny"
+    log = logging.getLogger("test")
+    one, two = _make_synthetic_area(tmp_path / "one"), _make_synthetic_area(tmp_path / "two")
+    monkeypatch.setenv("NUSCENES_ROOT", str(one / "nuscenes"))
+    areatwin.twin_area(one, name, log)
+    monkeypatch.setenv("NUSCENES_ROOT", str(two / "nuscenes"))
+    monkeypatch.setenv("TWIN_RUNS", str(two))
+    areabuild.area_build(two, name, log)
+
+    def finished(base):
+        twin = base / "areas" / f"{name}-twin"
+        run, change = json.loads((twin / "run.json").read_text()), json.loads((twin / "change.json").read_text())
+        return twin, run, change
+
+    (twin_one, run_one, change_one), (twin_two, run_two, change_two) = finished(one), finished(two)
+    assert set(run_one) == set(run_two)
+    assert set(run_one["metrics"]) == set(run_two["metrics"]) == {"load", "align", "ground", "accuracy"}
+    assert run_one["run_id"] == run_two["run_id"] == f"area-{name}-twin"
+    assert set(change_one) == set(change_two)
+    for f in ("merged.npz", "drives.json", "qa.json"):
+        assert (twin_one / f).exists() and (twin_two / f).exists()

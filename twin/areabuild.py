@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import shutil
 import sys
 from pathlib import Path
@@ -13,15 +12,9 @@ from typing import Any
 import recon_core.runner
 import yaml
 
-from twin.areastore import (
-    DRIVES_NAME,
-    MERGED_NAME,
-    TWIN_SUFFIX,
-    area_merged_dir,
-    area_twin_dir,
-)
+from twin.areastore import MERGED_NAME, open_area
+from twin.areatwin import finish_area_twin, link_or_copy
 from twin.contracts import Params
-from twin.runrecord import read_record, write_document
 
 TWIN = ["twin"] if shutil.which("twin") else [sys.executable, "-m", "twin.cli"]
 
@@ -214,22 +207,6 @@ def write_area_manifest(base: Path, name: str) -> Path:
     return path
 
 
-def _symlink_or_copy(src: Path, dst: Path) -> None:
-    if dst.exists() or dst.is_symlink():
-        if dst.is_dir() and not dst.is_symlink():
-            shutil.rmtree(dst)
-        else:
-            dst.unlink()
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        os.symlink(src.resolve(), dst)
-    except OSError:
-        if src.is_dir():
-            shutil.copytree(src, dst)
-        else:
-            shutil.copy2(src, dst)
-
-
 def _copy_tree_contents(src: Path, dst: Path) -> None:
     dst.mkdir(parents=True, exist_ok=True)
     for p in src.iterdir():
@@ -264,9 +241,9 @@ def _capture_stale(capture_json: Path) -> bool:
 def assemble_area_twin(
     base: Path, name: str, core_dir: Path, manifest: dict[str, Any], check_date: str | None = None
 ) -> dict[str, Any]:
-    base = Path(base)
+    area = open_area(base, name)
     core_dir = Path(core_dir)
-    out = area_twin_dir(base, name)
+    out = area.twin_dir
     if out.exists() or out.is_symlink():
         if out.is_dir() and not out.is_symlink():
             shutil.rmtree(out)
@@ -287,15 +264,15 @@ def assemble_area_twin(
     # 1_load from node change's 1_load (masked reference + facilities/poses)
     _copy_tree_contents(change_node / "1_load", out / "1_load")
     # 2_mask, 3_align, 4_ground
-    _symlink_or_copy(mask_node / "2_mask", out / "2_mask")
-    _symlink_or_copy(align_node / "3_align", out / "3_align")
-    _symlink_or_copy(ground_node / "4_ground", out / "4_ground")
+    link_or_copy(mask_node / "2_mask", out / "2_mask")
+    link_or_copy(align_node / "3_align", out / "3_align")
+    link_or_copy(ground_node / "4_ground", out / "4_ground")
     # 5_features from node change's 5_features
-    _symlink_or_copy(change_node / "5_features", out / "5_features")
+    link_or_copy(change_node / "5_features", out / "5_features")
     # 7_profile, 8_isd, 9_accuracy
-    _symlink_or_copy(profile_node / "7_profile", out / "7_profile")
-    _symlink_or_copy(isd_node / "8_isd", out / "8_isd")
-    _symlink_or_copy(accuracy_node / "9_accuracy", out / "9_accuracy")
+    link_or_copy(profile_node / "7_profile", out / "7_profile")
+    link_or_copy(isd_node / "8_isd", out / "8_isd")
+    link_or_copy(accuracy_node / "9_accuracy", out / "9_accuracy")
 
     # change.geojson and change.json summary
     shutil.copy2(change_node / "change.geojson", out / "change.geojson")
@@ -307,85 +284,24 @@ def assemble_area_twin(
         for n in ["load", "mask", "align", "ground", "features", "change", "profile", "isd", "accuracy"]
     }
 
-    merged_dir = area_merged_dir(base, name)
-    merged_doc = _read_json(merged_dir / DRIVES_NAME)
-    for f in (MERGED_NAME, DRIVES_NAME, "qa.json"):
-        src = merged_dir / f
-        if src.exists():
-            _symlink_or_copy(src, out / f)
+    shutil.copy2(core_dir / "run.json", out / "core-run.json")  # the core run record beside the twin's
 
-    # core run record copy
-    shutil.copy2(core_dir / "run.json", out / "core-run.json")
-
-    # twin run record
-    try:
-        merged_record = read_record(merged_dir)
-    except (OSError, ValueError):
-        merged_record = {}
-    ground_metrics = _read_json(ground_node / "metrics.json")
-    accuracy_metrics = _read_json(accuracy_node / "metrics.json")
     try:
         load_metrics = _read_json(load_node / "metrics.json")
-    except (OSError, ValueError, json.JSONDecodeError):
+    except (OSError, ValueError):
         load_metrics = {}
-    # align metrics come from the joint (cross-drive) merge output, not from the
-    # per-drive align node (which only reports the per-drive "merged-icp" method).
-    align_metrics = dict(merged_record.get("metrics", {}).get("align", {}) or {})
-    # also pull convergence/fallback/method from the merged qa.json if present
-    for qa_path in (merged_dir / "qa.json",):
-        try:
-            qa = _read_json(qa_path)
-        except (OSError, ValueError, json.JSONDecodeError):
-            qa = {}
-        for key in ("convergence", "fallback_used", "fallback_reason", "fallback", "method",
-                    "n_anchors", "n_drives_with_overlap", "elapsed",
-                    "anchor_residuals", "pair_residuals"):
-            if key in qa and key not in align_metrics:
-                align_metrics[key] = qa[key]
-        if isinstance(qa.get("convergence"), dict):
-            for k, v in qa["convergence"].items():
-                if k not in align_metrics:
-                    align_metrics[k] = v
-    write_document(out, {
-        "run_id": f"area-{name}{TWIN_SUFFIX}",
-        "data": merged_record.get("data", {}),
-        "metrics": {
+    return finish_area_twin(
+        area,
+        seconds=seconds,
+        metrics={
             "load": load_metrics,
-            "align": align_metrics,
-            "ground": ground_metrics,
-            "accuracy": accuracy_metrics,
+            "ground": _read_json(ground_node / "metrics.json"),
+            "accuracy": _read_json(accuracy_node / "metrics.json"),
         },
-        "stages": [{"seconds": seconds[n]} for n in ["load", "mask", "align", "ground", "features", "change", "profile", "isd", "accuracy"]],
-    })
-
-    construction = None
-    if check_date:
-        import numpy as np
-        from shapely.geometry import shape
-
-        from twin.areatwin import construction_check
-
-        area_doc = _read_json(base / "areas" / f"{name}.json")
-        polygon = shape(area_doc["polygon"])
-        centre = np.array([*polygon.centroid.coords[0], 0.0])
-        regions = _read_json(change_node / "change.geojson").get("features", [])
-        construction = construction_check(regions, merged_doc, merged_dir, centre, check_date)
-
-    summary = {
-        "area": name,
-        "n_drives": len(merged_doc),
-        "n_features": int(change_metrics.get("n_features", 0)),
-        "n_features_changed": int(change_metrics.get("n_features_changed", 0)),
-        "n_change_regions": int(change_metrics.get("n_change_regions", 0)),
-        "change_area_m2": float(change_metrics.get("change_area_m2", 0.0)),
-        "noise": change_metrics.get("noise", {}),
-        "seconds": seconds,
-        "twin_seconds": round(sum(seconds.values()), 1),
-        "construction_check": construction,
-        "by_date": change_metrics.get("by_date", {}),
-    }
-    (out / "change.json").write_text(json.dumps(summary, indent=2) + "\n")
-    return summary
+        change=change_metrics,
+        total_seconds=round(sum(seconds.values()), 1),
+        check_date=check_date,
+    )
 
 
 def area_build(base: Path, name: str, log: logging.Logger, check_date: str | None = None) -> dict[str, Any]:
@@ -394,16 +310,13 @@ def area_build(base: Path, name: str, log: logging.Logger, check_date: str | Non
 
     base = Path(base)
     areas = base / "areas"
-    area_path = areas / f"{name}.json"
-    merged_dir = area_merged_dir(base, name)
-    merged_npz = merged_dir / MERGED_NAME
-    merged_drives = merged_dir / DRIVES_NAME
-    if not area_path.is_file() or not merged_npz.is_file() or not merged_drives.is_file():
-        raise ValueError(f"area {name!r} missing required inputs: {area_path}, {merged_npz}, {merged_drives}")
+    area = open_area(base, name)
+    if area.definition_path is None or not (area.merged_dir / MERGED_NAME).is_file() or not area.drive_records():
+        raise ValueError(f"area {name!r} missing required inputs: its definition, {MERGED_NAME} or drives in {area.merged_dir}")
 
     capture_dir = areas / f"{name}-capture"
     if _capture_stale(capture_dir / "capture.json"):
-        build_area_capture(merged_dir, capture_dir, name)
+        build_area_capture(area.merged_dir, capture_dir, name)
 
     params_path = areas / f"{name}-params.json"
     if params_path.exists():
@@ -429,7 +342,7 @@ def area_build(base: Path, name: str, log: logging.Logger, check_date: str | Non
         raise RuntimeError(f"core run failed with exit code {rc}")
 
     summary = assemble_area_twin(base, name, core_dir, manifest, check_date=check_date)
-    twin_dir = area_twin_dir(base, name)
+    twin_dir = area.twin_dir
     eval_command(str(twin_dir), None, None, None)
     gates = _read_json(twin_dir / "gates.json")
     summary["gates_verdict"] = gates.get("verdict")

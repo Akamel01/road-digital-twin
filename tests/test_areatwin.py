@@ -4,6 +4,7 @@ import numpy as np
 from shapely.geometry import LineString, box, mapping
 
 from twin import areatwin as at
+from twin.areastore import FEATURE_FILES
 
 
 def _drive_points(rng, drive, bump=0.0):
@@ -82,4 +83,4 @@ def test_support_counts_drives():
 
 
 def test_feature_files_include_ramps():
-    assert "ramps.geojson" in at.FEATURE_FILES
+    assert "ramps.geojson" in FEATURE_FILES
