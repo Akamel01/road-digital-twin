@@ -25,13 +25,8 @@ from shapely.geometry import mapping, shape
 
 from twin.areastore import FEATURE_FILES, open_area
 from twin.contracts import LabelFeature, SiteMeta, stage_dir
+from twin.elements import by_file
 
-_ELEMENT_BY_FILE = {
-    "markings.geojson": "marking",
-    "crosswalks.geojson": "crosswalk",
-    "curbs.geojson": "curb",
-    "ramps.geojson": "curb_ramp",
-}
 _TYPE_DEFAULT = {
     "marking": "solid_line",
     "crosswalk": "zebra",
@@ -195,7 +190,7 @@ def draft(
                 fc = json.loads(fpath.read_text())
             except (OSError, ValueError):
                 continue
-            element = _ELEMENT_BY_FILE[fname]
+            element = by_file(fname).name
             for i, feat in enumerate(fc.get("features", []) if isinstance(fc, dict) else []):
                 if not isinstance(feat, dict):
                     continue
