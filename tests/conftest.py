@@ -69,3 +69,18 @@ def access():
         ACCESS_TEAM, ACCESS_AUD, OPERATOR_EMAIL, keys=_FakeKeys(team.public_key())
     )
     return SimpleNamespace(verifier=verifier, token=make_token, forged=forged)
+
+
+@pytest.fixture(autouse=True)
+def _memcap_launcher_state():
+    import twin.memcap as _mc
+
+    saved_launcher = _mc._LAUNCHER
+    saved_warned = _mc._WARNED
+    saved_overrides = set(_mc._WARNED_OVERRIDES)
+    saved_reader = _mc._WARNED_READER
+    yield
+    _mc._LAUNCHER = saved_launcher
+    _mc._WARNED = saved_warned
+    _mc._WARNED_OVERRIDES = saved_overrides
+    _mc._WARNED_READER = saved_reader
