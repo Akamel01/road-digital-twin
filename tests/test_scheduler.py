@@ -1,12 +1,13 @@
 import contextlib
 import hashlib
 import json
+import multiprocessing
 import os
 import time
 
 import pytest
 
-from twin import gpulease, jobqueue, registry, runner, scheduler
+from twin import gpulease, jobqueue, memcap, registry, runner, scheduler
 from twin.contracts import STAGE_NAMES, STAGES, ManifestStage, Pipeline, StageResult
 from twin.parallel import pmap
 
@@ -58,6 +59,20 @@ def _done(store):
 
 def _log(store):
     return [line.split() for line in (store / "log").read_text().splitlines()]
+
+
+@pytest.fixture(autouse=True)
+def _inert_memcap_launcher():
+    saved_launcher = memcap._LAUNCHER
+    saved_warned = memcap._WARNED
+    saved_overrides = set(memcap._WARNED_OVERRIDES)
+    saved_reader = memcap._WARNED_READER
+    memcap.set_launcher(memcap.Launcher(None, None))
+    yield
+    memcap._LAUNCHER = saved_launcher
+    memcap._WARNED = saved_warned
+    memcap._WARNED_OVERRIDES = saved_overrides
+    memcap._WARNED_READER = saved_reader
 
 
 def test_chain_runs_in_order_and_streams(tmp_path, stubs, monkeypatch):
@@ -287,14 +302,13 @@ def test_no_change_normal_admission(tmp_path, stubs, monkeypatch):
     assert set(_done(tmp_path)) == {"a", "b"}
 
 
-import multiprocessing
-
-from twin import memcap
-
 
 class RecordingLauncher:
     def __init__(self, path):
         self.path = path
+
+    def argv(self, cmd, cap_gb):
+        return list(cmd)
 
     def enter(self, cap_gb, key):
         with open(self.path, "a") as f:
@@ -306,11 +320,6 @@ class RecordingLauncher:
 
     def cleanup(self, key):
         pass
-
-
-def _make_sched(tmp_path):
-    memcap.set_launcher(RecordingLauncher(tmp_path / "rec.txt"))
-    return scheduler.Scheduler(tmp_path, cores=4, gb=64, hold=lambda: None, max_tasks=4)
 
 
 def test_stage_child_enters_scope_with_stage_cap(tmp_path, monkeypatch):
@@ -329,7 +338,7 @@ def test_stage_child_enters_scope_with_stage_cap(tmp_path, monkeypatch):
 
 
 def test_stage_cap_env_override_reaches_the_child(tmp_path, monkeypatch):
-    monkeypatch.setenv("TWIN_MEM_CAP_STAGE_GB", "12")
+    monkeypatch.setenv("TWIN_MEM_CAP_STAGE_LOAD_GB", "3")
     rec = tmp_path / "rec.txt"
     memcap.set_launcher(RecordingLauncher(rec))
     s = scheduler.Scheduler(tmp_path, cores=4, gb=64, hold=lambda: None, max_tasks=4)
@@ -340,7 +349,7 @@ def test_stage_cap_env_override_reaches_the_child(tmp_path, monkeypatch):
     task = scheduler.Task(a, "load", lambda: None, (), scheduler.Cost(1, 1), stage=True)
     s._start(task)
     s.reap(5)
-    assert rec.read_text().splitlines() == ["12.0"]
+    assert rec.read_text().splitlines() == ["3.0"]
 
 
 @pytest.mark.parametrize("name", ["eval", "publish", "prgate"])
@@ -397,7 +406,7 @@ def test_cap_kill_overrides_a_reported_err(tmp_path, monkeypatch):
     assert failed and failed[0].get("error") == "oom-cap"
 
 
-def test_keyless_running_reap_is_safe(tmp_path, monkeypatch):
+def test_reap_tolerates_a_keyless_running(tmp_path, monkeypatch):
     memcap.set_launcher(memcap.Launcher(None, None))
     calls = {"oom": 0, "cleanup": 0}
 
