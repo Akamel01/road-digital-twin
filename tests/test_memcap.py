@@ -2,31 +2,40 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from twin import memcap
 
 
 def test_cap_gb_defaults_per_kind():
     assert memcap.cap_gb("area-merge") == 20.0
-    for k in ("stage", "run", "rerun", "eval", "publish", "prgate"):
+    for k in ("stage", "eval", "publish", "prgate"):
         assert memcap.cap_gb(k) == 8.0
     assert memcap.cap_gb("unknown-kind") == 8.0
 
 
 def test_cap_gb_job_override_wins(monkeypatch):
-    monkeypatch.delenv("TWIN_MEM_CAP_RUN_GB", raising=False)
+    monkeypatch.setenv("TWIN_MEM_CAP_RUN_GB", "32")
     assert memcap.cap_gb("run", {"mem_cap_gb": 5}) == 5.0
 
 
-def test_cap_gb_rejects_bool_and_nan(monkeypatch):
+def test_cap_gb_rejects_bool_and_nan(monkeypatch, capsys):
+    memcap._WARNED_OVERRIDES.clear()
     monkeypatch.delenv("TWIN_MEM_CAP_RUN_GB", raising=False)
-    for bad in ("x", 0, -1, True, False, float("nan")):
-        if bad == "x":
-            job = {"mem_cap_gb": bad}
-        else:
-            job = {"mem_cap_gb": bad}
-        # capture stderr not required; just falls through
+    for bad in ("x", 0, -1, True, False, float("nan"), float("inf")):
+        job = {"mem_cap_gb": bad}
         val = memcap.cap_gb("run", job)
         assert val == 8.0
+    err = capsys.readouterr().err
+    assert err.count("WARNING") == 1
+
+
+def test_cap_gb_rejects_nonfinite_job_or_env_override(monkeypatch, capsys):
+    memcap._WARNED_OVERRIDES.clear()
+    monkeypatch.setenv("TWIN_MEM_CAP_STAGE_GB", "1e999")
+    assert memcap.cap_gb("stage", {"mem_cap_gb": float("inf")}) == 8.0
+    err = capsys.readouterr().err
+    assert err.count("WARNING") >= 1
 
 
 def test_cap_gb_env_overrides_kind_and_stage(monkeypatch):
@@ -37,7 +46,6 @@ def test_cap_gb_env_overrides_kind_and_stage(monkeypatch):
     assert memcap.cap_gb("stage") == 6.0
     assert memcap.cap_gb("stage", stage="load") == 3.0
     # stage var wins over kind var for load stage
-    assert memcap.cap_gb("stage", stage="load") == 3.0
 
 
 def _fake_root(tmp_path):
@@ -121,7 +129,7 @@ def test_enter_scope_removes_a_stale_same_key_directory(tmp_path):
     assert scope.exists()
 
 
-def test_enter_refuses_a_scope_with_live_procs(tmp_path):
+def test_enter_refuses_a_scope_with_live_procs(tmp_path, capsys):
     root = tmp_path / "cg"
     root.mkdir()
     (root / "cgroup.subtree_control").write_text("memory")
@@ -133,6 +141,8 @@ def test_enter_refuses_a_scope_with_live_procs(tmp_path):
     memcap.set_launcher(l)
     assert l.enter(8.0, "k") is False
     assert (scope / "memory.max").read_text() == "ORIGINAL"
+    err = capsys.readouterr().err
+    assert err.count("already has live procs") == 1
 
 
 def test_oom_killed_reads_memory_events(tmp_path):
@@ -229,12 +239,20 @@ def test_launcher_probe_runs_the_capped_argv(monkeypatch):
     ]
 
 
-def test_launcher_present_but_unusable_is_uncapped(monkeypatch):
+@pytest.mark.parametrize("exc", ["timeout", "returncode", "oserror"])
+def test_launcher_present_but_unusable_is_uncapped(monkeypatch, capsys, exc):
     def fake_which(name):
         return "/usr/bin/systemd-run"
 
-    def fake_run(argv, **kw):
-        raise subprocess.TimeoutExpired(argv, 5)
+    if exc == "timeout":
+        def fake_run(argv, **kw):
+            raise subprocess.TimeoutExpired(argv, 5)
+    elif exc == "returncode":
+        def fake_run(argv, **kw):
+            return subprocess.CompletedProcess(argv, 1)
+    else:
+        def fake_run(argv, **kw):
+            raise OSError("boom")
 
     monkeypatch.setattr(memcap.shutil, "which", fake_which)
     monkeypatch.setattr(memcap.subprocess, "run", fake_run)
@@ -243,6 +261,8 @@ def test_launcher_present_but_unusable_is_uncapped(monkeypatch):
     memcap.set_launcher(None)
     l = memcap.launcher()
     assert l.systemd is None
+    err = capsys.readouterr().err
+    assert err.count("WARNING") == 1
 
 
 def test_launcher_absent_warns_once_and_runs_uncapped(monkeypatch, capsys):
@@ -250,8 +270,10 @@ def test_launcher_absent_warns_once_and_runs_uncapped(monkeypatch, capsys):
     monkeypatch.setattr(memcap, "_cap_root", lambda *a, **k: None)
     monkeypatch.setattr(memcap, "_probe_cgroup", lambda *a, **k: None)
     memcap.set_launcher(None)
-    memcap.launcher()
-    memcap.scope_argv(["echo", "hi"], 1.0)
+    l1 = memcap.launcher()
+    l2 = memcap.launcher()
+    assert l1 is l2
+    assert memcap.scope_argv(["echo", "hi"], 1.0) == ["echo", "hi"]
     err = capsys.readouterr().err
     assert err.count("WARNING") == 1
     assert "caps NOT enforced (headroom check still applies)" in err

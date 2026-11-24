@@ -15,8 +15,6 @@ HEADROOM_GB = 10.0
 CAPS_GB: dict[str, float] = {
     "area-merge": 20.0,
     "stage": 8.0,
-    "run": 8.0,
-    "rerun": 8.0,
     "eval": 8.0,
     "publish": 8.0,
     "prgate": 8.0,
@@ -38,7 +36,7 @@ _LAUNCHER = None
 
 
 def _is_valid(v) -> bool:
-    return isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0 and not math.isnan(v)
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0 and math.isfinite(v)
 
 
 def _warn_once(key: str) -> None:
