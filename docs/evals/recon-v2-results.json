@@ -155,6 +155,78 @@
     "lidar_ground_p50_m": 1.417,
     "lidar_ground_p95_m": 3.762
    }
+  },
+  {
+   "id": "omnire-fuse3-allveh",
+   "date": "2026-11-23",
+   "approach": "OmniRe 3-drive fusion",
+   "variant": "all vehicles as per-drive actors, 40k",
+   "ticket": 440,
+   "iterations": 40000,
+   "train_minutes": 66.0,
+   "gaussian_cap": 1000000,
+   "eval_set": "scene-0297 held-out, 60 views",
+   "notes": "Parked cars out of the static layer: road p95 back to 1.45 m; road p50 still 0.24 m.",
+   "metrics": {
+    "psnr": 20.12454891789948,
+    "ssim": 0.6747462962539645,
+    "road_depth_p50_m": 0.23757410049438477,
+    "road_depth_p95_m": 1.4521662712097163,
+    "sidewalk_depth_p50_m": 0.20259380340576172,
+    "sidewalk_depth_p95_m": 1.603031158447265,
+    "lidar_all_p50_m": 2.127,
+    "lidar_all_p95_m": 13.382,
+    "lidar_ground_p50_m": 1.581,
+    "lidar_ground_p95_m": 3.733
+   }
+  },
+  {
+   "id": "omnire-fuse3-lidar",
+   "date": "2026-11-24",
+   "approach": "OmniRe 3-drive fusion",
+   "variant": "+ LiDAR-ray depth supervision, 40k",
+   "ticket": 440,
+   "iterations": 40000,
+   "train_minutes": null,
+   "gaussian_cap": 1000000,
+   "eval_set": "scene-0297 held-out, 60 views",
+   "notes": "LiDAR-ray ground error 1.58 to 0.20 m; best fused road p95; resumed from 15k after a box reboot.",
+   "metrics": {
+    "psnr": 19.743149862798887,
+    "ssim": 0.6722227140465921,
+    "road_depth_p50_m": 0.23727703094482422,
+    "road_depth_p95_m": 1.2930061340332022,
+    "sidewalk_depth_p50_m": 0.15971088409423828,
+    "sidewalk_depth_p95_m": 1.2843345642089832,
+    "lidar_all_p50_m": 0.282,
+    "lidar_all_p95_m": 3.537,
+    "lidar_ground_p50_m": 0.195,
+    "lidar_ground_p95_m": 0.923
+   }
+  },
+  {
+   "id": "omnire-single-lidar",
+   "date": "2026-11-24",
+   "approach": "OmniRe",
+   "variant": "30k, single drive + LiDAR-ray depth supervision",
+   "ticket": 440,
+   "iterations": 30000,
+   "train_minutes": 74.0,
+   "gaussian_cap": 1000000,
+   "eval_set": "scene-0297 held-out, 60 views",
+   "notes": "Best run so far: road p50 0.08 m, p95 0.86 m.",
+   "metrics": {
+    "psnr": 20.184317505787,
+    "ssim": 0.659161440551667,
+    "road_depth_p50_m": 0.0792088508605957,
+    "road_depth_p95_m": 0.8571066856384276,
+    "sidewalk_depth_p50_m": 0.08134984970092773,
+    "sidewalk_depth_p95_m": 1.0016323089599592,
+    "lidar_all_p50_m": 0.177,
+    "lidar_all_p95_m": 3.95,
+    "lidar_ground_p50_m": 0.075,
+    "lidar_ground_p95_m": 1.289
+   }
   }
  ]
 }
