@@ -1,0 +1,160 @@
+{
+ "pass_bar": {
+  "psnr_min": 26.0,
+  "road_depth_p95_max_m": 0.05
+ },
+ "runs": [
+  {
+   "id": "reconcore-baseline",
+   "date": "2026-11-22",
+   "approach": "recon-core gsplat",
+   "variant": "4000 it, LiDAR depth term",
+   "ticket": 416,
+   "iterations": 4000,
+   "train_minutes": null,
+   "gaussian_cap": null,
+   "eval_set": "scene-0297 held-out, 60 views",
+   "notes": "Baseline before reconstruction v2.",
+   "metrics": {
+    "psnr": 13.658,
+    "ssim": 0.5865,
+    "road_depth_p50_m": 2.4352,
+    "road_depth_p95_m": 6.9282,
+    "sidewalk_depth_p50_m": 1.4478,
+    "sidewalk_depth_p95_m": 5.2954
+   }
+  },
+  {
+   "id": "omnire-smoke",
+   "date": "2026-11-23",
+   "approach": "OmniRe",
+   "variant": "smoke",
+   "ticket": 417,
+   "iterations": 4000,
+   "train_minutes": null,
+   "gaussian_cap": 1000000,
+   "eval_set": "scene-0297 held-out, 60 views",
+   "notes": "",
+   "metrics": {
+    "psnr": 19.1162,
+    "ssim": 0.6567,
+    "road_depth_p50_m": 0.3422,
+    "road_depth_p95_m": 2.0983,
+    "sidewalk_depth_p50_m": 0.3148,
+    "sidewalk_depth_p95_m": 3.3808
+   }
+  },
+  {
+   "id": "omnire-30k-10k",
+   "date": "2026-11-23",
+   "approach": "OmniRe",
+   "variant": "30k run, checkpoint 10k",
+   "ticket": 417,
+   "iterations": 10000,
+   "train_minutes": null,
+   "gaussian_cap": 1000000,
+   "eval_set": "scene-0297 held-out, 60 views",
+   "notes": "",
+   "metrics": {
+    "psnr": 20.4132,
+    "ssim": 0.6764,
+    "road_depth_p50_m": 0.1585,
+    "road_depth_p95_m": 1.6355,
+    "sidewalk_depth_p50_m": 0.1896,
+    "sidewalk_depth_p95_m": 2.1499
+   }
+  },
+  {
+   "id": "omnire-30k",
+   "date": "2026-11-23",
+   "approach": "OmniRe",
+   "variant": "30k, single drive",
+   "ticket": 417,
+   "iterations": 30000,
+   "train_minutes": 39.0,
+   "gaussian_cap": 1000000,
+   "eval_set": "scene-0297 held-out, 60 views",
+   "notes": "Chosen method (#420).",
+   "metrics": {
+    "psnr": 20.3152,
+    "ssim": 0.6565,
+    "road_depth_p50_m": 0.1266,
+    "road_depth_p95_m": 1.4095,
+    "sidewalk_depth_p50_m": 0.1984,
+    "sidewalk_depth_p95_m": 1.7498,
+    "lidar_all_p50_m": 0.984,
+    "lidar_all_p95_m": 10.428,
+    "lidar_ground_p50_m": 0.657,
+    "lidar_ground_p95_m": 3.312
+   }
+  },
+  {
+   "id": "splatad-smoke",
+   "date": "2026-11-23",
+   "approach": "SplatAD",
+   "variant": "smoke, 5k",
+   "ticket": 418,
+   "iterations": 5000,
+   "train_minutes": null,
+   "gaussian_cap": 1000000,
+   "eval_set": "scene-0297 held-out, 60 views",
+   "notes": "",
+   "metrics": {
+    "psnr": 19.6749,
+    "ssim": 0.6457,
+    "road_depth_p50_m": 1.0279,
+    "road_depth_p95_m": 70.2701,
+    "sidewalk_depth_p50_m": 4.4668,
+    "sidewalk_depth_p95_m": 104.9098
+   }
+  },
+  {
+   "id": "splatad-35k",
+   "date": "2026-11-23",
+   "approach": "SplatAD",
+   "variant": "35k",
+   "ticket": 418,
+   "iterations": 35000,
+   "train_minutes": null,
+   "gaussian_cap": 1000000,
+   "eval_set": "scene-0297 held-out, 60 views",
+   "notes": "Best appearance; camera depth unusable, LiDAR-rendered depth best.",
+   "metrics": {
+    "psnr": 22.2646,
+    "ssim": 0.7402,
+    "road_depth_p50_m": 2.1667,
+    "road_depth_p95_m": 118.7642,
+    "sidewalk_depth_p50_m": 3.3959,
+    "sidewalk_depth_p95_m": 110.9757,
+    "lidar_all_p50_m": 0.064,
+    "lidar_all_p95_m": 2.972,
+    "lidar_ground_p50_m": 0.028,
+    "lidar_ground_p95_m": 0.391
+   }
+  },
+  {
+   "id": "omnire-fuse3",
+   "date": "2026-11-23",
+   "approach": "OmniRe 3-drive fusion",
+   "variant": "0297+0716+0234, naive, 40k",
+   "ticket": 421,
+   "iterations": 40000,
+   "train_minutes": 60.0,
+   "gaussian_cap": 1000000,
+   "eval_set": "scene-0297 held-out, 60 views",
+   "notes": "No marking ghosting; road depth worse than single drive.",
+   "metrics": {
+    "psnr": 20.1478,
+    "ssim": 0.6751,
+    "road_depth_p50_m": 0.2737,
+    "road_depth_p95_m": 1.6324,
+    "sidewalk_depth_p50_m": 0.2035,
+    "sidewalk_depth_p95_m": 1.7206,
+    "lidar_all_p50_m": 2.028,
+    "lidar_all_p95_m": 13.304,
+    "lidar_ground_p50_m": 1.417,
+    "lidar_ground_p95_m": 3.762
+   }
+  }
+ ]
+}
