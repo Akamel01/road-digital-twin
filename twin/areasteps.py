@@ -19,6 +19,7 @@ import shapely
 from recon_core.checks import Check, write_checks
 from shapely.geometry import shape
 
+from twin.areastore import DRIVES_NAME, MERGED_NAME
 from twin.contracts import Params, flatten, stage_dir
 from twin.reference_split import split_reference
 from twin.runner import StageContext
@@ -64,7 +65,7 @@ def _load_area(area_path: Path) -> dict:
 def _load_drives(drives_path: Path | None, work: Path) -> list[dict]:
     if drives_path is not None:
         return json.loads(drives_path.expanduser().resolve().read_text())
-    return json.loads((work / "drives.json").read_text())
+    return json.loads((work / DRIVES_NAME).read_text())
 
 
 def _load_params(params_path: Path | None) -> Params:
@@ -88,7 +89,7 @@ def load_step(work: Path, area: dict, out: Path, capture: Path | None = None) ->
     work = Path(work)
     out = Path(out)
     polygon = shape(area["polygon"])
-    drives = json.loads((work / "drives.json").read_text())
+    drives = json.loads((work / DRIVES_NAME).read_text())
     facilities, reference = at.area_inputs(drives, work, polygon)
     anchors, heldout, split_meta = split_reference(reference)
     ident = json.dumps({"poses": [{"matrix": np.eye(4).tolist()}]})
@@ -128,7 +129,7 @@ def mask_step(work: Path, area: dict, out: Path) -> StepResult:
     out = Path(out)
     polygon = shape(area["polygon"])
     centre = np.array([*polygon.centroid.coords[0], 0.0])
-    drives = json.loads((work / "drives.json").read_text())
+    drives = json.loads((work / DRIVES_NAME).read_text())
     parked = at.parked_vehicles(drives, work, centre, polygon)
     mask_dir = stage_dir(out, "mask")
     mask_dir.mkdir(parents=True, exist_ok=True)
@@ -186,7 +187,7 @@ def ground_step(
     out.mkdir(parents=True, exist_ok=True)
     load_stage = _stage_dir_for("load", load_dir)
     align_stage = _stage_dir_for("align", align_dir)
-    with np.load(work / "merged.npz") as f:
+    with np.load(work / MERGED_NAME) as f:
         x, y, z = f["x"], f["y"], f["z"]
         intensity, drive = f["intensity"].astype(np.float32), f["drive"].astype(np.int64)
 
@@ -252,7 +253,7 @@ def change_step(
     dates = [d["date"] for d in drives]
     scenes = [d["scene"] for d in drives]
 
-    with np.load(work / "merged.npz") as f:
+    with np.load(work / MERGED_NAME) as f:
         x, y, z = f["x"], f["y"], f["z"]
         drive = f["drive"].astype(np.int64)
 

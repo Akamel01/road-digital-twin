@@ -16,7 +16,7 @@ from typing import NamedTuple
 import numpy as np
 
 from twin import prgate, publish, score
-from twin.areastore import open_area
+from twin.areastore import MERGED_NAME, open_area
 from twin.contracts import stage_dir
 from twin.gates import GO, GateReport
 from twin.runner import default_store
@@ -256,7 +256,7 @@ def publish_run(
     """Publish run_id (or an area name) if it improves on the published run. Returns a status line;
     a skip returns "skipped: reason". Raises SiteStop when it cannot go on."""
     store = Path(store)
-    # Area input: a build holding merged.npz -> use its gates.json.
+    # Area input: a build holding the merged cloud -> use its gates.json.
     area = None
     try:
         area = cloud_build(store, str(run_id))
@@ -412,10 +412,10 @@ def latest_dir(store: Path) -> Path:
 
 
 def cloud_build(store: Path, ref: str) -> Path:
-    """The build folder REF names (see areastore.open_area) when it holds merged.npz; SiteStop otherwise."""
+    """The build folder REF names (see areastore.open_area) when it holds the merged cloud; SiteStop otherwise."""
     build = open_area(store, ref).cloud_dir()
     if build is None:
-        raise SiteStop(f"no merged area build for {ref!r} (looked for merged.npz)")
+        raise SiteStop(f"no merged area build for {ref!r} (looked for {MERGED_NAME})")
     return build
 
 
@@ -470,12 +470,12 @@ def latest_payload(store: Path, area: str, now: datetime | None = None) -> dict:
         raise SiteStop(f"no gates.json in {src}: run `twin eval` first")
     report = json.loads(gates_file.read_text())
     at = (now or datetime.now(UTC)).isoformat(timespec="seconds")
-    cloud, cmeta = decimate_cloud(src / "merged.npz")
+    cloud, cmeta = decimate_cloud(src / MERGED_NAME)
     drives = open_area(store, src).drive_records()
     scorecard = {
         "area": src.name,
         "built_at": datetime.fromtimestamp(
-            (src / "merged.npz").stat().st_mtime, UTC
+            (src / MERGED_NAME).stat().st_mtime, UTC
         ).isoformat(timespec="seconds"),
         "published_at": at,
         "run_id": report["run_id"],

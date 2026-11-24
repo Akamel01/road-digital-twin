@@ -19,7 +19,29 @@ from twin.contracts import stage_dir
 
 TWIN_SUFFIX = "-twin"
 MERGED_SUFFIX = "-merged"
+DRIVES_NAME = "drives.json"
+MERGED_NAME = "merged.npz"
 FEATURE_FILES = ("markings.geojson", "crosswalks.geojson", "curbs.geojson", "ramps.geojson")
+
+
+def area_merged_dir(store: Path | str, name: str) -> Path:
+    """The merged build folder for a writer holding the plain area name.
+
+    `name` is used verbatim from `<store>/areas/<name>.json` and must not be
+    stripped or resolved through `open_area`; that invariant is why this helper
+    exists.
+    """
+    return Path(store) / "areas" / f"{name}{MERGED_SUFFIX}"
+
+
+def area_twin_dir(store: Path | str, name: str) -> Path:
+    """The twin build folder for a writer holding the plain area name.
+
+    `name` is used verbatim from `<store>/areas/<name>.json` and must not be
+    stripped or resolved through `open_area`; that invariant is why this helper
+    exists.
+    """
+    return Path(store) / "areas" / f"{name}{TWIN_SUFFIX}"
 
 
 @dataclass(frozen=True)
@@ -59,21 +81,21 @@ class Area:
     def build_dir(self) -> Path:
         """The twin when it has features (or a merged cloud), else the bare-named folder, else merged."""
         for c in (self.twin_dir, self.root / self.name, self.merged_dir):
-            if c.is_dir() and (_has_features(c) or (c / "merged.npz").is_file()):
+            if c.is_dir() and (_has_features(c) or (c / MERGED_NAME).is_file()):
                 return c
         raise FileNotFoundError(f"no area build for {self.name!r}")
 
     def cloud_dir(self) -> Path | None:
         """The build the ref named (else the bare-named folder) when it holds ``merged.npz``, else None."""
         d = self.ref_dir if self.ref_dir is not None else self.root / self.name
-        return d if (d / "merged.npz").is_file() else None
+        return d if (d / MERGED_NAME).is_file() else None
 
     def drive_records(self) -> list[dict]:
         """The build's drives.json entries as written. The build is the one the ref named, else merged, else the copy
         in the twin; [] when drives.json is unreadable."""
         builds = (self.ref_dir,) if self.ref_dir is not None else (self.merged_dir, self.twin_dir, self.root / self.name)
         for d in builds:
-            used = _read_json(d / "drives.json")
+            used = _read_json(d / DRIVES_NAME)
             if isinstance(used, list):
                 return [r for r in used if isinstance(r, dict)]
         return []

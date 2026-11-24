@@ -3,7 +3,7 @@
 `twin area merge <name>` builds each dry drive of an area file through load, mask and align
 (the existing stage functions, one scratch folder per drive), clips it to the area polygon,
 then registers every drive to a reference by point-to-plane ICP in the overlap. It writes
-merged.npz (every point keeps its drive index), drives.json and qa.json.
+the merged cloud (every point keeps its drive index), the per-drive table and qa.json.
 
 DECISION: this is its own step, not a pipeline stage. A stage takes one scene's folder as input
 (contracts.STAGES); an area has many, so the contracts stay unchanged and single-drive runs are untouched.
@@ -23,6 +23,7 @@ import shapely
 from shapely.geometry import shape
 
 from twin import heights, runner
+from twin.areastore import DRIVES_NAME, MERGED_NAME, area_merged_dir
 from twin.contracts import Params, stage_dir
 from twin.runrecord import read_record, record_path, write_document
 from twin.stages import align, ground, load, mask
@@ -612,7 +613,7 @@ def merge_area(area: dict, out: Path, params: Params, log) -> dict:
         parts.append(np.column_stack([xyz, p[:, 3], np.full(len(p), i)]))
     allp = np.vstack(parts)
     np.savez_compressed(
-        out / "merged.npz",
+        out / MERGED_NAME,
         x=allp[:, 0],
         y=allp[:, 1],
         z=allp[:, 2],
@@ -691,7 +692,7 @@ def merge_area(area: dict, out: Path, params: Params, log) -> dict:
             "stages": [],
         },
     )
-    (out / "drives.json").write_text(json.dumps(drives, indent=2))
+    (out / DRIVES_NAME).write_text(json.dumps(drives, indent=2))
     (out / "qa.json").write_text(json.dumps(qa, indent=2))
     if hqa:
         (out / "heights.json").write_text(json.dumps(hqa["sweeps"]))
@@ -706,7 +707,7 @@ def area_merge_command(name: str, store: Path | None, heights_on: bool = False, 
     os.environ["NUSCENES_VERSION"] = area[
         "dataset_version"
     ]  # read by load when it opens the dataset
-    out = base / "areas" / f"{name}-merged"
+    out = area_merged_dir(base, name)  # rebuilds today's folder path verbatim, path-like names included
     out.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(level=logging.INFO)
     params = Params(merge={"heights": heights_on, "method": method})

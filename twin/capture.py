@@ -34,7 +34,7 @@ from pathlib import Path
 
 import numpy as np
 
-from twin.areastore import open_area
+from twin.areastore import DRIVES_NAME, MERGED_NAME, open_area
 from twin.cameras import posed_cameras
 from twin.contracts import stage_dir
 from twin.dataset import DatasetConfig
@@ -75,8 +75,8 @@ def _camera_key(channel: str, K: np.ndarray) -> tuple:
 
 
 def _load_merged(merged_dir: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, list[dict]]:
-    npz_path = merged_dir / "merged.npz"
-    drives_path = merged_dir / "drives.json"
+    npz_path = merged_dir / MERGED_NAME
+    drives_path = merged_dir / DRIVES_NAME
     if not npz_path.is_file() or not drives_path.is_file():
         raise FileNotFoundError(f"missing merged inputs in {merged_dir}")
     with np.load(npz_path) as f:
@@ -86,7 +86,7 @@ def _load_merged(merged_dir: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray, 
         drive = np.asarray(f["drive"], dtype=np.int64)
     drives = json.loads(drives_path.read_text())
     if not isinstance(drives, list):
-        raise TypeError("drives.json must be a list")
+        raise TypeError(f"{DRIVES_NAME} must be a list")
     return x, y, z, drive, drives
 
 
@@ -184,7 +184,7 @@ def build_area_capture(
     dataroot_path = Path(dataroot) if dataroot is not None else Path(DatasetConfig.from_env().root)
     x, y, z, drive, drives = _load_merged(merged_dir)
     if len(drives) == 0:
-        raise ValueError("drives.json is empty")
+        raise ValueError(f"{DRIVES_NAME} is empty")
     if drive.size and (drive.min() < -1 or drive.max() >= len(drives)):
         bad = int(drive.max()) if drive.size else -1
         raise ValueError(

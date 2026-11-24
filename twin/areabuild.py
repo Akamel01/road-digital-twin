@@ -13,6 +13,13 @@ from typing import Any
 import recon_core.runner
 import yaml
 
+from twin.areastore import (
+    DRIVES_NAME,
+    MERGED_NAME,
+    TWIN_SUFFIX,
+    area_merged_dir,
+    area_twin_dir,
+)
 from twin.contracts import Params
 from twin.runrecord import read_record, write_document
 
@@ -259,7 +266,7 @@ def assemble_area_twin(
 ) -> dict[str, Any]:
     base = Path(base)
     core_dir = Path(core_dir)
-    out = base / "areas" / f"{name}-twin"
+    out = area_twin_dir(base, name)
     if out.exists() or out.is_symlink():
         if out.is_dir() and not out.is_symlink():
             shutil.rmtree(out)
@@ -300,9 +307,9 @@ def assemble_area_twin(
         for n in ["load", "mask", "align", "ground", "features", "change", "profile", "isd", "accuracy"]
     }
 
-    merged_dir = base / "areas" / f"{name}-merged"
-    merged_doc = _read_json(merged_dir / "drives.json")
-    for f in ("merged.npz", "drives.json", "qa.json"):
+    merged_dir = area_merged_dir(base, name)
+    merged_doc = _read_json(merged_dir / DRIVES_NAME)
+    for f in (MERGED_NAME, DRIVES_NAME, "qa.json"):
         src = merged_dir / f
         if src.exists():
             _symlink_or_copy(src, out / f)
@@ -340,7 +347,7 @@ def assemble_area_twin(
                 if k not in align_metrics:
                     align_metrics[k] = v
     write_document(out, {
-        "run_id": f"area-{name}-twin",
+        "run_id": f"area-{name}{TWIN_SUFFIX}",
         "data": merged_record.get("data", {}),
         "metrics": {
             "load": load_metrics,
@@ -388,9 +395,9 @@ def area_build(base: Path, name: str, log: logging.Logger, check_date: str | Non
     base = Path(base)
     areas = base / "areas"
     area_path = areas / f"{name}.json"
-    merged_dir = areas / f"{name}-merged"
-    merged_npz = merged_dir / "merged.npz"
-    merged_drives = merged_dir / "drives.json"
+    merged_dir = area_merged_dir(base, name)
+    merged_npz = merged_dir / MERGED_NAME
+    merged_drives = merged_dir / DRIVES_NAME
     if not area_path.is_file() or not merged_npz.is_file() or not merged_drives.is_file():
         raise ValueError(f"area {name!r} missing required inputs: {area_path}, {merged_npz}, {merged_drives}")
 
@@ -422,8 +429,9 @@ def area_build(base: Path, name: str, log: logging.Logger, check_date: str | Non
         raise RuntimeError(f"core run failed with exit code {rc}")
 
     summary = assemble_area_twin(base, name, core_dir, manifest, check_date=check_date)
-    eval_command(str(base / "areas" / f"{name}-twin"), None, None, None)
-    gates = _read_json(base / "areas" / f"{name}-twin" / "gates.json")
+    twin_dir = area_twin_dir(base, name)
+    eval_command(str(twin_dir), None, None, None)
+    gates = _read_json(twin_dir / "gates.json")
     summary["gates_verdict"] = gates.get("verdict")
     return summary
 

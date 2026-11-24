@@ -3,7 +3,7 @@ import json
 import numpy as np
 import pytest
 
-from twin.areastore import open_area
+from twin.areastore import area_merged_dir, area_twin_dir, open_area
 
 POLY = {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]]}
 DRIVES = [
@@ -228,3 +228,10 @@ def test_drive_records_are_the_named_builds_entries(tmp_path):
     store, _root = _mk(tmp_path)
     assert [r["scene"] for r in open_area(store, "a1-merged").drive_records()] == ["s2", "s1", "s9"]
     assert open_area(store, "a1-twin").drive_records() == []
+
+
+def test_writer_helpers_keep_todays_paths_verbatim(tmp_path):
+    store = tmp_path / "store"
+    # exotic names pin today's writer composition for byte-identity; not a supported reader/name contract
+    assert area_merged_dir(store, "sub/a1") == store / "areas" / "sub" / "a1-merged"
+    assert area_twin_dir(store, "x-twin") == store / "areas" / "x-twin-twin"

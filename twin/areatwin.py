@@ -1,6 +1,6 @@
 """Twin from the merged cloud, with change detection (issue #142).
 
-`twin area twin <name>` reads what `twin area merge` wrote (merged.npz, drives.json, and the per-drive folders it
+`twin area twin <name>` reads what `twin area merge` wrote (the merged cloud, the per-drive table, and the per-drive folders it
 cached) and runs ground, features, profile, isd and accuracy on the one registered cloud. On top of the single-drive
 stages it adds:
 
@@ -11,7 +11,7 @@ stages it adds:
 - support: every feature records which drives saw it (properties.support).
 
 DECISION: like merge, this is its own step, not a pipeline stage. A stage takes one scene's folder as input.
-It never edits merge's files: a different registration only changes merged.npz and drives.json.
+It never edits merge's files: a different registration only changes the merged cloud and the per-drive table.
 """
 
 from __future__ import annotations
@@ -28,6 +28,13 @@ from shapely.geometry import mapping, shape
 
 from twin import registry
 from twin.area import drive_correction
+from twin.areastore import (
+    DRIVES_NAME,
+    MERGED_NAME,
+    TWIN_SUFFIX,
+    area_merged_dir,
+    area_twin_dir,
+)
 from twin.contracts import Params, Pipeline, stage_dir
 from twin.runner import StageContext
 from twin.runrecord import read_record, write_document
@@ -420,17 +427,17 @@ def _stage(ctx: StageContext, name: str, params: Params, pipeline: Pipeline) -> 
 
 
 def twin_area(base: Path, name: str, log: logging.Logger, check_date: str | None = None) -> dict:
-    """Run the area twin. base: the run store; reads areas/<name>.json and areas/<name>-merged, writes areas/<name>-twin."""
+    """Run the area twin. base: the run store; reads the area definition and the merged build, writes the twin build."""
     from twin import areasteps
 
     t_start = time.time()
     area = json.loads((base / "areas" / f"{name}.json").read_text())
-    work = base / "areas" / f"{name}-merged"
-    out = base / "areas" / f"{name}-twin"
+    work = area_merged_dir(base, name)
+    out = area_twin_dir(base, name)
     out.mkdir(parents=True, exist_ok=True)
     polygon = shape(area["polygon"])
     centre = np.array([*polygon.centroid.coords[0], 0.0])
-    drives = json.loads((work / "drives.json").read_text())
+    drives = json.loads((work / DRIVES_NAME).read_text())
     dates = [d["date"] for d in drives]
     params, pipeline = Params(), Pipeline()
     pipeline.features.method = "raster"
@@ -492,13 +499,13 @@ def twin_area(base: Path, name: str, log: logging.Logger, check_date: str | None
         }),
     }
     (out / "change.json").write_text(json.dumps(summary, indent=2))
-    for f in ("merged.npz", "drives.json", "qa.json"):  # the site's latest view reads the cloud and drives from the area folder
+    for f in (MERGED_NAME, DRIVES_NAME, "qa.json"):  # the site's latest view reads the cloud and drives from the area folder
         (out / f).unlink(missing_ok=True)
         (out / f).symlink_to((work / f).resolve())
     # a minimal Run Record so `twin eval <folder>` reads G2 (from merge), G3 and G5
     acc = stage_metrics["accuracy"]
     write_document(out, {
-        "run_id": f"area-{name}-twin",
+        "run_id": f"area-{name}{TWIN_SUFFIX}",
         "data": mman.get("data", {}),
         "metrics": {"align": mman["metrics"]["align"], "ground": stage_metrics["ground"], "accuracy": acc},
         "stages": [{"seconds": v} for v in seconds.values()],
