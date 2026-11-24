@@ -114,7 +114,11 @@ def _write_run(
     np.savez_compressed(ground / "surface.npz", **_surface())
     ng = np.empty((0, 3)) if nonground is None else nonground
     _write_laz(ground / "nonground.laz", ng, np.zeros(len(ng)), 1)
-    qa = {"height_valid": height_valid, "observed_core": {"I-test": observed}}
+    qa = {
+        "height_valid": height_valid,
+        "observed_core": {"I-test": observed},
+        "min_observed": 0.5,
+    }
     (ground / "qa.json").write_text(json.dumps(qa))
     ctx = StageContext(
         run_dir=run,

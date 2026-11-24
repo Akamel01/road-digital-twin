@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,7 @@ from twin import heights
 from twin.contracts import GroundParams, StageResult
 from twin.drivecloud import aligned_cloud
 from twin.registry import register
+from twin.sightline import Surface
 
 CRS_EPSG = 32619
 GROUND_CLASS = 2
@@ -257,6 +259,46 @@ def observed_core(
         seen = count[j0:j1, i0:i1].ravel()[inside] > 0
         out[fid] = float(seen.sum() / n_in)
     return out
+
+
+# ------------------------------------------------------------------ reading the outputs
+
+
+@dataclass(frozen=True)
+class GroundOutputs:
+    """What later stages read from a ground stage folder: one place knows the qa.json and surface.npz formats."""
+
+    ground_dir: Path
+    height_valid: bool  # False when qa.json or the key is missing: Indeterminate, never assumed valid
+    observed_core: dict[str, float]
+    _min_observed: float | None
+    _not_scanned_enough: list[str]
+
+    def not_scanned(self, facility_id: str) -> bool:
+        if self._min_observed is None:
+            return facility_id in self._not_scanned_enough
+        return self.observed_core.get(facility_id, 0.0) < self._min_observed
+
+    def not_scanned_enough(self) -> list[str]:
+        return sorted(self._not_scanned_enough)
+
+    def surface(self) -> Surface:
+        with np.load(self.ground_dir / "surface.npz") as f:
+            return Surface(
+                z=f["z"], count=f["count"], origin=f["origin"], cell_m=float(f["cell_m"])
+            )
+
+
+def read_outputs(ground_dir: Path) -> GroundOutputs:
+    path = ground_dir / "qa.json"
+    qa = json.loads(path.read_text()) if path.is_file() else {}
+    return GroundOutputs(
+        ground_dir=ground_dir,
+        height_valid=bool(qa.get("height_valid", False)),
+        observed_core=qa.get("observed_core", {}),
+        _min_observed=qa.get("min_observed"),
+        _not_scanned_enough=qa.get("not_scanned_enough", []),
+    )
 
 
 # ------------------------------------------------------------------ output

@@ -9,6 +9,7 @@ import pytest
 from twin import registry
 from twin.contracts import GroundParams
 from twin.runner import StageContext
+from twin.stages.ground import read_outputs
 
 SLOPE = 0.02
 NOISE_M = 0.003
@@ -152,6 +153,48 @@ def test_observed_core_marks_not_scanned(tmp_path):
     assert qa["observed_core"]["I-scanned"] > 0.95
     assert qa["observed_core"]["S-empty"] == 0.0
     assert qa["not_scanned_enough"] == ["S-empty"]
+
+
+def test_read_outputs_round_trips_what_ground_writes(tmp_path):
+    rng = np.random.default_rng(0)
+    facilities = [
+        {"type": "Feature", "geometry": _polygon(5, 25, 2, 12), "properties": {"id": "I-scanned"}},
+        {"type": "Feature", "geometry": _polygon(100, 110, 0, 10), "properties": {"id": "S-empty"}},
+    ]
+    ctx, out = _write_run(tmp_path, _sweeps(rng), facilities=facilities)
+    registry.lookup("ground", "ransac-tiles")(ctx, GroundParams())
+    qa = json.loads((out / "qa.json").read_text())
+    ground = read_outputs(out)
+    assert ground.height_valid is True
+    assert ground.observed_core == qa["observed_core"]
+    assert ground.not_scanned_enough() == ["S-empty"]
+    assert ground.not_scanned("S-empty") and not ground.not_scanned("I-scanned")
+    assert ground.not_scanned("absent-from-qa")  # no observed_core entry reads as 0.0
+    with np.load(out / "surface.npz") as f:
+        surface = ground.surface()
+        assert np.array_equal(surface.z, f["z"], equal_nan=True)
+        assert np.array_equal(surface.count, f["count"])
+        assert np.array_equal(surface.origin, f["origin"])
+        assert surface.cell_m == float(f["cell_m"])
+
+
+def test_missing_qa_or_key_is_not_height_valid(tmp_path):
+    assert read_outputs(tmp_path).height_valid is False
+    (tmp_path / "qa.json").write_text(json.dumps({"observed_core": {}}))
+    assert read_outputs(tmp_path).height_valid is False
+
+
+def test_not_scanned_uses_the_list_when_qa_has_no_min_observed(tmp_path):
+    qa = {"observed_core": {"A": 0.9, "B": 0.1}, "not_scanned_enough": ["A", "B"]}
+    (tmp_path / "qa.json").write_text(json.dumps(qa))
+    ground = read_outputs(tmp_path)
+    assert ground.not_scanned("A") and ground.not_scanned("B")
+    assert not ground.not_scanned("C")
+    assert ground.not_scanned_enough() == ["A", "B"]
+    qa["min_observed"] = 0.5
+    (tmp_path / "qa.json").write_text(json.dumps(qa))
+    ground = read_outputs(tmp_path)  # the threshold now decides, not the list
+    assert ground.not_scanned("B") and not ground.not_scanned("A")
 
 
 def test_ransac_ground_repeats_exactly_and_follows_the_seed():

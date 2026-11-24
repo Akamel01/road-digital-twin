@@ -5,6 +5,7 @@ import pytest
 
 from twin import gpulease
 from twin.contracts import STAGE_NAMES, STAGES, Pipeline, SplatsParams
+from twin.sightline import Surface
 from twin.stages import splats
 
 K = np.array([[100.0, 0, 50], [0, 100.0, 40], [0, 0, 1]])
@@ -25,7 +26,7 @@ def test_sparse_depth_takes_the_nearest_point_per_pixel():
 
 def test_ground_z_and_geometry_agreement():
     z = np.zeros((20, 20))
-    surface = {"z": z, "count": np.ones((20, 20), int), "origin": np.array([0.0, 0.0]), "cell_m": 0.5}
+    surface = Surface(z=z, count=np.ones((20, 20), int), origin=np.array([0.0, 0.0]), cell_m=0.5)
     assert np.isnan(splats.ground_z_at(surface, np.array([[50.0, 50.0]]))[0])
     rng = np.random.default_rng(0)
     xy = rng.uniform(0, 10, (4000, 2))

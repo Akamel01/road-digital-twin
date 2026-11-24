@@ -67,7 +67,7 @@ def _write_run(tmp_path, features, observed, height_valid=True):
     )
     (run / "4_ground").mkdir()
     np.savez_compressed(run / "4_ground" / "surface.npz", **_surface())
-    qa = {"height_valid": height_valid, "observed_core": observed}
+    qa = {"height_valid": height_valid, "observed_core": observed, "min_observed": 0.5}
     (run / "4_ground" / "qa.json").write_text(json.dumps(qa))
     ctx = StageContext(
         run_dir=run,

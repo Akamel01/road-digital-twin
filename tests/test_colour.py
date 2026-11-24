@@ -306,6 +306,7 @@ def test_run_zbuffer_pose_refine_wiring(tmp_path, monkeypatch):
         1,
     )
     (stage_dirs["ground"] / "qa.json").write_text(json.dumps({"height_valid": False}))
+    np.savez(stage_dirs["ground"] / "surface.npz", z=np.full((1, 1), np.nan), count=np.zeros((1, 1), int), origin=np.zeros(2), cell_m=0.5)
     (stage_dirs["features"] / "markings.geojson").write_text(
         json.dumps({"type": "FeatureCollection", "features": []})
     )
