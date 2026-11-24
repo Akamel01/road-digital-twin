@@ -227,6 +227,30 @@
     "lidar_ground_p50_m": 0.075,
     "lidar_ground_p95_m": 1.289
    }
+  },
+  {
+   "id": "omnire-fuse3-lidar-affine",
+   "date": "2026-11-24",
+   "approach": "OmniRe",
+   "variant": "40k, 3-drive fusion + all vehicles + LiDAR-ray depth + per-drive colour (affine)",
+   "ticket": 440,
+   "iterations": 40000,
+   "train_minutes": 113.0,
+   "gaussian_cap": 1000000,
+   "eval_set": "scene-0297 held-out, 60 views",
+   "notes": "Per-drive colour correction did not help: road p50 0.28 m vs 0.24 m without it. Colour is not why fusion trails the single drive.",
+   "metrics": {
+    "psnr": 19.61163833316205,
+    "ssim": 0.6687181569226969,
+    "road_depth_p50_m": 0.2814297676086426,
+    "road_depth_p95_m": 1.360072326660156,
+    "sidewalk_depth_p50_m": 0.17498254776000977,
+    "sidewalk_depth_p95_m": 1.1816202163696283,
+    "lidar_all_p50_m": 0.264,
+    "lidar_all_p95_m": 3.508,
+    "lidar_ground_p50_m": 0.201,
+    "lidar_ground_p95_m": 1.046
+   }
   }
  ]
 }
