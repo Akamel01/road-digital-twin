@@ -26,18 +26,50 @@ def _write_area(work, name="a1"):
 
 def test_load_step_writes_standins(tmp_path, monkeypatch):
     from twin import areatwin as at
+    from twin.reference_split import split_reference
 
     area, work = _write_area(tmp_path)
-    monkeypatch.setattr(at, "area_inputs", lambda drives, work, polygon: ([], [{"type": "Feature", "properties": {"layer": "drivable_area"}, "geometry": mapping(box(0, 0, 10, 10))}]))
+    # Two features so split is non-trivial: anchors != full reference.
+    ref_features = [
+        {"type": "Feature", "properties": {"layer": "drivable_area", "token": "d0"}, "geometry": mapping(box(0, 0, 10, 10))},
+        {"type": "Feature", "properties": {"layer": "drivable_area", "token": "d1"}, "geometry": mapping(box(10, 0, 20, 10))},
+    ]
+    monkeypatch.setattr(at, "area_inputs", lambda drives, work, polygon: ([], ref_features))
     out = tmp_path / "out"
     res = areasteps.load_step(work, area, out)
     assert res.status == "ok"
     load = out / "1_load"
-    for fn in ["facilities.geojson", "reference.full.geojson", "reference.geojson", "poses.json"]:
+    for fn in ["facilities.geojson", "reference.full.geojson", "reference.geojson", "reference.anchors.geojson", "reference.heldout.geojson", "reference.split.json", "poses.json"]:
         assert (load / fn).is_file()
     poses = json.loads((load / "poses.json").read_text())
     assert poses["poses"][0]["matrix"][0][0] == 1.0
+    split_meta = json.loads((load / "reference.split.json").read_text())
+    ref_geojson = json.loads((load / "reference.geojson").read_text())["features"]
+    ref_full = json.loads((load / "reference.full.geojson").read_text())["features"]
+    anchors = json.loads((load / "reference.anchors.geojson").read_text())["features"]
+    heldout = json.loads((load / "reference.heldout.geojson").read_text())["features"]
+    expected_anchors, expected_heldout, expected_meta = split_reference(ref_features)
+    ref_ids = {f["properties"]["layer"] + ":" + f["properties"].get("token", f["properties"].get("id", "")) for f in ref_full}
+    anchor_ids = {f["properties"]["layer"] + ":" + f["properties"].get("token", f["properties"].get("id", "")) for f in anchors}
+    heldout_ids = {f["properties"]["layer"] + ":" + f["properties"].get("token", f["properties"].get("id", "")) for f in heldout}
+    # Load writes full reference (not anchors/masked subset) into reference.geojson.
+    assert [f["properties"] for f in ref_geojson] == [f["properties"] for f in ref_features]
+    assert [f["properties"] for f in ref_geojson] != [f["properties"] for f in expected_anchors]
+    assert [f["properties"] for f in ref_full] == [f["properties"] for f in ref_features]
+    assert [f["properties"] for f in anchors] == [f["properties"] for f in expected_anchors]
+    assert [f["properties"] for f in heldout] == [f["properties"] for f in expected_heldout]
+    assert split_meta == expected_meta
+    assert split_meta["holdout"] is True
+    assert split_meta["n_total"] == len(ref_full)
+    assert split_meta["n_anchor"] == len(anchors)
+    assert split_meta["n_heldout"] == len(heldout)
+    assert set(split_meta["heldout_ids"]) == heldout_ids
+    assert anchor_ids.isdisjoint(heldout_ids)
+    assert anchor_ids | heldout_ids == ref_ids
     assert (out / "metrics.json").is_file()
+    metrics = json.loads((out / "metrics.json").read_text())
+    assert metrics["n_reference"] == len(ref_features)
+    assert metrics["n_reference_anchors"] + metrics["n_reference_heldout"] == metrics["n_reference"]
     checks = json.loads((out / "checks.json").read_text())
     assert checks["version"] == 1
     names = {c["name"] for c in checks["checks"]}
@@ -108,6 +140,7 @@ def test_ground_step_uses_merged_cloud(tmp_path, monkeypatch):
 
 def test_change_step_flags_features_and_masks_reference(tmp_path, monkeypatch):
     from twin import areatwin as at
+    from twin.reference_split import split_reference
 
     area, work = _write_area(tmp_path)
     # Make merged cloud with two drives/dates so change detection can run; simple case: no change regions.
@@ -122,7 +155,13 @@ def test_change_step_flags_features_and_masks_reference(tmp_path, monkeypatch):
 
     load = tmp_path / "load"
     (load / "1_load").mkdir(parents=True)
-    ref = {"type": "FeatureCollection", "features": [{"type": "Feature", "properties": {"layer": "drivable_area"}, "geometry": mapping(box(0, 0, 10, 10))}]}
+    # Two features: d0 is anchor, d1 is heldout. Mask drops d0 -> masked=[d1], anchors=[], heldout=[d1].
+    # This proves change writes masked reference (not unmasked) and not anchors.
+    ref_features = [
+        {"type": "Feature", "properties": {"layer": "drivable_area", "token": "d0"}, "geometry": mapping(box(0, 0, 10, 10))},
+        {"type": "Feature", "properties": {"layer": "drivable_area", "token": "d1"}, "geometry": mapping(box(10, 0, 20, 10))},
+    ]
+    ref = {"type": "FeatureCollection", "features": ref_features}
     (load / "1_load" / "reference.full.geojson").write_text(json.dumps(ref))
     (load / "1_load" / "facilities.geojson").write_text(json.dumps(_fc([])))
     (load / "1_load" / "reference.geojson").write_text(json.dumps(ref))
@@ -130,17 +169,41 @@ def test_change_step_flags_features_and_masks_reference(tmp_path, monkeypatch):
 
     monkeypatch.setattr(at, "support", lambda feats, *a, **k: [f["properties"].setdefault("support", {"n_drives": 1, "drives": {"s1": 5}}) for f in feats])
     monkeypatch.setattr(at, "flag_changed", lambda feats, regions: 0)
-    monkeypatch.setattr(at, "mask_reference", lambda reference, regions: reference)
+    # Non-identity mask: drop d0, proving split is computed on masked reference.full.
+    monkeypatch.setattr(at, "mask_reference", lambda reference, regions: [f for f in reference if f["properties"]["token"] != "d0"])
 
     out = tmp_path / "out"
     res = areasteps.change_step(work, area, drives, features, load, out)
     assert res.status == "ok"
     assert (out / "change.geojson").is_file()
     assert (out / "5_features" / "markings.geojson").is_file()
+    assert (out / "1_load" / "reference.anchors.geojson").is_file()
+    assert (out / "1_load" / "reference.heldout.geojson").is_file()
+    assert (out / "1_load" / "reference.split.json").is_file()
     marked = json.loads((out / "5_features" / "markings.geojson").read_text())["features"][0]
     assert marked["properties"]["support"]["n_drives"] == 1
     assert "n_features" in res.metrics
     assert (out / "1_load" / "reference.geojson").is_file()
+
+    masked = [f for f in ref_features if f["properties"]["token"] != "d0"]
+    expected_anchors, expected_heldout, expected_meta = split_reference(masked)
+    ref_geojson = json.loads((out / "1_load" / "reference.geojson").read_text())["features"]
+    ref_full = json.loads((out / "1_load" / "reference.full.geojson").read_text())["features"]
+    anchors = json.loads((out / "1_load" / "reference.anchors.geojson").read_text())["features"]
+    heldout = json.loads((out / "1_load" / "reference.heldout.geojson").read_text())["features"]
+    split = json.loads((out / "1_load" / "reference.split.json").read_text())
+    # Change writes masked reference (not unmasked original) into reference.geojson/full.
+    assert [f["properties"]["token"] for f in ref_geojson] == ["d1"]
+    assert [f["properties"]["token"] for f in ref_geojson] != [f["properties"]["token"] for f in ref_features]
+    assert [f["properties"]["token"] for f in ref_geojson] != [f["properties"]["token"] for f in expected_anchors]
+    assert [f["properties"]["token"] for f in ref_full] == ["d1"]
+    assert [f["properties"] for f in anchors] == [f["properties"] for f in expected_anchors]
+    assert [f["properties"] for f in heldout] == [f["properties"] for f in expected_heldout]
+    assert split == expected_meta
+    assert set(split["heldout_ids"]).isdisjoint({f["properties"]["layer"] + ":" + f["properties"]["token"] for f in anchors})
+    assert {f["properties"]["layer"] + ":" + f["properties"]["token"] for f in anchors + heldout} == {
+        f["properties"]["layer"] + ":" + f["properties"]["token"] for f in ref_full
+    }
 
 
 def test_change_step_copies_qa_and_facilities(tmp_path, monkeypatch):
@@ -154,7 +217,7 @@ def test_change_step_copies_qa_and_facilities(tmp_path, monkeypatch):
     (features / "5_features" / "qa.json").write_text(json.dumps({"features_qa": True}))
     load = tmp_path / "load"
     (load / "1_load").mkdir(parents=True)
-    ref = _fc([{"type": "Feature", "properties": {"layer": "drivable_area"}, "geometry": mapping(box(0, 0, 10, 10))}])
+    ref = _fc([{"type": "Feature", "properties": {"layer": "drivable_area", "token": "d"}, "geometry": mapping(box(0, 0, 10, 10))}])
     (load / "1_load" / "reference.full.geojson").write_text(json.dumps(ref))
     (load / "1_load" / "facilities.geojson").write_text(json.dumps(_fc([{"type": "Feature", "properties": {"id": "f1"}, "geometry": mapping(box(0, 0, 1, 1))}])))
     (load / "1_load" / "reference.geojson").write_text(json.dumps(ref))
@@ -169,6 +232,24 @@ def test_change_step_copies_qa_and_facilities(tmp_path, monkeypatch):
     assert json.loads((out / "5_features" / "qa.json").read_text())["features_qa"] is True
     fac = json.loads((out / "1_load" / "facilities.geojson").read_text())
     assert fac["features"][0]["properties"]["id"] == "f1"
+    # split outputs present after change step
+    assert (out / "1_load" / "reference.anchors.geojson").is_file()
+    assert (out / "1_load" / "reference.heldout.geojson").is_file()
+    split = json.loads((out / "1_load" / "reference.split.json").read_text())
+    ref_full = json.loads((out / "1_load" / "reference.full.geojson").read_text())["features"]
+    anchors = json.loads((out / "1_load" / "reference.anchors.geojson").read_text())["features"]
+    heldout = json.loads((out / "1_load" / "reference.heldout.geojson").read_text())["features"]
+    anchor_ids = {f["properties"].get("token", f["properties"].get("id")) for f in anchors}
+    heldout_ids = {f["properties"].get("token", f["properties"].get("id")) for f in heldout}
+    ref_ids = {f["properties"].get("token", f["properties"].get("id")) for f in ref_full}
+    assert split["holdout"] is True
+    assert split["n_total"] == len(ref_full)
+    assert split["n_anchor"] == len(anchors)
+    assert split["n_heldout"] == len(heldout)
+    assert set(split["heldout_ids"]) == heldout_ids
+    assert anchor_ids.isdisjoint(heldout_ids)
+    assert anchor_ids | heldout_ids == ref_ids
+    assert len(anchors) + len(heldout) == 1
 
 
 def test_area_step_cli_load(tmp_path, monkeypatch):
@@ -181,6 +262,17 @@ def test_area_step_cli_load(tmp_path, monkeypatch):
     rc = main(["area", "step", "load", "--work", str(work), "--area", str(area_path), "--out", str(out)])
     assert rc == 0
     assert (out / "1_load" / "reference.geojson").is_file()
+    split = json.loads((out / "1_load" / "reference.split.json").read_text())
+    ref_full = json.loads((out / "1_load" / "reference.full.geojson").read_text())["features"]
+    anchors = json.loads((out / "1_load" / "reference.anchors.geojson").read_text())["features"]
+    heldout = json.loads((out / "1_load" / "reference.heldout.geojson").read_text())["features"]
+    anchor_ids = {f["properties"].get("token", f["properties"].get("id")) for f in anchors}
+    heldout_ids = {f["properties"].get("token", f["properties"].get("id")) for f in heldout}
+    ref_ids = {f["properties"].get("token", f["properties"].get("id")) for f in ref_full}
+    assert split["holdout"] is True
+    assert set(split["heldout_ids"]) == heldout_ids
+    assert anchor_ids.isdisjoint(heldout_ids)
+    assert anchor_ids | heldout_ids == ref_ids
     checks = json.loads((out / "checks.json").read_text())
     assert any(c["name"] == "stage_ok" and c["pass"] is True for c in checks["checks"])
 
@@ -201,7 +293,7 @@ def test_change_step_same_features_dir_and_out(tmp_path, monkeypatch):
 
     load_stage = out / "1_load"
     load_stage.mkdir(parents=True, exist_ok=True)
-    ref = _fc([{"type": "Feature", "properties": {"layer": "drivable_area"}, "geometry": mapping(box(0, 0, 10, 10))}])
+    ref = _fc([{"type": "Feature", "properties": {"layer": "drivable_area", "token": "d"}, "geometry": mapping(box(0, 0, 10, 10))}])
     (load_stage / "reference.full.geojson").write_text(json.dumps(ref))
     (load_stage / "facilities.geojson").write_text(json.dumps(_fc([])))
     (load_stage / "reference.geojson").write_text(json.dumps(ref))

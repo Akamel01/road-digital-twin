@@ -20,6 +20,7 @@ from recon_core.checks import Check, write_checks
 from shapely.geometry import shape
 
 from twin.contracts import Params, flatten, stage_dir
+from twin.reference_split import split_reference
 from twin.runner import StageContext
 
 STAGE_ORDER = ("ground", "features", "profile", "isd", "accuracy")
@@ -89,6 +90,7 @@ def load_step(work: Path, area: dict, out: Path, capture: Path | None = None) ->
     polygon = shape(area["polygon"])
     drives = json.loads((work / "drives.json").read_text())
     facilities, reference = at.area_inputs(drives, work, polygon)
+    anchors, heldout, split_meta = split_reference(reference)
     ident = json.dumps({"poses": [{"matrix": np.eye(4).tolist()}]})
     load_dir = stage_dir(out, "load")
     load_dir.mkdir(parents=True, exist_ok=True)
@@ -96,6 +98,9 @@ def load_step(work: Path, area: dict, out: Path, capture: Path | None = None) ->
         "facilities.geojson": _fc(facilities),
         "reference.full.geojson": _fc(reference),
         "reference.geojson": _fc(reference),
+        "reference.anchors.geojson": _fc(anchors),
+        "reference.heldout.geojson": _fc(heldout),
+        "reference.split.json": json.dumps(split_meta, sort_keys=True, indent=2) + "\n",
         "poses.json": ident,
     }
     for fn, text in files.items():
@@ -104,6 +109,8 @@ def load_step(work: Path, area: dict, out: Path, capture: Path | None = None) ->
         "n_drives": len(drives),
         "n_facilities": len(facilities),
         "n_reference": len(reference),
+        "n_reference_anchors": len(anchors),
+        "n_reference_heldout": len(heldout),
     }
     if capture is not None:
         metrics["capture"] = str(Path(capture).resolve())
@@ -299,15 +306,20 @@ def change_step(
     for fn, v in all_feats.items():
         (out_feat / fn).write_text(_fc(v))
 
-    # Copy 1_load from load_dir, then overwrite reference.geojson with masked reference.
+    # Copy 1_load from load_dir, then mask full reference and split masked result into all variants.
     out_load = stage_dir(out, "load")
     copied = _copy_tree_files(load_stage, out_load)
-    # ensure reference.full.geojson present
     ref_full_src = load_stage / "reference.full.geojson"
     ref_full_dst = out_load / "reference.full.geojson"
     if ref_full_src.is_file() and "reference.full.geojson" not in copied and ref_full_src.resolve() != ref_full_dst.resolve():
         shutil.copy2(ref_full_src, ref_full_dst)
-    (out_load / "reference.geojson").write_text(_fc(at.mask_reference(reference_full, regions)))
+    masked_reference = at.mask_reference(reference_full, regions)
+    anchors, heldout, split_meta = split_reference(masked_reference)
+    (out_load / "reference.full.geojson").write_text(_fc(masked_reference))
+    (out_load / "reference.geojson").write_text(_fc(masked_reference))
+    (out_load / "reference.anchors.geojson").write_text(_fc(anchors))
+    (out_load / "reference.heldout.geojson").write_text(_fc(heldout))
+    (out_load / "reference.split.json").write_text(json.dumps(split_meta, sort_keys=True, indent=2) + "\n")
 
     metrics = {
         "noise": noise,
@@ -323,7 +335,7 @@ def change_step(
         "n_features_changed": int(n_changed),
         "n_features": len(flat),
     }
-    files = ["change.geojson"] + [f"5_features/{fn}" for fn in all_feats] + ["1_load/reference.geojson"]
+    files = ["change.geojson"] + [f"5_features/{fn}" for fn in all_feats] + ["1_load/reference.full.geojson", "1_load/reference.geojson", "1_load/reference.anchors.geojson", "1_load/reference.heldout.geojson", "1_load/reference.split.json"]
     if (out_feat / "qa.json").is_file():
         files.append("5_features/qa.json")
     return _ok(out, metrics, files)

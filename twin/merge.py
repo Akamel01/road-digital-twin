@@ -67,7 +67,7 @@ MIN_CELLS = 200
 # ------------------------------------------------------------------ geometry
 
 
-def _pcd(xyz: np.ndarray, normals: bool = False) -> o3d.geometry.PointCloud:
+def _pcd(xyz: np.ndarray, normals: bool = False):
     p = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(xyz))
     if normals:
         p.estimate_normals(
@@ -363,6 +363,11 @@ def register_drives(
     }
 
 
+def align_chained(clouds, centre, seed: int = 0, ground=None) -> dict:
+    """Chained (legacy) registration: thin wrapper over register_drives for the M04 dispatch surface."""
+    return register_drives(clouds, centre, seed=seed, ground=ground)
+
+
 def correction_summary(t: np.ndarray) -> dict:
     return {
         "dx_m": float(t[0, 3]),
@@ -554,9 +559,39 @@ def merge_area(area: dict, out: Path, params: Params, log) -> dict:
     ground_pts = {
         k: gworld[k][:, :3] if k in gworld else clouds[k][:, :3] for k in names
     }
-    res = register_drives(
-        {k: v[:, :3] for k, v in clouds.items()}, centre, params.seed, ground_pts
-    )
+    method = params.merge.method
+    if method == "chained-icp":
+        res = register_drives(
+            {k: v[:, :3] for k, v in clouds.items()}, centre, params.seed, ground_pts
+        )
+    elif method == "joint-pose-graph":
+        import logging as _logging
+
+        from twin import areatwin, joint_align, reference_split
+        _log = _logging.getLogger("twin.merge")
+        anchor_load_failed = False
+        try:
+            _, reference = areatwin.area_inputs(
+                [sc for sc in area["drives"] if sc.get("build_input")], out, polygon
+            )
+        except Exception as exc:  # noqa: BLE001
+            _log.exception("area_inputs failed: %s", exc)
+            reference = []
+            anchor_load_failed = True
+        anchors, _heldout, _meta = reference_split.split_reference(reference)
+        res = joint_align.align_joint(
+            names,
+            {k: v[:, :3] for k, v in clouds.items()},
+            ground_pts,
+            anchors,
+            centre,
+        )
+        if anchor_load_failed:
+            res["fallback_reason"] = "anchor load failed"
+            if isinstance(res.get("convergence"), dict):
+                res["convergence"]["fallback_reason"] = "anchor load failed" 
+    else:
+        raise ValueError(f"unknown merge method: {method}")
     # DECISION: heights are fitted across drives only when merge.heights is set (off by default). They come after
     # the drive registration (it gives the drives' overall dz) and move only z, roll and pitch of each sweep; x, y
     # and yaw stay as align and the registration gave them.
@@ -615,6 +650,14 @@ def merge_area(area: dict, out: Path, params: Params, log) -> dict:
     qa = {
         "area": area["name"],
         "reference": res["reference"],
+        "method": res.get("method"),
+        "convergence": res.get("convergence"),
+        "anchor_residuals": res.get("anchor_residuals"),
+        "pair_residuals": res.get("pair_residuals"),
+        "fallback_reason": res.get("fallback_reason"),
+        "n_anchors": res.get("n_anchors"),
+        "n_drives_with_overlap": res.get("n_drives_with_overlap"),
+        "elapsed": res.get("elapsed"),
         "drives": drives,
         "ground_disagreement_pairs": res["pairs"],
         "heights": hqa["summary"] if hqa else None,
@@ -630,6 +673,14 @@ def merge_area(area: dict, out: Path, params: Params, log) -> dict:
         "cross_drive_ground_p95_registered_m": float(np.median(reg)) if reg else None,
         "n_drives": len(names),
         "n_skipped": len(skipped),
+        "method": res.get("method"),
+        "convergence": res.get("convergence"),
+        "fallback_reason": res.get("fallback_reason"),
+        "n_anchors": res.get("n_anchors"),
+        "n_drives_with_overlap": res.get("n_drives_with_overlap"),
+        "elapsed": res.get("elapsed"),
+        "anchor_residuals": res.get("anchor_residuals"),
+        "pair_residuals": res.get("pair_residuals"),
     }
     write_document(
         out,
@@ -647,7 +698,7 @@ def merge_area(area: dict, out: Path, params: Params, log) -> dict:
     return qa
 
 
-def area_merge_command(name: str, store: Path | None, heights_on: bool = False) -> int:
+def area_merge_command(name: str, store: Path | None, heights_on: bool = False, method: str = "chained-icp") -> int:
     from twin.runner import default_store
 
     base = Path(store) if store else default_store()
@@ -658,7 +709,7 @@ def area_merge_command(name: str, store: Path | None, heights_on: bool = False) 
     out = base / "areas" / f"{name}-merged"
     out.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(level=logging.INFO)
-    params = Params(merge={"heights": heights_on})
+    params = Params(merge={"heights": heights_on, "method": method})
     qa = merge_area(area, out, params, logging.getLogger("twin.merge"))
     print(json.dumps(qa, indent=2))
     return 0

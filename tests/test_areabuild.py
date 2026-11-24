@@ -314,6 +314,47 @@ def test_assemble_area_twin_check_date_none(tmp_path, monkeypatch):
     assert change["construction_check"] is None
 
 
+def test_assemble_area_twin_metrics_contract(tmp_path, monkeypatch):
+    base = tmp_path / "store"
+    base.mkdir()
+    name = "a1"
+    core_dir, manifest = _make_core_dir_for_assemble(base, name)
+
+    merged = base / "areas" / f"{name}-merged"
+    # joint merge output carries method/convergence/fallback diagnostics
+    conv = {"success": True, "cost": 1.23, "nfev": 42, "message": "ok"}
+    merged_metrics = {
+        "method": "joint-pose-graph",
+        "convergence": conv,
+        "fallback_reason": None,
+        "n_anchors": 7,
+        "n_drives_with_overlap": 2,
+        "elapsed": 0.5,
+        "cross_drive_ground_p95_m": 0.1,
+    }
+    from twin.runrecord import write_document
+    write_document(merged, {"run_id": "merged", "data": {"scene_token": "s1"}, "metrics": {"align": merged_metrics}})
+    (merged / "qa.json").write_text(json.dumps({"method": "joint-pose-graph", "convergence": conv, "fallback_reason": None, "n_anchors": 7, "n_drives_with_overlap": 2, "elapsed": 0.5}))
+
+    # load node carries split counts
+    load_node = core_dir / "nodes" / "load"
+    load_node.mkdir(parents=True, exist_ok=True)
+    (load_node / "metrics.json").write_text(json.dumps({"n_reference": 3, "n_reference_anchors": 2, "n_reference_heldout": 1}))
+    (load_node / "checks.json").write_text('{"version":1,"checks":[]}')
+
+    areabuild.assemble_area_twin(base, name, core_dir, manifest, check_date=None)
+    out = base / "areas" / f"{name}-twin"
+    run = json.loads((out / "run.json").read_text())
+    m = run["metrics"]
+    assert m["load"]["n_reference"] == 3
+    assert m["align"]["method"] == "joint-pose-graph"
+    assert m["align"]["convergence"] == conv
+    assert m["align"].get("fallback_reason") is None
+    assert m["align"]["n_anchors"] == 7
+    # per-drive merged-icp method must not leak in
+    assert m["align"].get("method") != "merged-icp"
+
+
 def test_every_manifest_command_parses_with_real_cli(tmp_path):
     from twin.cli import build_parser
 

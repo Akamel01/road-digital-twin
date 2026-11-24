@@ -167,6 +167,7 @@ def build_parser() -> argparse.ArgumentParser:
     merge.add_argument("name")
     merge.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
     merge.add_argument("--heights", action="store_true", help="also fit sweep heights across drives")
+    merge.add_argument("--method", choices=("chained-icp", "joint-pose-graph"), default="chained-icp", help="cross-drive registration method")
     at = area.add_parser("twin", help="twin from the merged cloud, with change detection")
     at.add_argument("name")
     at.add_argument("--store", type=Path, help="run store (default: $TWIN_RUNS)")
@@ -361,7 +362,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "area" and args.area_cmd == "merge":
         from twin.merge import area_merge_command
 
-        return area_merge_command(args.name, args.store, args.heights)
+        return area_merge_command(args.name, args.store, args.heights, args.method)
     if args.command == "area" and args.area_cmd == "twin":
         from twin.areatwin import area_twin_command
 

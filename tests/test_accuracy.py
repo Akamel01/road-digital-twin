@@ -70,7 +70,7 @@ def _run(
     if curbs is not None:
         _write(run, "features", "curbs.geojson", _fc(curbs))
     fn = registry.lookup("accuracy", "one-way")
-    result = fn(_ctx(run), AccuracyParams(buffer_m=buffer_m))
+    result = fn(_ctx(run), AccuracyParams(buffer_m=buffer_m), reference_path=run / "1_load" / "reference.geojson", output_path=run / "9_accuracy" / "accuracy.json")
     assert result.status == "ok"
     return json.loads((run / "9_accuracy" / "accuracy.json").read_text())
 
@@ -246,7 +246,7 @@ def test_result_metrics_are_the_accuracy_document(tmp_path):
     )
     _write(run, "features", "crosswalks.geojson", _fc([]))
     _write(run, "features", "qa.json", {"not_scanned_enough": []})
-    result = registry.lookup("accuracy", "one-way")(_ctx(run), AccuracyParams())
+    result = registry.lookup("accuracy", "one-way")(_ctx(run), AccuracyParams(), reference_path=run / "1_load" / "reference.geojson", output_path=run / "9_accuracy" / "accuracy.json")
     assert result.metrics == json.loads(
         (run / "9_accuracy" / "accuracy.json").read_text()
     )
@@ -321,3 +321,131 @@ def test_nothing_within_radius_gives_no_matched_figures(tmp_path):
     doc = _run(tmp_path, ref, [_line([[x, 5.0] for x in range(10, 31)])])
     m = doc["elements"]["markings"]
     assert m["matched_p95_m"] is None and m["false_positive_rate"] == 1
+
+
+def test_combined_heldout_gated_fields_differ_from_all(tmp_path):
+    # Held-out excludes the far (false-positive) line, so its gated p95 differs from all-reference.
+    run = tmp_path / "run"
+    run.mkdir()
+    all_ref = [_ref([[0, 0], [100, 0]], "lane_divider")]
+    held_ref = [_ref([[0, 5], [100, 5]], "lane_divider")]
+    _write(run, "load", "reference.geojson", _fc(all_ref))
+    _write(run, "load", "reference.heldout.geojson", _fc(held_ref))
+    _write(run, "load", "facilities.geojson", _fc([_core()]))
+    _write(run, "features", "markings.geojson", _fc([_line([[x, 0.1] for x in range(10, 31)])]))
+    _write(run, "features", "crosswalks.geojson", _fc([]))
+    _write(run, "features", "qa.json", {"not_scanned_enough": []})
+    result = registry.lookup("accuracy", "one-way")(_ctx(run), AccuracyParams())
+    assert result.status == "ok"
+    doc = json.loads((run / "9_accuracy" / "accuracy.json").read_text())
+    all_doc = json.loads((run / "9_accuracy" / "accuracy.all.json").read_text())
+    assert doc["elements"]["markings"]["p95_m"] != all_doc["elements"]["markings"]["p95_m"]
+
+
+def test_plan54_combined_gated_differs_from_all_no_anchor_scored(tmp_path):
+    # plan:54: combined run must set *_all keys from all reference, and gated metrics must differ from *_all.
+    # Anchor-only extraction: a marking near the anchor ref only; held-out scoring has no matching ref, so
+    # matched_p95_m/false_positive_rate/coverage differ from *_all. No anchor id scored in held-out path by construction.
+    from twin.reference_split import element_id, split_reference
+
+    run = tmp_path / "run"
+    run.mkdir()
+    ref_anchor = {
+        "type": "Feature",
+        "properties": {"layer": "lane_divider", "token": "t1"},
+        "geometry": {"type": "LineString", "coordinates": [[0, 0], [100, 0]]},
+    }
+    ref_held = {
+        "type": "Feature",
+        "properties": {"layer": "lane_divider", "token": "t0"},
+        "geometry": {"type": "LineString", "coordinates": [[0, 50], [100, 50]]},
+    }
+    all_refs = [ref_anchor, ref_held]
+    anchors, heldout, meta = split_reference(all_refs)
+
+    anchor_ids = {element_id(f) for f in anchors}
+    heldout_ids = set(meta["heldout_ids"])
+    assert anchor_ids == {"lane_divider:t1"}
+    assert heldout_ids == {"lane_divider:t0"}
+    assert anchor_ids.isdisjoint(heldout_ids)
+    assert set(meta["heldout_ids"]).isdisjoint(anchor_ids)
+
+    _write(run, "load", "reference.geojson", _fc(all_refs))
+    _write(run, "load", "reference.heldout.geojson", _fc(heldout))
+    _write(run, "load", "facilities.geojson", _fc([_core()]))
+    # Anchor-only extraction: close to anchor ref, far from held-out ref.
+    _write(run, "features", "markings.geojson", _fc([_line([[x, 0.1] for x in range(10, 31)])]))
+    _write(run, "features", "crosswalks.geojson", _fc([]))
+    _write(run, "features", "qa.json", {"not_scanned_enough": []})
+
+    result = registry.lookup("accuracy", "one-way")(_ctx(run), AccuracyParams())
+    assert result.status == "ok"
+    doc = json.loads((run / "9_accuracy" / "accuracy.json").read_text())
+    all_doc = json.loads((run / "9_accuracy" / "accuracy.all.json").read_text())
+
+    m = doc["elements"]["markings"]
+    m_all = all_doc["elements"]["markings"]
+    # *_all merge present (not no-op) and includes matched_p50_all_m.
+    for k in ("matched_p95_all_m", "matched_p50_all_m", "false_positive_rate_all", "coverage_all"):
+        assert k in m
+    assert m["matched_p95_all_m"] == m_all.get("matched_p95_m")
+    assert m["matched_p50_all_m"] == m_all.get("matched_p50_m")
+    assert m["false_positive_rate_all"] == m_all.get("false_positive_rate")
+    assert m["coverage_all"] == m_all.get("coverage")
+
+    # Gated (held-out) differs from *_all on all three required metrics.
+    assert m.get("matched_p95_m") != m.get("matched_p95_all_m")
+    assert m.get("false_positive_rate") != m.get("false_positive_rate_all")
+    assert m.get("coverage") != m.get("coverage_all")
+
+
+def test_merge_all_keys_covers_marking_types_facilities_and_skips():
+    from twin.stages.accuracy import _merge_all_keys
+
+    held = {
+        "elements": {"markings": {"matched_p95_m": 1.0}},
+        "marking_types": {"divider": {"coverage": 0.5, "reason": ""}},
+        "facilities": {"I-1": {"false_positive_rate": 0.2}, "I-skip": "not-a-dict"},
+        "other": {"x": 1},
+    }
+    alls = {
+        "elements": {"markings": {"matched_p95_m": 9.0, "matched_p50_m": 8.0, "false_positive_rate": 0.9, "coverage": 0.1}},
+        "marking_types": {"divider": {"coverage": 0.8, "matched_p95_m": 7.0, "false_positive_rate": 0.7, "matched_p50_m": 6.0}},
+        "facilities": {"I-1": {"false_positive_rate": 0.3, "coverage": 0.4, "matched_p95_m": 5.0, "matched_p50_m": 4.0}, "I-skip": {"coverage": 1.0}},
+        "other": {"x": 2},
+    }
+    out = _merge_all_keys(held, alls)
+    assert out["elements"]["markings"]["matched_p95_all_m"] == 9.0
+    assert out["elements"]["markings"]["matched_p50_all_m"] == 8.0
+    assert out["elements"]["markings"]["false_positive_rate_all"] == 0.9
+    assert out["elements"]["markings"]["coverage_all"] == 0.1
+    assert out["marking_types"]["divider"]["coverage_all"] == 0.8
+    assert out["marking_types"]["divider"]["matched_p95_all_m"] == 7.0
+    assert out["facilities"]["I-1"]["false_positive_rate_all"] == 0.3
+    # Unrelated top-level section must not be copied/overwritten from all doc.
+    assert out["other"] == {"x": 1}
+    assert out["facilities"]["I-skip"] == "not-a-dict"
+    held_bad = {"elements": "bad", "marking_types": {}, "facilities": {}}
+    out_bad = _merge_all_keys(held_bad, {"elements": {"a": {"coverage": 1}}})
+    assert out_bad["elements"] == "bad"
+
+
+def test_merge_all_keys_absent_key_and_no_unrelated_sections():
+    from twin.stages.accuracy import _merge_all_keys
+
+    held = {
+        "elements": {"markings": {"matched_p95_m": 1.0}, "absent": {"coverage": 0.2}},
+        "marking_types": {},
+        "facilities": {},
+    }
+    alls = {
+        "elements": {"markings": {"matched_p95_m": 9.0, "matched_p50_m": 8.0, "false_positive_rate": 0.9, "coverage": 0.1}},
+        "marking_types": {},
+        "facilities": {},
+    }
+    out = _merge_all_keys(held, alls)
+    assert out["elements"]["markings"]["matched_p95_all_m"] == 9.0
+    # Key absent from all doc: no *_all keys invented.
+    assert out["elements"]["absent"] == {"coverage": 0.2}
+    # No unrelated sections invented.
+    assert set(out.keys()) == {"elements", "marking_types", "facilities"}

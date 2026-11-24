@@ -361,6 +361,8 @@ class MergeParams(_Strict):
     # DECISION (coordinator, 2026-11-10): heights are fitted per drive in align, but across drives in the area
     # merge only on request. On the seaport area the fit gave implausible tilts (issue 177).
     heights: bool = False
+    # DECISION (issue #252): chained ICP stays the default; joint pose graph is opt-in (M04 implements solver).
+    method: Literal["chained-icp", "joint-pose-graph"] = "chained-icp"
 
 
 class Params(_Strict):

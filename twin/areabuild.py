@@ -268,6 +268,7 @@ def assemble_area_twin(
     out.mkdir(parents=True, exist_ok=True)
 
     nodes_dir = core_dir / "nodes"
+    load_node = nodes_dir / "load"
     mask_node = nodes_dir / "mask"
     align_node = nodes_dir / "align"
     ground_node = nodes_dir / "ground"
@@ -316,11 +317,34 @@ def assemble_area_twin(
         merged_record = {}
     ground_metrics = _read_json(ground_node / "metrics.json")
     accuracy_metrics = _read_json(accuracy_node / "metrics.json")
+    try:
+        load_metrics = _read_json(load_node / "metrics.json")
+    except (OSError, ValueError, json.JSONDecodeError):
+        load_metrics = {}
+    # align metrics come from the joint (cross-drive) merge output, not from the
+    # per-drive align node (which only reports the per-drive "merged-icp" method).
+    align_metrics = dict(merged_record.get("metrics", {}).get("align", {}) or {})
+    # also pull convergence/fallback/method from the merged qa.json if present
+    for qa_path in (merged_dir / "qa.json",):
+        try:
+            qa = _read_json(qa_path)
+        except (OSError, ValueError, json.JSONDecodeError):
+            qa = {}
+        for key in ("convergence", "fallback_used", "fallback_reason", "fallback", "method",
+                    "n_anchors", "n_drives_with_overlap", "elapsed",
+                    "anchor_residuals", "pair_residuals"):
+            if key in qa and key not in align_metrics:
+                align_metrics[key] = qa[key]
+        if isinstance(qa.get("convergence"), dict):
+            for k, v in qa["convergence"].items():
+                if k not in align_metrics:
+                    align_metrics[k] = v
     write_document(out, {
         "run_id": f"area-{name}-twin",
         "data": merged_record.get("data", {}),
         "metrics": {
-            "align": merged_record.get("metrics", {}).get("align", {}),
+            "load": load_metrics,
+            "align": align_metrics,
             "ground": ground_metrics,
             "accuracy": accuracy_metrics,
         },
