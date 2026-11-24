@@ -54,7 +54,8 @@ Starting at boot (systemd, crontab `@reboot`) is the operator's choice; none is 
 | eval / publish / prgate task | 8 GB | `TWIN_MEM_CAP_EVAL_GB`, `TWIN_MEM_CAP_PUBLISH_GB`, `TWIN_MEM_CAP_PRGATE_GB` |
 
 A queue job may set `"mem_cap_gb": <number>`; it wins over the env var and the default. A
-non-numeric, boolean or non-positive override is ignored with one warning and the default applies.
+non-numeric, boolean or non-positive override is ignored with one warning and falls through to the
+next override, then the default.
 `mem_cap_gb` is optional and additive: in streaming mode it caps **each** stage child, so it applies
 per task; in serial mode it has no effect. `twin area build` has no worker call site and no cap
 setting; run it by hand under the same wrapper:
@@ -75,20 +76,25 @@ Prerequisite: a user systemd session with the `memory` controller delegated. Sta
 worker (`twin worker --stream`; its scheduler prints the line at start, even with an empty queue) and
 read its one `twin memcap:` line: `shell=systemd-run` and `child-cgroups=<root>` means both
 mechanisms work; `shell=UNCAPPED` or `child-cgroups=none` names the unavailable one and the
-`WARNING` suffix says caps are not enforced and every affected job runs uncapped. For a boot worker
+`WARNING` suffix says caps are not enforced and every affected job runs uncapped. A streaming child
+whose `enter` fails silently runs uncapped; the operator must check the startup line
+(`child-cgroups=none` means not enforced). For a boot worker
 without a login session, `loginctl enable-linger <user>` (this does not change SSH settings).
 
 Headroom: before the P2 area merge, `MemAvailable` must be at least the cap + 10 GB (the `available`
 column of `free -g`; 30 GB with the default 20 GB cap). Otherwise autopilot logs `autopilot: held:
 area-merge needs 20.0 GB cap + 10.0 GB headroom; 24.3 GB available`, leaves the commit unbuilt and
-retries on the next pass; nothing is pulled, queued or published. The same rule applies to a manual
-area build (8 GB cap + 10 GB headroom).
+retries on the next pass; the held commit is not pulled, started, queued or published
+(`publish_showcase` may run for an earlier pending build). The same rule applies to a manual
+area build (8 GB cap + 10 GB headroom), as a manual check (`free -g`), not an enforced gate.
 
 Cap kill: a streaming job whose child hits its cap ends `failed` with `error: "oom-cap"`; the
 scheduler logs `failed <id> oom-cap` and carries on with other jobs. An autopilot P2 shell is
 recorded as `exit: "oom-cap"` only when its exit file is missing or holds a code other than `0`/`1`
 **and** its log shows OOM text; a stored `0` or `1` is never overridden. It is not published and is
-not retried for that commit — clear `p2.built` in `<store>/autopilot/state.json` to retry. `oom-cap`
+not retried for that commit — clear `p2.built` in `<store>/autopilot/state.json` to retry. A
+cap-killed P2b eval shell (8 GB) is retried by clearing `p2b["gates"]` in
+`<store>/autopilot/state.json` (not `p2.built`, which re-runs the full 20 GB merge). `oom-cap`
 comes only from a job's own cgroup `memory.events` (`oom_kill > 0`) or OOM text in the autopilot
 shell log; a bare SIGKILL/137 is not `oom-cap`.
 

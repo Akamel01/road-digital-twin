@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from twin import memcap
+
 
 def test_runbook_documents_memory_caps_and_headroom():
     text = Path("docs/runbooks/box-job-queue.md").read_text()
@@ -18,12 +20,30 @@ def test_runbook_documents_memory_caps_and_headroom():
     assert "oom-cap" in text
     assert "twin worker --stream" in text
     assert "systemd-run --user --scope --quiet -p MemoryMax=8G -p MemorySwapMax=0 -- uv run twin area build" in text
-    assert "shell=" in text
-    assert "child-cgroups=" in text
-    assert "pkill -f \"twin worker\"" in text
+    # startup tokens (exact literal forms the code prints)
+    for token in (
+        "shell=systemd-run",
+        "shell=UNCAPPED",
+        "child-cgroups=<root>",
+        "child-cgroups=none",
+    ):
+        assert token in text, token
     assert "pgrep -f \"twin worker\"" in text
     assert "Not capped" in text
     for bad in ("TWIN_MEM_CAP_AREA_BUILD_GB", "TWIN_MEM_CAP_RUN_GB", "TWIN_MEM_CAP_RERUN_GB"):
         assert bad not in text, bad
-    # headroom sentence keeps MemAvailable with the cap + 10 GB rule
-    assert "must be at least the cap + 10 GB" in text
+    # contiguous MemAvailable headroom sentence
+    assert "`MemAvailable` must be at least the cap + 10 GB" in text
+    # P2b retry instruction
+    assert 'clearing `p2b["gates"]`' in text
+    # default cap rows against twin.memcap.CAPS_GB
+    assert f"{memcap.CAPS_GB['area-merge']:.0f} GB" in text
+    assert f"{memcap.CAPS_GB['stage']:.0f} GB" in text
+    # held-pass scoping
+    assert "the held commit is not pulled, started, queued or published" in text
+    # invalid override fallthrough
+    assert "falls through to the\nnext override, then the default" in text or "falls through to the next override, then the default" in text
+    # streaming child enter caveat
+    assert "child-cgroups=none` means not enforced" in text or "child-cgroups=none` means not enforced" in text
+    # manual area build not code-gated
+    assert "manual check (`free -g`), not an enforced gate" in text
