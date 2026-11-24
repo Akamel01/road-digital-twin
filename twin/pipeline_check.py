@@ -23,6 +23,7 @@ import numpy as np
 
 from twin import fake_run, gpulease, jobqueue, merge, registry, runner, scheduler, site
 from twin import fixtures as fx
+from twin.areastore import MERGED_SUFFIX, area_merged_dir
 from twin.autopilot import RealWorld
 from twin.contracts import STAGE_NAMES, STAGES, Params, StageResult
 from twin.runrecord import record_path
@@ -180,7 +181,7 @@ def fake_area(store: Path) -> dict:
                 np.zeros(len(plane)),
             ]
         )
-        work = store / "areas" / f"{AREA}-merged" / "drives" / d["scene"]
+        work = area_merged_dir(store, AREA) / "drives" / d["scene"]
         work.mkdir(parents=True, exist_ok=True)
         np.save(work / "clip.npy", pts)
         key = merge.build_drive_cache_key({"scene_token": d["scene_token"]}, Params())
@@ -238,7 +239,7 @@ def merge_eval_publish(
 ) -> dict:
     """area merge, eval of the merged area, publish_latest (dry run), health snapshot."""
     run("area merge", lambda: twin_cli("area", "merge", AREA, "--store", str(store)))
-    merged = f"areas/{AREA}-merged"
+    merged = f"areas/{AREA}{MERGED_SUFFIX}"
 
     # eval exits 1 on a no-go verdict, which is a result; any other code is a failure
     def evaluate():
@@ -253,7 +254,7 @@ def merge_eval_publish(
     run("eval", evaluate)
 
     def publish():
-        line = site.publish_latest(store, f"{AREA}-merged", dry_run=True, web=web)
+        line = site.publish_latest(store, f"{AREA}{MERGED_SUFFIX}", dry_run=True, web=web)
         if (
             not line.startswith("dry run")
             or not (web / "out" / "latest-build" / "scorecard.json").is_file()
