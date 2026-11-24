@@ -318,7 +318,9 @@ def test_stage_child_enters_scope_with_stage_cap(tmp_path, monkeypatch):
     rl = RecordingLauncher(rec)
     memcap.set_launcher(rl)
     s = scheduler.Scheduler(tmp_path, cores=4, gb=64, hold=lambda: None, max_tasks=4)
-    a = scheduler.Active({"id": "t", "type": "run"}, None, None, 0)
+    jobqueue.add(tmp_path, {"type": "run", "scene": "s"})
+    job = jobqueue.take(tmp_path)
+    a = scheduler.Active(job, None, None, 0)
     s.active.append(a)
     task = scheduler.Task(a, "load", lambda: None, (), scheduler.Cost(1, 1), stage=True)
     s._start(task)
@@ -331,7 +333,9 @@ def test_stage_cap_env_override_reaches_the_child(tmp_path, monkeypatch):
     rec = tmp_path / "rec.txt"
     memcap.set_launcher(RecordingLauncher(rec))
     s = scheduler.Scheduler(tmp_path, cores=4, gb=64, hold=lambda: None, max_tasks=4)
-    a = scheduler.Active({"id": "t", "type": "run"}, None, None, 0)
+    jobqueue.add(tmp_path, {"type": "run", "scene": "s"})
+    job = jobqueue.take(tmp_path)
+    a = scheduler.Active(job, None, None, 0)
     s.active.append(a)
     task = scheduler.Task(a, "load", lambda: None, (), scheduler.Cost(1, 1), stage=True)
     s._start(task)
@@ -344,9 +348,13 @@ def test_whole_task_cap_reaches_the_child(tmp_path, monkeypatch, name):
     rec = tmp_path / "rec.txt"
     memcap.set_launcher(RecordingLauncher(rec))
     s = scheduler.Scheduler(tmp_path, cores=4, gb=64, hold=lambda: None, max_tasks=4)
-    a = scheduler.Active({"id": "t", "type": name}, None, None, 0)
+    if name == "prgate":
+        jobqueue.add(tmp_path, {"type": "prgate", "pr": "p", "sha": "s"})
+    else:
+        jobqueue.add(tmp_path, {"type": name, "run_id": "r"})
+    job = jobqueue.take(tmp_path)
+    a = scheduler.Active(job, None, None, 0)
     s.active.append(a)
-    jobqueue._write(jobqueue._dir(tmp_path, "running") / "t.json", a.job)
 
     def fn(*a, **k):
         return None
@@ -374,9 +382,10 @@ def test_cap_kill_overrides_a_reported_err(tmp_path, monkeypatch):
     memcap.set_launcher(memcap.Launcher(None, None))
     monkeypatch.setattr(memcap, "oom_killed", lambda key: True)
     s = scheduler.Scheduler(tmp_path, cores=4, gb=64, hold=lambda: None, max_tasks=4)
-    a = scheduler.Active({"id": "t", "type": "run"}, None, None, 0)
+    jobqueue.add(tmp_path, {"type": "run", "scene": "s"})
+    job = jobqueue.take(tmp_path)
+    a = scheduler.Active(job, None, None, 0)
     s.active.append(a)
-    jobqueue._write(jobqueue._dir(tmp_path, "running") / "t.json", a.job)
 
     def boom():
         raise ValueError("boom")
@@ -412,8 +421,12 @@ def test_keyless_running_reap_is_safe(tmp_path, monkeypatch):
     proc.start()
     child.close()
 
+    jobqueue.add(tmp_path, {"type": "run", "scene": "s"})
+    job = jobqueue.take(tmp_path)
+    a = scheduler.Active(job, None, None, 0)
     s = scheduler.Scheduler(tmp_path, cores=4, gb=64, hold=lambda: None, max_tasks=4)
-    task = scheduler.Task(scheduler.Active({"id": "t", "type": "run"}, None, None, 0), "load", lambda: None, (), scheduler.Cost(1, 1))
+    s.active.append(a)
+    task = scheduler.Task(a, "load", lambda: None, (), scheduler.Cost(1, 1))
     r = scheduler.Running(task, proc, parent, scheduler.Cost(1, 1))
     s.running.append(r)
     s.reap(5)
