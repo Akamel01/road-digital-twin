@@ -4,8 +4,8 @@ Source of truth: docs/design/twin-v1-spec.md, sections 4, 6 (Ground) and 8.
 Prior work: docs/research/multi-sensor-sota.md section 3 (road-surface methods there are camera-based,
 none gives a lidar ground filter); docs/research/related-work.md section 3 (lidar-only road features).
 Methods: ransac-tiles (Open3D segment_plane per tile) and csf (cloth-simulation-filter, Apache-2.0).
-Input: mask's points.npz; align's poses.json and qa.json; load's poses.json (dataset poses) and
-facilities.geojson. Output: ground.laz, nonground.laz, surface.npz, qa.json.
+Input: mask's points.npz; the sweep poses (drivecloud moves them into the aligned frame); align's qa.json;
+load's facilities.geojson. Output: ground.laz, nonground.laz, surface.npz, qa.json.
 """
 
 from __future__ import annotations
@@ -25,8 +25,8 @@ from shapely.geometry import shape
 
 from twin import heights
 from twin.contracts import GroundParams, StageResult
+from twin.drivecloud import aligned_cloud
 from twin.registry import register
-from twin.stages import align
 
 CRS_EPSG = 32619
 GROUND_CLASS = 2
@@ -54,27 +54,6 @@ QA_BAND_M = 0.5
 
 
 # ------------------------------------------------------------------ aggregation
-
-
-def aligned_points(
-    fields: dict[str, np.ndarray], ref: np.ndarray, refined: np.ndarray
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """All masked points moved from run CRS into the refined frame.
-
-    Returns xyz (N, 3), intensity (N,), sweep (N,) in the same order.
-    Each point goes to its ego frame (dataset pose inverse, via align.ego_sweeps), then through its sweep's
-    refined pose. With refined == ref this is the identity.
-    """
-    egos = align.ego_sweeps(fields, ref)
-    order = np.argsort(fields["sweep"].astype(np.int64), kind="stable")
-    intensity = fields["intensity"][order]
-    xyz = []
-    for k, p in enumerate(egos):
-        t = refined[k]
-        xyz.append(p @ t[:3, :3].T + t[:3, 3])
-    lengths = [len(p) for p in egos]
-    sweep = np.repeat(np.arange(len(egos), dtype=np.int32), lengths)
-    return np.vstack(xyz), intensity, sweep
 
 
 def voxel_first(xyz: np.ndarray, voxel_m: float) -> np.ndarray:
@@ -305,37 +284,13 @@ def _run(
 ) -> StageResult:
     align_dir = ctx.input_dir("align")
     align_qa = json.loads((align_dir / "qa.json").read_text())
-    refined = np.array(
-        [
-            p["matrix"]
-            for p in json.loads((align_dir / "poses.json").read_text())["poses"]
-        ],
-        dtype=float,
-    ).reshape(-1, 4, 4)
-    ref = np.array(
-        [
-            p["matrix"]
-            for p in json.loads((ctx.input_dir("load") / "poses.json").read_text())[
-                "poses"
-            ]
-        ],
-        dtype=float,
-    ).reshape(-1, 4, 4)
     features = json.loads((ctx.input_dir("load") / "facilities.geojson").read_text())[
         "features"
     ]
-    with np.load(ctx.input_dir("mask") / "points.npz") as f:
-        fields = {k: f[k] for k in (*POINT_FIELDS, "lidarseg") if k in f.files}
-
-    xyz, intensity, sweep = aligned_points(fields, ref, refined)
-    keep = voxel_first(xyz, params.voxel_m)
-    xyz, intensity, sweep = xyz[keep], intensity[keep], sweep[keep]
-    labels = None
-    if (
-        "lidarseg" in fields
-    ):  # same point order as aligned_points: sorted by sweep, stable
-        order = np.argsort(fields["sweep"].astype(np.int64), kind="stable")
-        labels = fields["lidarseg"][order][keep]
+    cloud = aligned_cloud(ctx.run_dir)
+    keep = voxel_first(cloud.xyz, params.voxel_m)
+    xyz, intensity, sweep = cloud.xyz[keep], cloud.intensity[keep], cloud.sweep[keep]
+    labels = cloud.lidarseg[keep] if cloud.lidarseg is not None else None
     seg_file = ctx.input_dir("load") / "lidarseg.json"
     drv = (
         json.loads(seg_file.read_text()).get("driveable_index")

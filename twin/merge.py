@@ -22,7 +22,7 @@ import open3d as o3d
 import shapely
 from shapely.geometry import shape
 
-from twin import heights, runner
+from twin import drivecloud, heights, runner
 from twin.areastore import DRIVES_NAME, MERGED_NAME, area_merged_dir
 from twin.contracts import Params, stage_dir
 from twin.runrecord import read_record, record_path, write_document
@@ -382,11 +382,6 @@ def correction_summary(t: np.ndarray) -> dict:
 # ------------------------------------------------------------------ one drive
 
 
-def _poses(d: Path) -> np.ndarray:
-    rows = json.loads((d / "poses.json").read_text())["poses"]
-    return np.array([r["matrix"] for r in rows], dtype=float).reshape(-1, 4, 4)
-
-
 def build_drive_cache_key(scene, params):
     payload = {
         "git_sha": (runner._git("rev-parse", "HEAD") or "").strip() or "unknown",
@@ -421,11 +416,8 @@ def build_drive(scene: dict, work: Path, polygon, params: Params, log) -> np.nda
         res = fn(ctx, p)
         if res.status != "ok":
             raise RuntimeError(f"{name}: {res.message}")
-    with np.load(ctx.stage_dir("mask") / "points.npz") as f:
-        fields = {k: f[k] for k in mask.POINT_FIELDS}
-    xyz, inten, sweep = ground.aligned_points(
-        fields, _poses(ctx.stage_dir("load")), _poses(ctx.stage_dir("align"))
-    )
+    cloud = drivecloud.aligned_cloud(work)
+    xyz, inten, sweep = cloud.xyz, cloud.intensity, cloud.sweep
     keep = shapely.contains_xy(polygon, xyz[:, 0], xyz[:, 1])
     out = np.column_stack([xyz, inten, sweep])[keep]
     np.save(cache, out)
@@ -442,7 +434,7 @@ def drive_ground(work: Path, polygon) -> tuple[np.ndarray, list[np.ndarray]] | N
     f = stage_dir(work, "align") / "ground_ego.npz"
     if not f.is_file():
         return None
-    poses = _poses(stage_dir(work, "align"))
+    poses = drivecloud.drive_poses(work, "align")
     with np.load(f) as z:
         xyz = np.column_stack([z["x"], z["y"], z["z"]])
         sweep = z["sweep"].astype(np.int64)
