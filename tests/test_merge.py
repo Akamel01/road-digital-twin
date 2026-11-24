@@ -8,6 +8,7 @@ import numpy as np
 
 from twin import fixtures, merge
 from twin.contracts import Params, StageResult
+from twin.drivecloud import AlignedCloud
 
 
 def _cloud(seed):
@@ -325,7 +326,9 @@ def test_build_drive_rebuilds_and_writes_key(tmp_path, monkeypatch):
 
     xyz = np.array([[0.0, 0.0, 0.0], [1.0, 1.0, 1.0], [2.0, 2.0, 2.0]])
     monkeypatch.setattr(
-        merge.ground, "aligned_points", lambda fields, a, b: (xyz, np.ones(3), np.zeros(3, dtype=int))
+        merge.drivecloud,
+        "aligned_cloud",
+        lambda drive: AlignedCloud(xyz, np.ones(3), np.zeros(3, dtype=int), None),
     )
     monkeypatch.setattr(merge.shapely, "contains_xy", lambda poly, x, y: np.array([True, True, True]))
 

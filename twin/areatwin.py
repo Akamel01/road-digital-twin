@@ -26,7 +26,7 @@ import numpy as np
 import shapely
 from shapely.geometry import mapping, shape
 
-from twin import registry
+from twin import drivecloud, registry
 from twin.area import drive_correction
 from twin.areastore import (
     DRIVES_NAME,
@@ -36,9 +36,10 @@ from twin.areastore import (
     area_twin_dir,
 )
 from twin.contracts import Params, Pipeline, stage_dir
+from twin.merge import apply
 from twin.runner import StageContext
 from twin.runrecord import read_record, write_document
-from twin.stages import ground
+from twin.stages import ground  # noqa: F401  areasteps reaches it as areatwin.ground
 
 # ---- change detection
 # DECISION: cells are 0.5 m, the cell merge measures ground disagreement on (merge.CELL_M).
@@ -114,18 +115,10 @@ def parked_vehicles(drives: list[dict], work: Path, centre: np.ndarray, polygon)
     out = []
     for d in drives:
         base = work / "drives" / d["scene"]
-        with np.load(stage_dir(base, "mask") / "parked.npz") as f:
-            fields = {k: f[k] for k in ground.POINT_FIELDS}
-        if len(fields["x"]) == 0:
+        xyz = drivecloud.aligned_cloud(base, "parked").xyz
+        if len(xyz) == 0:
             continue
-        poses = lambda p: np.array(
-            [r["matrix"] for r in json.loads(p.read_text())["poses"]], dtype=float
-        ).reshape(-1, 4, 4)
-        xyz, _, _ = ground.aligned_points(
-            fields, poses(stage_dir(base, "load") / "poses.json"), poses(stage_dir(base, "align") / "poses.json")
-        )
-        t = drive_correction(d.get("correction"))
-        xyz = (xyz - centre) @ t[:3, :3].T + t[:3, 3] + centre
+        xyz = apply(drive_correction(d.get("correction"), centre), xyz)
         out.append(xyz[shapely.contains_xy(polygon, xyz[:, 0], xyz[:, 1])])
     return np.vstack(out) if out else np.empty((0, 3))
 
@@ -378,19 +371,17 @@ def construction_check(regions: list[dict], drives: list[dict], work: Path, cent
     Looks at the annotated construction vehicles and workers of that date's drives (boxes.json, moved by the drive's
     registration) and reports how many of their positions lie in or within 2 m of a changed region.
     """
-    from twin.merge import apply
-
     sel = [d for d in drives if d["date"] == date]
     cats = ("vehicle.construction", "human.pedestrian.construction_worker")
     pts, track = [], []
     for d in sel:
         base = work / "drives" / d["scene"]
-        ego = np.array([r["matrix"] for r in json.loads((stage_dir(base, "align") / "poses.json").read_text())["poses"]])
-        track.append(apply(drive_correction(d.get("correction")), ego.reshape(-1, 4, 4)[:, :3, 3] - centre) + centre)
+        t = drive_correction(d.get("correction"), centre)
+        track.append(apply(t, drivecloud.drive_poses(base, "align")[:, :3, 3]))
         boxes = json.loads((stage_dir(work / "drives" / d["scene"], "load") / "boxes.json").read_text())["sweeps"]
         c = np.array([b["center"] for sw in boxes for b in sw["boxes"] if b["category"] in cats])
         if len(c):
-            pts.append(apply(drive_correction(d.get("correction")), c - centre) + centre)
+            pts.append(apply(t, c))
     mine = [r for r in regions if date in r["properties"]["dates"]]
     out = {
         "date": date,

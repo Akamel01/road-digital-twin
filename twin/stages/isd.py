@@ -4,7 +4,7 @@ Source of truth: docs/design/twin-v1-spec.md, sections 3, 4, 6 (ISD) and 8 (ISD)
 Prior work: docs/research/sight-line-heights.md (heights; ISD Case B passenger car 1.08 m eye and 1.08 m object)
 and docs/research/related-work.md sections 6 and 9 (gonzalez-gomez-2019, kilani-2021: no open code, nothing reused).
 Inputs: load's facilities.geojson (approach lines and eye points); ground's surface.npz, nonground.laz and qa.json;
-mask's parked.npz; align's poses.json and load's poses.json (to move parked points into the aligned frame).
+mask's parked.npz; the sweep poses (drivecloud moves them into the aligned frame).
 Output: isd.json. Access points are listed in metrics only: load stores no exit geometry for them yet.
 """
 
@@ -18,10 +18,10 @@ import numpy as np
 from shapely.geometry import shape
 
 from twin.contracts import IsdParams, StageResult
+from twin.drivecloud import aligned_cloud
 from twin.facilities import isd_required_m
 from twin.registry import register
 from twin.sightline import CLEAR, INDETERMINATE, Surface, sight_line
-from twin.stages.ground import aligned_points
 
 OUTPUT_FILES = ("isd.json",)
 # DECISION: the object point moves along the crossing approach in 0.5 m steps (the surface cell size), from the
@@ -34,33 +34,6 @@ CROSS_MAX_DEG = 135.0
 # DECISION: a leg's status is the worse of its sides: indeterminate, then short, then ok.
 RANK = {"ok": 0, "short": 1, "indeterminate": 2}
 SIDES = ("left", "right")
-PARKED_FIELDS = ("x", "y", "z", "intensity", "sweep")
-
-
-def _parked_xyz(mask_dir, align_dir, load_dir) -> np.ndarray:
-    """Parked-vehicle points in the aligned frame, same as ground's points."""
-    with np.load(mask_dir / "parked.npz") as f:
-        fields = {k: f[k] for k in PARKED_FIELDS}
-    if len(fields["x"]) == 0:
-        return np.empty((0, 3))
-    ref = np.array(
-        [
-            p["matrix"]
-            for p in json.loads((load_dir / "poses.json").read_text())["poses"]
-        ],
-        dtype=float,
-    ).reshape(-1, 4, 4)
-    refined = np.array(
-        [
-            p["matrix"]
-            for p in json.loads((align_dir / "poses.json").read_text())["poses"]
-        ],
-        dtype=float,
-    ).reshape(-1, 4, 4)
-    xyz, _, _ = aligned_points(fields, ref, refined)
-    return xyz
-
-
 def _near(xyz: np.ndarray, pts: np.ndarray, band: float) -> np.ndarray:
     """Points in the plan box around pts, widened by band. A point that can block a sight line lies within band of
     the triangle of its eye, the crossing approach's start and its far object, so the box keeps every such point."""
@@ -220,7 +193,7 @@ def _run(ctx: Any, params: IsdParams) -> StageResult:
             z=f["z"], count=f["count"], origin=f["origin"], cell_m=float(f["cell_m"])
         )
     nonground = np.asarray(laspy.read(ground / "nonground.laz").xyz, dtype=float)
-    parked_all = _parked_xyz(ctx.input_dir("mask"), ctx.input_dir("align"), load)
+    parked_all = aligned_cloud(ctx.run_dir, "parked").xyz
     features = json.loads((load / "facilities.geojson").read_text())["features"]
 
     required = isd_required_m(params)
