@@ -13,8 +13,8 @@ BASE = Params().model_dump(mode="json")
 
 
 @pytest.fixture
-def stubs(monkeypatch):
-    monkeypatch.setattr(registry, "_REGISTRY", {})
+def stubs():
+    fns = {}
     for name in STAGE_NAMES:
 
         def run(ctx, params, name=name):
@@ -26,7 +26,9 @@ def stubs(monkeypatch):
                 metrics = {"z_disagreement_p95_m": params.ransac_dist_m}
             return StageResult(status="ok", metrics=metrics)
 
-        registry.register(name, STAGES[name].methods[0])(run)
+        fns[name, STAGES[name].methods[0]] = run
+    with registry.substitute(fns):
+        yield
 
 
 def test_random_is_seeded_and_in_range():

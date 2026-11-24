@@ -106,11 +106,6 @@ def _fake_ctx(token: str, run_id: str):
 @contextmanager
 def fake_stages():
     """Register fake_run's stage writers as every stage method, for this process and its forks."""
-    real_outputs = registry.lookup(
-        "outputs", "dxf-pdf"
-    )  # fake_run's outputs writer runs the real stage
-    saved = dict(registry._REGISTRY)
-    registry._REGISTRY.clear()
     cache: dict = {}
 
     def make(name):
@@ -125,10 +120,12 @@ def fake_stages():
 
         return run
 
-    for name in STAGE_NAMES:
-        for method in STAGES[name].methods:
-            registry._REGISTRY[(name, method)] = make(name)
-    registry._REGISTRY[("outputs", "dxf-pdf")] = real_outputs
+    fakes = {
+        (name, method): make(name)
+        for name in STAGE_NAMES
+        for method in STAGES[name].methods
+        if (name, method) != ("outputs", "dxf-pdf")  # fake_run's outputs writer runs the real stage
+    }
     real_lease = (
         gpulease.lease
     )  # the fake colour stage must not unload the box's ollama models
@@ -139,11 +136,10 @@ def fake_stages():
 
     gpulease.lease = no_lease
     try:
-        yield
+        with registry.substitute(fakes):
+            yield
     finally:
         gpulease.lease = real_lease
-        registry._REGISTRY.clear()
-        registry._REGISTRY.update(saved)
 
 
 # --- fake area ----------------------------------------------------------------------------

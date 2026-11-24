@@ -23,16 +23,18 @@ def roomy_disk(monkeypatch):
 
 
 @pytest.fixture
-def stubs(monkeypatch):
-    """Empty registry plus stub stages that write one file each and succeed."""
-    monkeypatch.setattr(registry, "_REGISTRY", {})
+def stubs():
+    """Stub stages that write one file each and succeed."""
+    fns = {}
     for name in STAGE_NAMES:
 
         def run(ctx, params, name=name):
             (ctx.stage_dir(name) / "out.txt").write_text(name)
             return StageResult(status="ok")
 
-        registry.register(name, STAGES[name].methods[0])(run)
+        fns[name, STAGES[name].methods[0]] = run
+    with registry.substitute(fns):
+        yield
 
 
 @pytest.fixture

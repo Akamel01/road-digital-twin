@@ -115,18 +115,19 @@ def test_endpoints_skip_nginx_fronts(monkeypatch):
 
 
 def test_job_record_has_lease(tmp_path, fake, monkeypatch):
-    monkeypatch.setattr(registry, "_REGISTRY", {})
+    fns = {}
     for name in STAGE_NAMES:
 
         def run(ctx, params, name=name):
             (ctx.stage_dir(name) / "o").write_text(name)
             return StageResult(status="ok")
 
-        registry.register(name, STAGES[name].methods[0])(run)
+        fns[name, STAGES[name].methods[0]] = run
     srv = fake(["big"])
     monkeypatch.setenv("TWIN_OLLAMA_URLS", srv.url)
     jobqueue.add(tmp_path, {"type": "run", "scene": "s1"})
-    assert jobqueue.process_one(tmp_path, lambda: None).startswith("done")
+    with registry.substitute(fns):
+        assert jobqueue.process_one(tmp_path, lambda: None).startswith("done")
     lease = jobqueue.list_jobs(tmp_path)[0]["gpu_lease"]
     assert lease["unloaded"] == [{"endpoint": srv.url, "model": "big"}]
     assert srv.loaded == []

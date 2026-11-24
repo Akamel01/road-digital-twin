@@ -60,6 +60,13 @@ class StageContext:
     log: logging.Logger
     min_observed: float = 0.5  # facilities.min_observed: ground marks facilities below it
 
+    @classmethod
+    def for_params(
+        cls, run_dir: Path, scene_token: str, params: Params, log: logging.Logger
+    ) -> "StageContext":
+        """The context for one scene: the only place that reads min_observed from Params."""
+        return cls(run_dir, scene_token, params.seed, log, params.facilities.min_observed)
+
     def stage_dir(self, name: str) -> Path:
         return stage_dir(self.run_dir, name)
 
@@ -139,24 +146,6 @@ def _list_files(path: Path) -> list[str]:
     return sorted(
         p.relative_to(path).as_posix() for p in path.rglob("*") if p.is_file()
     )
-
-
-def _run_stage(
-    ctx: StageContext, name: str, method: str, params: Params
-) -> StageResult:
-    fn = registry.lookup(name, method)
-    if fn is None:
-        return StageResult(status="failed", message=f"no registered method {method!r}")
-    groups = params.groups_for(name)
-    stage_params = getattr(params, groups[0]) if groups else None
-    try:
-        result = fn(ctx, stage_params)
-    except Exception as exc:  # a stage crash is a failed stage, not a runner crash
-        ctx.log.exception("stage %s crashed", name)
-        return StageResult(status="failed", message=f"{type(exc).__name__}: {exc}")
-    if not isinstance(result, StageResult):
-        return StageResult(status="failed", message=f"returned {type(result).__name__}")
-    return result
 
 
 def start_run(
@@ -312,13 +301,7 @@ def _create_locked(
     )
     _write_manifest(run_dir, manifest)
 
-    ctx = StageContext(
-        run_dir=run_dir,
-        scene_token=scene_token,
-        seed=params.seed,
-        log=logging.getLogger("twin.run"),
-        min_observed=params.facilities.min_observed,
-    )
+    ctx = StageContext.for_params(run_dir, scene_token, params, logging.getLogger("twin.run"))
     keep = STAGES[from_stage].number - 1 if from_stage else 0
     return _Job(store, lock, ctx, manifest, pipeline, params, keep, parent_dir, parent)
 
@@ -411,7 +394,7 @@ def _run_step(job: _Job, index: int) -> bool:
         )
         _write_manifest(run_dir, manifest)
         manifest.stages.pop()
-        result = _run_stage(ctx, name, stage.method, params)
+        result = registry.run_stage(ctx, name, stage.method, params)
     else:
         result = StageResult(status="skipped", message="disabled in pipeline")
     if result.status not in ("ok", "skipped"):
@@ -446,13 +429,7 @@ def _job_from_disk(run_dir: Path) -> _Job:
         parent_dir = store / manifest.parent.run_id
         parent = read_manifest(parent_dir)
         keep = STAGES[manifest.parent.from_stage].number - 1 if manifest.parent.from_stage else 0
-    ctx = StageContext(
-        run_dir=run_dir,
-        scene_token=manifest.data.scene_token,
-        seed=params.seed,
-        log=logging.getLogger("twin.run"),
-        min_observed=params.facilities.min_observed,
-    )
+    ctx = StageContext.for_params(run_dir, manifest.data.scene_token, params, logging.getLogger("twin.run"))
     return _Job(store, None, ctx, manifest, pipeline, params, keep, parent_dir, parent)  # type: ignore[arg-type]
 
 
