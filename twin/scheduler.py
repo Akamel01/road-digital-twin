@@ -237,6 +237,10 @@ class Scheduler:
 
     def _finish(self, job: dict, error: str | None, extra: dict | None = None) -> None:
         job = {k: v for k, v in job.items() if k != "new_run"}
+        from pathlib import Path
+        if not (Path(self.store) / "queue" / "running" / f"{job['id']}.json").is_file():
+            self._say(f"{'failed' if error else 'done'} {job['id']} {error or extra or ''}")
+            return
         jobqueue.finish(self.store, {**job, **(extra or {})}, error)
         self._say(f"{'failed' if error else 'done'} {job['id']} {error or extra or ''}")
 
@@ -338,7 +342,8 @@ class Scheduler:
             r.conn.close()
             oom = False
             if r.scope:
-                oom = memcap.oom_killed(r.scope)
+                if msg is None or (isinstance(msg, tuple) and msg and msg[0] != "ok"):
+                    oom = memcap.oom_killed(r.scope)
                 memcap.cleanup_scope(r.scope)
             self._settle(r.task, msg, r.proc.exitcode, cap_killed=oom)
 
@@ -376,7 +381,8 @@ class Scheduler:
         extra = {**a.extra, **(out or {})}
         if a.run_dir:
             extra.setdefault("run_id", a.run_dir.name)
-        self.active.remove(a)
+        if a in self.active:
+            self.active.remove(a)
         self._finish(a.job, error, extra)
 
     # --- loop --------------------------------------------------------------------------
