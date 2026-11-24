@@ -44,6 +44,8 @@ def test_runbook_documents_memory_caps_and_headroom():
     # invalid override fallthrough
     assert "falls through to the\nnext override, then the default" in text or "falls through to the next override, then the default" in text
     # streaming child enter caveat
-    assert "child-cgroups=none` means not enforced" in text or "child-cgroups=none` means not enforced" in text
+    assert "runs UNCAPPED (enter failed" in text
+    assert "silently runs uncapped" not in text
+    assert "each streaming child that enters its scope is bounded" in text
     # manual area build not code-gated
     assert "manual check (`free -g`), not an enforced gate" in text

@@ -76,8 +76,8 @@ def _peak_gb() -> float:
 
 def _child(conn, fn: Callable, args: tuple, cap_gb: float = 0.0, key: str | None = None) -> None:
     """Run one task. Sends (status, result or message, peak GB)."""
-    if cap_gb > 0 and key:
-        memcap.enter_scope(cap_gb, key)
+    if cap_gb > 0 and key and not memcap.enter_scope(cap_gb, key):
+        print(f"twin memcap: WARNING: streaming child runs UNCAPPED (enter failed, cap {cap_gb} GB)", file=sys.stderr)
     try:
         msg: tuple = ("ok", fn(*args))
     except BaseException as exc:  # noqa: BLE001 - reported to the scheduler, which fails the job

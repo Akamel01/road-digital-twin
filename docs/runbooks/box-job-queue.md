@@ -67,7 +67,7 @@ MemoryMax=<bytes> -p MemorySwapMax=0 -- ...`, so the whole `merge && twin && eva
 cap. Each streaming stage child creates `twin-cap-<key>/` (key includes a per-attempt uuid) in the
 nearest ancestor cgroup that delegates `memory`, writes `memory.max` and `memory.swap.max=0`, and
 moves itself in; forked pools inherit it. Swap is off, so an over-cap child is killed, not swapped;
-each streaming child is bounded and the scheduler's admission budget remains the aggregate control.
+each streaming child that enters its scope is bounded, and the scheduler's admission budget remains the aggregate control.
 
 Not capped: the serial `twin worker` runs jobs in-process; start the box worker with
 `twin worker --stream` so each stage child gets a cap.
@@ -76,9 +76,7 @@ Prerequisite: a user systemd session with the `memory` controller delegated. Sta
 worker (`twin worker --stream`; its scheduler prints the line at start, even with an empty queue) and
 read its one `twin memcap:` line: `shell=systemd-run` and `child-cgroups=<root>` means both
 mechanisms work; `shell=UNCAPPED` or `child-cgroups=none` names the unavailable one and the
-`WARNING` suffix says caps are not enforced and every affected job runs uncapped. A streaming child
-whose `enter` fails silently runs uncapped; the operator must check the startup line
-(`child-cgroups=none` means not enforced). For a boot worker
+`WARNING` suffix says caps are not enforced and every affected job runs uncapped. `child-cgroups=<root>` is the parent's probe result; if a child cannot enter its cgroup it prints `twin memcap: WARNING: streaming child runs UNCAPPED (enter failed, cap N GB)` and runs uncapped - watch for that line. A stage whose observed peak exceeds its cap is killed; raise `TWIN_MEM_CAP_STAGE_<NAME>_GB` if the scheduler admits it above the cap. For a boot worker
 without a login session, `loginctl enable-linger <user>` (this does not change SSH settings).
 
 Headroom: before the P2 area merge, `MemAvailable` must be at least the cap + 10 GB (the `available`

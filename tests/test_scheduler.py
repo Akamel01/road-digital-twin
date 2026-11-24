@@ -322,6 +322,33 @@ class RecordingLauncher:
         pass
 
 
+def test_child_warns_when_enter_fails(tmp_path, monkeypatch, capfd):
+    class FailingLauncher:
+        def argv(self, cmd, cap_gb):
+            return list(cmd)
+
+        def enter(self, cap_gb, key):
+            return False
+
+        def oom_killed(self, key):
+            return False
+
+        def cleanup(self, key):
+            pass
+
+    memcap.set_launcher(FailingLauncher())
+    s = scheduler.Scheduler(tmp_path, cores=4, gb=64, hold=lambda: None, max_tasks=4)
+    jobqueue.add(tmp_path, {"type": "run", "scene": "s"})
+    job = jobqueue.take(tmp_path)
+    a = scheduler.Active(job, None, None, 0)
+    s.active.append(a)
+    task = scheduler.Task(a, "load", lambda: None, (), scheduler.Cost(1, 1), stage=True)
+    s._start(task)
+    s.reap(5)
+    captured = capfd.readouterr()
+    assert "twin memcap: WARNING: streaming child runs UNCAPPED (enter failed, cap 8.0 GB)" in captured.err
+
+
 def test_stage_child_enters_scope_with_stage_cap(tmp_path, monkeypatch):
     rec = tmp_path / "rec.txt"
     rl = RecordingLauncher(rec)
