@@ -35,7 +35,7 @@ Intersection or address: the ICBC set carries `Intersection Crash` / `Mid Block 
 
 Catalogue "last modified" dates (2021-03-08 / 2021-06-04) are not data currency. The Tableau view "ICBC Reported Crashes" was last published 2026-05-26. [28] The "Police-Reported Crashes" intro view: source not retrievable on 2026-11-24: https://public.tableau.com/app/profile/icbc/viz/Police-ReportedCrashes-IntroPage/Police-ReportedCrashes (metadata from search snippet only: first published 2021-05-20, last published 2025-11-12). [29] The actual crash-year range in the public view is not stated on the Tableau view on 2026-11-24. [28]
 
-Refresh cadence: the catalogue resource is updated annually; ICBC data is available by late spring/early summer of the following year (e.g., spring 2024 for 2023 data); police data by late summer/early fall (e.g., summer/fall 2021 for 2020 data). [5] Since 2008, legislative changes to police reporting thresholds reduced police-attended reports, particularly for non-fatal crashes; the March 2019 threshold rose from CAD 1,000 (CAD 600 motorcycles) to CAD 10,000 damage regardless of vehicle type — reporting threshold, not a price. [4] TAS allows up to four contributing factors per crash [2] and excludes forest-service roads, industrial roads, private driveways, off-road snowmobile crashes, homicides and suicides. [2] (Inference)
+Refresh cadence: the catalogue resource is updated annually; ICBC data is available by late spring/early summer of the following year (e.g., spring 2024 for 2023 data); police data by late summer/early fall (e.g., summer/fall 2021 for 2020 data). [5] TAS data was captured as of 30-Jun-2020. [2] Since 2008, legislative changes to police reporting thresholds reduced police-attended reports, particularly for non-fatal crashes; the March 2019 threshold rose from CAD 1,000 (CAD 600 motorcycles) to CAD 10,000 damage regardless of vehicle type — reporting threshold, not a price. [4] TAS allows up to four contributing factors per crash [2] and excludes forest-service roads, industrial roads, private driveways, off-road snowmobile crashes, homicides and suicides. [2] (Inference)
 
 Richer record-level fields (collision number, date/time, location, configuration, causation, injuries, charges) sit in the Protected-B "Metadata for ICBC Crash" (Jan 2015–Dec 2024) and "Metadata for ICBC Traffic Accident System (TAS)" (Jan 2010–Dec 2024) records, available only through the Data Innovation Program to named users; not downloadable. [3][4] Whether "charges" appears among richer fields is not confirmed. [3][4] (Inference)
 
@@ -94,10 +94,9 @@ Minimum viable layer from public data: counts and severity flags for all four ci
 
 ## Gaps and unverified points
 
-- ICBC public crash-year range and TAS capture date: not stated on the fetched Tableau/catalogue pages on 2026-11-24 (metadata record covers 2015–2024; the Tableau intro view returned 403) — Gap. [3][28][29]
+- ICBC public crash-year range: not stated on the Tableau view on 2026-11-24; metadata record covers 2015–2024. [3][28]
 - Police-Reported Crashes Tableau view: source not retrievable on 2026-11-24: https://public.tableau.com/app/profile/icbc/viz/Police-ReportedCrashes-IntroPage/Police-ReportedCrashes (metadata from search snippet only: first published 2021-05-20, last published 2025-11-12). [29]
-- Surrey years/cadence/neighbourhood scale: not stated on the fetched layer page (2026-11-24). [25]
-- Surrey layer data origin/provenance: not stated on the fetched ArcGIS service page (2026-11-24) — Gap [25].
+- Surrey years/cadence/neighbourhood scale and layer data origin/provenance: not stated on the fetched layer page (2026-11-24) — Gap [25].
 - Exact EPDO coefficients and KABCO-to-BC mapping: not in fetched primary sources; TAC/AASHTO texts paywalled.
 - HSM empirical Bayes formulas and SPF calibration: AASHTO HSM not fetched (paywalled). [24]
 - Office of the Information and Privacy Commissioner (OIPC) for BC numeric minimum cell size for crash data: not found. [22]
