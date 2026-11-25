@@ -6,7 +6,7 @@
 - Scope of this scan: the four city open-data portals, the BC Data Catalogue, the ICBC site, the Transportation Association of Canada (TAC) publisher pages, and the Action2Zero summary. Access date for all fetches: 2026-11-24.
 - ICBC public data gives counts, severity, coarse location (intersection vs mid-block flags, street/cross-street text, approximate latitude/longitude), road-user flags, time bands, year and month. [1] No structured civic address or 100-block masking. [1][25]
 - City portals mostly publish no collision layer: Surrey publishes a Fatal/Injury Collision point layer at 100-block; Vancouver, Richmond and Coquitlam publish none found. [25][26][27][13] Absence is "not found in <portal/search> on <date>", not proof of absence.
-- Richer records need a data-sharing agreement (DSA) with the holder (ICBC or the city/police) or a Freedom of Information (FOI) request under the Freedom of Information and Protection of Privacy Act (FIPPA) ($10 CAD application fee for general requests, 2026-11-24). [20] No DSA is assumed to exist.
+- Richer records need a data-sharing agreement (DSA) with the holder (ICBC or the city/police) or a Freedom of Information (FOI) request under the Freedom of Information and Protection of Privacy Act (FIPPA) ($10 CAD application fee for general requests, 2026-11-24). [20] No DSA is assumed to exist. (Inference)
 - Methods a city expects: crash frequency and rate (per million entering vehicles, MEV; per 100 million vehicle-kilometres travelled, VKT), severity weighting (equivalent property-damage-only, EPDO; the KABCO injury scale (K fatal, A incapacitating, B non-incapacitating, C possible, O no injury); killed and seriously injured, KSI), multi-year trends, and network screening including Highway Safety Manual (HSM) empirical Bayes. [7][17][24] Exact coefficients and formulas are paywalled and listed in Gaps.
 - Privacy: FIPPA, de-identification, small-population suppression, and withheld personal information limit what can be released. [22] (Inference)
 - Reporting unit is the Facility (Intersection, Segment, Access point). A per-facility collision layer is buildable for Intersection and Segment from public data; Access point not reliably buildable publicly. [1][2] (Inference) This is go-to-market (GTM)/feasibility research, not a design decision, data request, or legal advice. No one was contacted.
@@ -80,7 +80,7 @@ FIPPA applies to public bodies (ministries, agencies, municipalities, school dis
 
 Routinely released (aggregate): crash counts by municipality/region, severity, year, road-user type; ICBC public set carries municipality, region, approximate latitude/longitude, intersection/mid-block flag. [1] Contributing factors are not in the ICBC public field list; they appear in richer/protected records. [1][4] (Inference)
 
-Withheld: names, licence plates, medical/injury detail, exact addresses, records of identifiable individuals. ICBC's licence exempts Personal Information as defined in FIPPA and records not accessible under FIPPA. [6] Surrey masks location to the 100-block. [25] Municipalities may be undisclosed where counts are too small. [2] (Inference, as of 2026-11-24)
+Withheld: names, licence plates, medical/injury detail, exact addresses, records of identifiable individuals. ICBC's licence exempts Personal Information as defined in FIPPA and records not accessible under FIPPA. [6] Surrey masks location to the 100-block. [25] Municipalities may be undisclosed where counts are too small. [2] (Inference)
 
 ## Buildable per-facility layer
 
@@ -112,7 +112,7 @@ Minimum viable layer from public data: counts and severity flags for all four ci
 | 1 | ICBC Reported Crashes (dataset page) | BC Data Catalogue (ICBC) | https://catalogue.data.gov.bc.ca/dataset/icbc-reported-crashes | 2026-11-24 | fields, granularity, licence, cadence | |
 | 2 | Police-Reported Crash Data (TAS) (dataset page) | BC Data Catalogue (ICBC) | https://catalogue.data.gov.bc.ca/dataset/police-reported-crash-data-tas- | 2026-11-24 | TAS fields, exclusions, capture date, cadence | |
 | 3 | Metadata for ICBC Crash | BC Data Catalogue (Data Innovation Program) | https://catalogue.data.gov.bc.ca/dataset/metadata-for-icbc-crash | 2026-11-24 | richer metadata, Protected-B, 2015–2024 | |
-| 4 | Metadata for ICBC Traffic Accident System (TAS) | BC Data Catalogue (Data Innovation Program) | https://catalogue.data.gov.bc.ca/dataset/metadata-for-icbc-traffic-accident-system-tas | 2026-11-24 | TAS metadata, 2010–2024 | |
+| 4 | Metadata for ICBC Traffic Accident System (TAS) | BC Data Catalogue (Data Innovation Program) | https://catalogue.data.gov.bc.ca/dataset/metadata-for-icbc-traffic-accident-system-tas | 2026-11-24 | TAS metadata, reporting thresholds, 2010–2024 | |
 | 5 | Data availability and background information (PDF) | ICBC | https://www.icbc.com/assets/en/3MhMVKX1BftrU7KVDFLMDG/background-data.pdf | 2026-11-24 | cadence, sources, regional definitions | |
 | 6 | Open Data Licence (ICBC) | ICBC | https://www.icbc.com/policies/open-data-licence | 2026-11-24 | licence, commercial use, attribution, exemptions | |
 | 7 | Collision Information System | Province of BC | https://www2.gov.bc.ca/gov/content/transportation/transportation-infrastructure/engineering-standards-guidelines/collision-information-system | 2026-11-24 | CIS not public; MV6020 fields | |
