@@ -68,8 +68,7 @@ Lakeshore shows why the scan-only, all-in per-km and per-lane-km rates differ. P
 | Manitoba Transportation and Infrastructure | LiDAR services, 2025-08-15, Eagle Mapping | CAD 436,408.50 | CAD 436,408.50 | context (provincial); contracting organisation Manitoba Transportation and Infrastructure | contract award, provincial, 2025 | [CanadaBuys notice](https://canadabuys.canada.ca/en/tender-opportunities/award-notice/mx-443655211269), accessed 2026-11-24 |
 | City of Larkspur, California | Corridor mobility and safety study, 2024-08-07, Parametrix | USD 86,890 | USD 86,890 | context (US); keep USD | contract award, US, 2024 | [Larkspur staff report](http://www.larkspur.ca.gov/DocumentCenter/View/19861/46-Magnolia-Corridor-Mobility-and-Safety-Contract-Award-to-Parametrix), accessed 2026-11-24 |
 
-No Canadian municipal screening-only award with a published value was found (see §1.5).
-
+No Canadian municipal screening-only award with a published value was found.
 ### 1.4 Budgets, not contract values
 
 | Buyer | What was bought | Price as published | CAD | Unit price (arithmetic) | Basis and date | Source (URL, accessed) |
@@ -105,8 +104,7 @@ Every firm below sells by quote or project unless a fee table says otherwise.
 | Miovision (MicroTraffic) | Video conflict analysis at intersections | Project-based study; no list price | No public list price. Grant 2020: 10 intersections; City $12,500 + Aviva $37,500 (75/25). LiveWire 2020-08-13: $5,000/intersection, $50,000/city. 2020 grant-funded cost-share rate, not a quote, list price or market price; currency unstated ($). | Twin adds metric 3D geometry + sight distance; lacks video conflict detection + crash correlation | [Miovision press release](https://miovision.com/press-release/miovision-acquires-microtraffic/), accessed 2026-11-24; [Toronto motion MM24.33](https://www.toronto.ca/legdocs/mmis/2020/mm/bgrd/backgroundfile-157141.pdf), accessed 2026-11-24; [LiveWire Calgary](https://livewirecalgary.com/2020/08/13/predictive-video-traffic-data-reducing-calgary-road-conflicts/), accessed 2026-11-24 |
 | Transoft Solutions (Brisk Synergies) | BriskLUMINA = temporary-camera conflict analysis; BriskVANTAGE = continuous live monitoring; 2020 release: surrogate safety/near-miss. Current naming unconfirmed; current page lists VERALYTIX. Transoft owns Brisk. | Quote-based; no public price | No public price. | Twin adds metric 3D geometry + sight distance; lacks video conflict detection + crash correlation | [Transoft acquisition release](https://www.transoftsolutions.com/news/transoft-solutions-acquires-brisk-synergies-to-leverage-machine-learning-and-vision-analytics-for-safer-cities/), accessed 2026-11-24; [Transoft safety page](https://www.transoftsolutions.com/transportation-safety-operations/), accessed 2026-11-24 |
 
-Acquisition closed 2023-02-28 for MicroTraffic/Miovision; 2020-01-13 for Brisk/Transoft.
-
+Acquisition closed 2023-02-28 for MicroTraffic/Miovision; 2020-01-13 for Brisk/Transoft. (sources in §2.1)
 ### 2.2 Mobile asset inventory and pavement condition
 
 - **Cyvl**: vehicle-mounted sensors + software for pavement, sidewalks/ramps, markings, MUTCD signs, right-of-way assets; capital planning + pavement condition. Quote-based; no price. [Cyvl](https://www.cyvl.com/), accessed 2026-11-24.
@@ -147,8 +145,7 @@ Adds:
 Lacks:
 
 - No video conflict analytics or near-miss detection. ([ADR 0003](../../decisions/0003-risk-engine.md); [spec §2 non-goals](../../design/twin-v1-spec.md))
-- No network-wide crash history, trends or police crash data. ([ADR 0003](../../decisions/0003-risk-engine.md))
-- No pavement condition rating (IRI/PCI) or distress detection. ([spec §2 goals](../../design/twin-v1-spec.md); [CONTEXT.md Feature](../../../CONTEXT.md))
+- No network-wide crash history, trends or police crash data. (v1 has no crash-data input; the collision-risk engine is a later phase, [ADR 0003](../../decisions/0003-risk-engine.md))- No pavement condition rating (IRI/PCI) or distress detection. ([spec §2 goals](../../design/twin-v1-spec.md); [CONTEXT.md Feature](../../../CONTEXT.md))
 - No signs, signals, poles, sidewalks or twin-derived access points in v1. ([spec §2 non-goals](../../design/twin-v1-spec.md))
 - No asset-management work orders or capital planning. ([spec §2 goals](../../design/twin-v1-spec.md); [CONTEXT.md Feature](../../../CONTEXT.md))
 - No city-wide or province-wide coverage (v1: one Boston area, nuScenes mini, CC BY-NC-SA 4.0, non-commercial research demo). ([spec §1](../../design/twin-v1-spec.md); [spec §2 goal 1](../../design/twin-v1-spec.md); R7)
@@ -179,8 +176,7 @@ Comparable bases. Per study, centreline km and paved lane-km; do not merge units
 
 What the twin must not claim. No conflict analytics, crash prediction, pavement condition, asset workflow or city-wide coverage. Measured geometry for sight-distance and audit checks only. Audit-checklist findings and the collision-risk engine ([ADR 0003](../../decisions/0003-risk-engine.md)) are separate, not priced.
 
-Paid pilot needs. A non-nuScenes data source and a Topcon patent legal review; demo is non-commercial. Vancouver 2022 airborne lidar is the lidar-only v1.1 source ([ADR 0002](../../decisions/0002-digital-twin.md) decision 11).
-
+Paid pilot needs. A non-nuScenes data source and a Topcon patent legal review; demo is non-commercial. Vancouver lidar is the lidar-only v1.1 source ([ADR 0002](../../decisions/0002-digital-twin.md) decision 11).
 ## Limits and not verified
 
 - Lethbridge: third-party mirror; original not re-fetched; mirror's BC province field unused. City page (updated 2025-05-01) lists 29 intersections; no project name, vendor, value or year; linked by scope and city.
