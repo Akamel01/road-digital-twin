@@ -16,9 +16,9 @@
 | City | Published today (collision set, fields, location granularity) | Years | Update cadence | Licence/terms | Data holder / FOI recipient | What needs DSA/FOI | Refs |
 |---|---|---|---|---|---|---|---|
 | Coquitlam | No collision dataset found in the portal category list (Administrative, Boundaries, Imagery & LiDAR, Environment, Parks, Transportation, Utilities, Planning and Development, Service Requests, Finance & Budgets, Street Lighting). Transportation map service and projects published. | n/a — no collision set | n/a — no collision set | Open Government Licence – BC v2.0 | not fetched — Gap | Record-level crash fields | [13] |
-| Surrey | Fatal/Injury Collision point layer on the public map service: fields HUNDRED_BLOCK (100-block), INCIDENT_TIME (24hr), INCIDENT_DATE, INCIDENT_TYPE, CASE_NUMBER (file number), ICOUNT, WEBLINK (prevention info); point geometry. Data originates from Surrey RCMP. | not stated on the layer page — Gap | not stated on the layer page — Gap | Surrey open-data terms; location masked to 100-block | not fetched — Gap | Record-level TAS/ICBC fields; contributing factors | [25] |
+| Surrey | Fatal/Injury Collision point layer on the public map service: fields HUNDRED_BLOCK (100-block), INCIDENT_TIME (24hr), INCIDENT_DATE, INCIDENT_TYPE, CASE_NUMBER (file number), ICOUNT, WEBLINK (prevention info); point geometry. Data originates from Surrey RCMP. | not stated on the layer page — Gap | not stated on the layer page — Gap | not stated on the fetched layer page — Gap; location masked to 100-block | not fetched — Gap | Record-level TAS/ICBC fields; contributing factors | [25] |
 | Vancouver | No collision dataset found in the open-data catalogue search (API search for "collision" returned 0 datasets on 2026-11-24). [26] Published proxies: street intersections [23] and intersection traffic movement counts (approximate locations, static dataset). [30] | n/a — no collision set | n/a — no collision set | not stated on fetched page — Gap | not fetched — Gap | All crash records; traffic volumes | [23][26][30] |
-| Richmond | No collision open dataset found in the published open-data/GIS surfaces on 2026-11-24 (criminal activity map covers property crime only). [27] City runs "Top 20 Collision-Prone Intersections" using ICBC data and an ICBC–City Road Safety Improvement Program cost-share. [14][15] | n/a — no collision set | n/a — no collision set | not stated on fetched page — Gap | not fetched — Gap | All crash records; traffic volumes | [14][15][27] |
+| Richmond | No collision layer found on the Richmond GIS site (csgeo.richmond.ca) on 2026-11-24; the city's broader open-data catalogue was not searched — Gap. [27] City runs "Top 20 Collision-Prone Intersections" using ICBC data and an ICBC–City Road Safety Improvement Program cost-share. [14][15] | n/a — no collision set | n/a — no collision set | not stated on fetched page — Gap | not fetched — Gap | All crash records; traffic volumes | [14][15][27] |
 
 ## ICBC crash data
 
@@ -27,7 +27,7 @@
 | Product | Storage / access | Last modified (catalogue) | Public field list |
 |---|---|---|---|
 | ICBC Reported Crashes [1] | txt; indirect via Tableau Public view | 2021-03-08 | Crash Count; Crash Severity; Cross Street Full Name; Cyclist Flag; Date of Loss Year; Day of Week; Derived Crash Configuration; Heavy Vehicle Flag; Intersection Crash; Latitude; Longitude; Mid Block Crash; Month of Year; Motorcycle Flag; Municipality Name; Municipality with Boundary; Parking Lot Flag; Pedestrian Flag; Region; Road Location Description; Street Full Name; Time Category (22 fields) |
-| Police-Reported Crash Data (TAS) [2] | Tableau Public view | 2021-06-04 | Not stated on the catalogue page beyond "Accident details for all police-attended crashes"; the TAS metadata CSV describes date/time, location, road condition, primary occurrence; one record per crash [4] |
+| Police-Reported Crash Data (TAS) [2] | Tableau Public view | 2021-06-04 | Not stated on the catalogue page beyond "Accident details for all police-attended crashes"; the TAS metadata CSV describes date/time, location, road condition, primary occurrence; one record per crash [4]. The public TAS product's location granularity is not stated on the fetched catalogue/metadata pages on 2026-11-24; the metadata record describes a location field but not its granularity — Gap. [2][4] |
 
 Intersection or address: the ICBC set carries `Intersection Crash` / `Mid Block Crash` flags plus `Street Full Name` and `Cross Street Full Name`, so intersection vs mid-block is explicit. [1] There is no structured civic-address field. Coordinates are approximate and blank where location information was insufficient. [1] 100-block masking is Surrey's layer, not ICBC's. Small municipalities may be withheld where counts are too small. [2] (Inference)
 
@@ -54,7 +54,7 @@ Open Data Licence for ICBC Information v1.0 (last updated 2020-07-22): [6] "ICBC
 
 ### Typical record fields
 
-TAS record fields (from the metadata description): date/time, location, road condition, primary occurrence; one record per crash. [4] The provincial Collision Information System produces Fatal/Injury/property-damage-only (PDO) counts, collision-prone locations and sections, a collision rate table, a per-100 m histogram, and specified-sections analysis on uploaded CSV sections, and holds MV6020 (motor-vehicle collision report form) fields (collision date, time, location, type, total killed, total injured, primary occurrence). [7] The CIS is not publicly available. Whether CIS distinguishes a Summary Report from a Details Report is not confirmed on the fetched pages and is listed in Gaps. (Inference)
+TAS record fields (from the metadata description): date/time, location, road condition, primary occurrence; one record per crash. [4] The provincial Collision Information System (CIS) produces Fatal/Injury/property-damage-only (PDO) counts, collision-prone locations and sections, a collision rate table, a per-100 m histogram, and specified-sections analysis on uploaded CSV sections, and holds MV6020 (motor-vehicle collision report form) fields (collision date, time, location, type, total killed, total injured, primary occurrence). [7] The CIS is not publicly available. [7] Whether CIS distinguishes a Summary Report from a Details Report is not confirmed on the fetched pages and is listed in Gaps. (Inference)
 
 ## Methods a city expects
 
@@ -72,7 +72,7 @@ Network screening methods: crash frequency/rate ranking; empirical Bayes excess 
 
 ### TAC and HSM references
 
-Transportation Association of Canada (TAC) CRaSH titles (list price, CAD, publisher page, 2026-11-24; full text not read): [16][17][18] Canadian Road Safety Audit Guide (2001, PTM-CRSAG-E, 81 pp, $199.00); Canadian Guide to In-Service Road Safety Reviews (2004, PTM-INSERVICE-E, 232 pp, $239.00); Guidelines for the Network Screening of Collision-Prone Locations (2011, PTM-CLLSN-E, 168 pp, $225.00). The TAC screening guide names the Highway Safety Manual (HSM, AASHTO) as a companion source of network-screening methods. [17] HSM is the US reference for empirical Bayes and SPFs; exact edition/year not confirmed. [24] No quotes or forum reports were used for any price; TAC prices are publisher list prices and the FOI amount is a published application fee. BC MUTCDC (Manual of Uniform Traffic Control Devices for Canada) and T-02/04 were not fetched and are omitted.
+Transportation Association of Canada (TAC) CRaSH (TAC publication series) titles (list price, CAD, publisher page, 2026-11-24; full text not read): [16][17][18] Canadian Road Safety Audit Guide (2001, PTM-CRSAG-E, 81 pp, $199.00); Canadian Guide to In-Service Road Safety Reviews (2004, PTM-INSERVICE-E, 232 pp, $239.00); Guidelines for the Network Screening of Collision-Prone Locations (2011, PTM-CLLSN-E, 168 pp, $225.00). The TAC screening guide names the Highway Safety Manual (HSM, AASHTO) as a companion source of network-screening methods. [17] HSM is the US reference for empirical Bayes and SPFs; exact edition/year not confirmed. [24] No quotes or forum reports were used for any price; TAC prices are publisher list prices and the FOI amount is a published application fee. BC MUTCDC (Manual of Uniform Traffic Control Devices for Canada) and T-02/04 were not fetched and are omitted.
 
 ## Privacy limits
 
@@ -86,8 +86,8 @@ Withheld: names, licence plates, medical/injury detail, exact addresses, records
 
 | Facility | Public join keys | Fields usable | Denominators | Public-only computable | Needs client records |
 |---|---|---|---|---|---|
-| Intersection | ICBC `Intersection Crash` flag + street/cross-street text match, or spatial join of latitude/longitude to node geometry [1] | Counts, severity, year/month, trend | Entering vehicles / AADT | Counts, severity, trend, frequency ranking | Validated node match, rates, EB (Inference) |
-| Segment | ICBC `Mid Block Crash` flag + latitude/longitude snap to centreline [1] | Counts, severity, year/month, trend | AADT × segment length (VKT) | Counts, severity, trend, corridor ranking | Rates, EB, length/AADT (Inference) |
+| Intersection | ICBC `Intersection Crash` flag + street/cross-street text match, or spatial join of latitude/longitude to node geometry [1] | Counts, severity, year/month, trend | Entering vehicles / annual average daily traffic (AADT) | Counts, severity, trend, frequency ranking | Validated node match, rates, empirical Bayes (EB) (Inference) |
+| Segment | ICBC `Mid Block Crash` flag + latitude/longitude snap to centreline [1] | Counts, severity, year/month, trend | AADT × segment length (VKT) | Counts, severity, trend, corridor ranking | Rates, empirical Bayes (EB), length/AADT (Inference) |
 | Access point | No direct field; geocoding `Road Location Description`/`Street Full Name` to a driveway is ambiguous [1] | Not reliably buildable publicly | n/a | Not reliably buildable publicly | Inventory of access points + records + better geocoding (Inference) |
 
 Minimum viable layer from public data: counts and severity flags for all four cities; KSI/severity weighting from TAS where police-attended; trend from multi-year ICBC sets. [1][2] Rates and empirical Bayes require traffic volumes and SPFs, needing city data-sharing or FOI. (Inference)
@@ -96,16 +96,14 @@ Minimum viable layer from public data: counts and severity flags for all four ci
 
 - ICBC public crash-year range in the Tableau view: not stated on the Tableau view on 2026-11-24; metadata record covers 2015–2024. [3][28]
 - Police-Reported Crashes Tableau view: source not retrievable on 2026-11-24: https://public.tableau.com/app/profile/icbc/viz/Police-ReportedCrashes-IntroPage/Police-ReportedCrashes (metadata from search snippet only: first published 2021-05-20, last published 2025-11-12). [29]
-- Surrey years/cadence/neighbourhood scale: not stated on the fetched layer page (2026-11-24); the "since 2010"/monthly cadence from the 2015 crime-statistics report is background only. [25]
+- Surrey years/cadence/neighbourhood scale: not stated on the fetched layer page (2026-11-24). [25]
 - Exact EPDO coefficients and KABCO-to-BC mapping: not in fetched primary sources; TAC/AASHTO texts paywalled.
 - HSM empirical Bayes formulas and SPF calibration: AASHTO HSM not fetched (paywalled). [24]
-- OIPC BC numeric minimum cell size for crash data: not found. [22]
-- Whether CIS distinguishes Summary vs Details reports: not confirmed. [7]
-- Whether "charges" appears among richer fields: not confirmed. [3][4]
-- BC FOI fee page: $10 CAD application fee confirmed on 2026-11-24. [20]
-- Coquitlam: no collision category in the portal category list on 2026-11-24. [13]
-- Vancouver: no collision dataset in the open-data catalogue API search on 2026-11-24 (0 results). [26]
-- Richmond: no collision dataset in the published open-data/GIS surfaces on 2026-11-24. [27]
+- Office of the Information and Privacy Commissioner (OIPC) for BC numeric minimum cell size for crash data: not found. [22]
+- Whether CIS distinguishes Summary vs Details reports, and whether "charges" appears among richer fields: not confirmed. [3][4][7]
+- The public TAS product's location granularity is not stated on the fetched catalogue/metadata pages on 2026-11-24; the metadata record describes a location field but not its granularity — Gap. [2][4]
+- BC MUTCDC not retrieved; T-02/04 omitted (no URL).
+- Absence claims (Coquitlam/Vancouver/Richmond/Surrey) are as-of 2026-11-24 searches only.
 
 ## Sources
 
@@ -140,5 +138,3 @@ Minimum viable layer from public data: counts and severity flags for all four ci
 | 30 | Vancouver intersection traffic movement counts | City of Vancouver | https://opendata.vancouver.ca/explore/dataset/intersection-traffic-movement-counts/ | 2026-11-24 | intersection traffic counts, static dataset | yes |
 
 All URLs accessed 2026-11-24. Paywalled TAC/HSM full texts were not read; only publisher catalogue metadata (title, year, pages, price) was quoted.
-EOF
-echo written
