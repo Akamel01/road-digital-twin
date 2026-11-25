@@ -14,12 +14,12 @@ A process note on what a low-cost road-capture rig on the operator's own car cos
 | GNSS antenna | Emlid multi-band helical antenna | not priced | Searched the Emlid store collection; no primary Emlid store stock-keeping unit verified in this pass | https://store.emlid.com/collections/all , accessed 2026-11-24 |
 | Time sync | Software timestamps (NTP) + Livox PTPv2; no extra hardware (GPS time via M2 PPS (pulse per second)) | 0 | n/a, no extra hardware | https://www.usrobotstore.com/products/livox-mid-360-lidar , accessed 2026-11-24 |
 | Logger | Operator's existing laptop | 0 | Assumption: reused | n/a |
-| Storage | 1 TB NVMe SSD (added to laptop) | 114.95 | Labelled estimate, typical retail 2026 | labelled estimate, no vendor quote |
-| Power | 12 V fused splitter + 12 V to USB-C PD car adapter (65 W) | 57.48 | Labelled estimate, typical retail | labelled estimate, no vendor quote |
-| Mounts | Suction-cup LiDAR base + camera suction mount + safety tether | 86.21 | Labelled estimate, typical retail | labelled estimate, no vendor quote |
+| Storage | 1 TB NVMe SSD (added to laptop) | 114.95 | Labelled estimate, typical retail, 2026-11-24 | labelled estimate, no vendor quote |
+| Power | 12 V fused splitter + 12 V to USB-C PD car adapter (65 W) | 57.48 | Labelled estimate, typical retail, 2026-11-24 | labelled estimate, no vendor quote |
+| Mounts | Suction-cup LiDAR base + camera suction mount + safety tether | 86.21 | Labelled estimate, typical retail, 2026-11-24 | labelled estimate, no vendor quote |
 | **Total** | excl. tax, duty, shipping | **3,331 + antenna (lower bound)** | sum of rows at 1.4369, checked 2026-11-24 | see 1.4 |
 
-The related Volatus listing is USD 249, not verified; if a primary Emlid stock-keeping unit is found, use its price and recompute. The antenna row stays marked not priced until then.
+If a primary Emlid store SKU for the helical antenna is found, add its verified price; until then the low total is 3,331 + antenna (lower bound).
 
 The low rig assumes the operator already has a laptop and a car; if no laptop is available, add a Jetson Orin Nano Super Developer Kit at USD 399, CAD 573.32 (NVIDIA, https://developer.nvidia.com/embedded/faq , accessed 2026-11-24), giving roughly CAD 4,262.
 
@@ -32,9 +32,9 @@ The low rig assumes the operator already has a laptop and a car; if no laptop is
 | GNSS | Emlid Reach RS2+ multi-band RTK receiver (184 ch, 7 mm+1 ppm RTK, built-in LTE modem, LoRa radio, 22 h battery) | 3,878.19 | Vendor list, 2026-11-24 | https://store.emlid.com/products/reach-rs2-plus , accessed 2026-11-24 |
 | Time sync | PTPv2 from Hesai (Ethernet) + GNSS PPS into logger; no extra hardware | 0 | Vendor spec, no extra hardware | https://store.kartaview.org/products/hesai-xt32 , accessed 2026-11-24 |
 | Logger | Jetson Orin Nano Super Developer Kit (8 GB, 67 TOPS) | 573.32 | Vendor list (post July-2026 price rise) | https://developer.nvidia.com/embedded/faq , accessed 2026-11-24 |
-| Storage | 2 TB NVMe SSD | 215.53 | Labelled estimate, typical retail | labelled estimate, no vendor quote |
-| Power | 12 V to 19 V DC-DC (150 W) + fused distribution block + cabling | 172.43 | Labelled estimate, typical retail | labelled estimate, no vendor quote |
-| Mounts | Roof rack + LiDAR plate + camera mounts + safety tethers | 359.23 | Labelled estimate, typical retail | labelled estimate, no vendor quote |
+| Storage | 2 TB NVMe SSD | 215.53 | Labelled estimate, typical retail, 2026-11-24 | labelled estimate, no vendor quote |
+| Power | 12 V to 19 V DC-DC (150 W) + fused distribution block + cabling | 172.43 | Labelled estimate, typical retail, 2026-11-24 | labelled estimate, no vendor quote |
+| Mounts | Roof rack + LiDAR plate + camera mounts + safety tethers | 359.23 | Labelled estimate, typical retail, 2026-11-24 | labelled estimate, no vendor quote |
 | **Total** | excl. tax, duty, shipping | **11,762** | sum of rows at 1.4369, checked 2026-11-24 | see 1.4 |
 
 ### 1.3 High: survey-grade-ish on the operator's own car (about CAD 18,000-25,000)
@@ -45,11 +45,11 @@ The low rig assumes the operator already has a laptop and a car; if no laptop is
 | LiDAR option A (new): Hesai XT32M | Hesai XT32M (32 ch, 300 m, 640 kpts/s) | 8,908.78 | Retail listing, 2026-08 | https://lidarseek.com/product/hesai-xt32 , accessed 2026-11-24 |
 | LiDAR option B (used): Ouster OS1-128 | Used Ouster OS1-128-U (128 ch, 120 m, 2.62 Mpts/s) | 2,514.58 | eBay listing (used, "fully operational"); new listing USD 11,785 | https://www.ebay.com/itm/356384649975 , accessed 2026-11-24 |
 | GNSS | Emlid Reach RS4 all-band RTK receiver (tilt compensation) | 5,602.47 | Vendor list, 2026-11-24 | https://store.emlid.com/collections/all , accessed 2026-11-24 |
-| Time sync | Hardware PPS from GNSS into logger + camera GPIO trigger board (e.g., Arduino/Teensy) | 114.95 | Labelled estimate, typical retail | labelled estimate, no vendor quote |
+| Time sync | Hardware PPS from GNSS into logger + camera GPIO trigger board (e.g., Arduino/Teensy) | 114.95 | Labelled estimate, typical retail, 2026-11-24 | labelled estimate, no vendor quote |
 | Logger | Jetson AGX Orin Developer Kit (64 GB) | 5,027.71 | Vendor list (post July-2026 price rise) | https://developer.nvidia.com/embedded/faq , accessed 2026-11-24 |
-| Storage | 4 TB NVMe SSD | 431.07 | Labelled estimate, typical retail | labelled estimate, no vendor quote |
-| Power | 12 V marine-grade DC distribution, 200 W, fusing, cabling | 431.07 | Labelled estimate, typical retail | labelled estimate, no vendor quote |
-| Mounts | Roof rack + machined aluminium LiDAR plate + 6 camera mounts + safety tethers | 718.45 | Labelled estimate, typical retail | labelled estimate, no vendor quote |
+| Storage | 4 TB NVMe SSD | 431.07 | Labelled estimate, typical retail, 2026-11-24 | labelled estimate, no vendor quote |
+| Power | 12 V marine-grade DC distribution, 200 W, fusing, cabling | 431.07 | Labelled estimate, typical retail, 2026-11-24 | labelled estimate, no vendor quote |
+| Mounts | Roof rack + machined aluminium LiDAR plate + 6 camera mounts + safety tethers | 718.45 | Labelled estimate, typical retail, 2026-11-24 | labelled estimate, no vendor quote |
 | **Total (new LiDAR)** | excl. tax, duty, shipping | **24,597** | sum of rows at 1.4369, checked 2026-11-24 | see 1.4 |
 | **Total (used LiDAR)** | excl. tax, duty, shipping | **18,203** | sum of rows at 1.4369, checked 2026-11-24 | see 1.4 |
 
@@ -75,7 +75,7 @@ Yardstick from the twin (v1 spec, docs/design/twin-v1-spec.md:51,98,180,321,367)
 
 | Variant | Metric scale | Height accuracy | Colour / 5 cm orthoimage | Sign reading | Coverage / density |
 |---|---|---|---|---|---|
-| Cameras only (surround camera + phone GPS or RTK GNSS) | No metric scale from cameras alone. Monocular structure-from-motion gives scale only up to an unknown factor unless a known baseline or GNSS is used; with RTK GNSS, scale is anchored by the trajectory. (published on another rig (RoMe, EMIE-MAP, Urban Radiance Fields)) | Poor/unknown. EMIE-MAP reports elevation error with and without LiDAR supervision; KITTI and Urban Radiance Fields report depth error. No number published for a 360° camera on a car. (published on another rig (EMIE-MAP, Urban Radiance Fields)) | Possible (cameras are the colour authority per ADR 0006 Q1) but no depth for occlusion; depth must come from structure-from-motion, which is sparse on roads. (published on another rig (RoMe)) | Good in principle (cameras see signs), but no published sign-reading accuracy for this rig; signs are out of v1 scope anyway. (not measured on this rig) | Very sparse on flat road (few features); depends on texture. (not measured on this rig) |
+| Cameras only (surround camera + phone GPS or RTK GNSS) | No metric scale from cameras alone. Monocular structure-from-motion gives scale only up to an unknown factor unless a known baseline or GNSS is used; with RTK GNSS, scale is anchored by the trajectory. (published on another rig (RoMe, EMIE-MAP, Urban Radiance Fields)) | Poor/unknown. EMIE-MAP reports elevation error with and without LiDAR supervision; KITTI and Urban Radiance Fields report depth error. No number published for a surround camera on a car. (published on another rig (EMIE-MAP, Urban Radiance Fields)) | Possible (cameras are the colour authority per ADR 0006 Q1) but no depth for occlusion; depth must come from structure-from-motion, which is sparse on roads. (published on another rig (RoMe)) | Good in principle (cameras see signs), but no published sign-reading accuracy for this rig; signs are out of v1 scope anyway. (not measured on this rig) | Very sparse on flat road (few features); depends on texture. (not measured on this rig) |
 | LiDAR only on the roof | Full metric scale from LiDAR (time-of-flight). (not measured on this rig) | Good relative consistency; height_valid from sweep agreement. Absolute height not recovered (KISS-ICP keeps relative z; spec section 6 Align). Survey-grade scanners claim cm-level absolute accuracy with a base station and DMI (distance measurement instrument); not this rig. (not measured on this rig; published on another rig (survey-grade scanners)) | None. No colour stage possible; orthoimage not produced. Points have intensity only. (not measured on this rig) | None. LiDAR intensity does not read text. (not measured on this rig) | High density at road surface near nadir; Livox Mid-360 and Hesai XT32 publish point rates and blind zones. (published on another rig (Livox, Hesai specs)) |
 | One roof LiDAR + cameras at car corners | Full metric scale (LiDAR authority, ADR 0006 Q1). (not measured on this rig) | Same as LiDAR only plus camera poses refined against LiDAR edges; colour QA measures edge offset. Refinement improved P50 more than P95 on the nuScenes Boston drive (ADR 0007 D12). (measured on the twin's nuScenes Boston drive) | Full colour stage possible: centimetre-class orthoimage plus RGB points, with unobserved cells left transparent. Edge offset P50/P95 reported in colour/qa.json. (measured on the twin's nuScenes Boston drive) | Signs visible in images; can be projected onto LiDAR geometry, but no published accuracy for sign inventory on this rig (signs are v1.1 non-goal). (not measured on this rig) | LiDAR density as LiDAR only plus camera texture; cameras fill appearance gaps. (not measured on this rig) |
 
@@ -102,7 +102,7 @@ Metro Vancouver GNSS (MVRD RTN (real-time network)): real-time network available
 
 CRD RTN: real-time GNSS service over the Capital Regional District; access is by subscription (CRD) (https://cgrsc.ca/resources/geodetic-control-networks/provincial-networks/ , accessed 2026-11-24). Federal: NRCan lists real-time networks as private GNSS reference networks that have signed a compliance agreement with NRCan; the free federal option is CSRS-PPP (post-processing only). NRCan operates CACS stations but no free public real-time NTRIP caster is published for Metro Vancouver (https://scansupply.net/guides/rtk-correction-subscription-cost/ , accessed 2026-11-24).
 
-Community casters: RTK2go (free global community NTRIP caster). BC free stations listed by KUON GEO: 5 stations, including RichmondBC (community base listed by KUON GEO) (rtk2go.com, RTCM 3.2 MSM4, GPS+GLO+GAL+BDS). Other BC stations are in North Cowichan, Dawson Creek and Revelstoke; none nearer to Coquitlam/Surrey/Vancouver/Richmond than RichmondBC. RTK2go requires a valid email as the NTRIP client user name (https://kuongeo.com/stations/region/CAN-british-columbia , accessed 2026-11-24). IGS free global service and Earthscope (non-commercial) are available but low station density; RTK only works up to 35-50 km baseline (https://www.ardusimple.com/rtk-correction-services-and-ntrip-casters-in-canada/ , accessed 2026-11-24).
+Community casters: RTK2go (free global community NTRIP caster). BC free stations listed by KUON GEO: 5 stations, including RichmondBC (community base listed by KUON GEO) (rtk2go.com, RTCM 3.2 MSM4, GPS+GLO+GAL+BDS). Other BC stations are in North Cowichan, Dawson Creek and Revelstoke; none nearer to Coquitlam/Surrey/Vancouver/Richmond than RichmondBC. IGS free global service and Earthscope (non-commercial) are available but low station density; RTK only works up to 35-50 km baseline (https://www.ardusimple.com/rtk-correction-services-and-ntrip-casters-in-canada/ , accessed 2026-11-24).
 
 ### 3.2 Paid services
 
@@ -118,7 +118,7 @@ Community casters: RTK2go (free global community NTRIP caster). BC free stations
 | u-blox PointPerfect Flex | PPP-RTK (SPARTN/RTCM over NTRIP) | Canada partially covered | 22/month | List price, USD 15/month (SparkFun rate) converted at 1.4369 | https://support.thingstream.io/hc/en-gb/articles/7862862342300-Does-PointPerfect-Flex-cover-my-region-Is-there-a-coverage-map , accessed 2026-11-24 |
 | Topcon TopNET Live | Live RTK subscription | Canada (via Brandt/GeoShack) | not published (quote) | Quote only; no published rate | https://geoshack.com/rent-plus-equipment-rental/ , accessed 2026-11-24 |
 
-Point One explicitly does not list Canada as a True RTK region, so it is not a live-RTK option for Metro Vancouver (https://pointonenav.com/pricing/ , accessed 2026-11-24). Metro Vancouver's own RTN is the only BC-government-partnered real-time service covering the region, at CAD 340/month for other subscribers (https://metrovancouver.org/about-us/Documents/global-navigation-satellite-system-subscription-agreement.pdf , accessed 2026-11-24).
+Point One explicitly does not list Canada as a True RTK region, so it is not a live-RTK option for Metro Vancouver (https://pointonenav.com/pricing/ , accessed 2026-11-24). Metro Vancouver's own RTN is a real-time service covering the region at CAD 340/month for other subscribers (https://metrovancouver.org/about-us/Documents/global-navigation-satellite-system-subscription-agreement.pdf , accessed 2026-11-24).
 
 ### 3.3 Post-processing (PPP, precise point positioning)
 
@@ -184,7 +184,7 @@ MVAR s. 35.04: vehicles must be equipped and cargo must be contained, immobilize
 
 MVAR s. 35.03(4): a person must not drive or operate on a highway a vehicle, other than a commercial vehicle or business vehicle, carrying cargo if the manner in which the vehicle is equipped or its cargo secured contravenes any of sections 35.04 to 35.07 (https://www.bclaws.gov.bc.ca/civix/document/id/complete/statreg/26_58_11 , accessed 2026-11-24). MVAR s. 35.09(3)(a)-(d): a vehicle must not be loaded so as to obscure the driver's view ahead or to the right or left side, interfere with the free movement of the driver's arms or legs, obstruct access to emergency equipment, or interfere with the safe operation of the vehicle in any other manner (https://www.bclaws.gov.bc.ca/civix/document/id/complete/statreg/26_58_11 , accessed 2026-11-24).
 
-Commercial Transport Regulations (BC Reg 30/78), s. 7.05(1): a person must not, without a permit, drive or operate a vehicle having a height in excess of 4.15 m. s. 7.05(0.1): height measured from the highest point of the vehicle, including its load, to the road surface directly below that point. 
+Commercial Transport Regulations (BC Reg 30/78), s. 7.05(1): a person must not, without a permit, drive or operate a vehicle having a height in excess of 4.15 m (https://www.bclaws.gov.bc.ca/civix/document/id/crbc/crbc/30_78 , accessed 2026-11-24). s. 7.05(0.1): height measured from the highest point of the vehicle, including its load, to the road surface directly below that point. 
 
 DriveSmartBC confirms vehicle height includes all permanently or temporarily attached cargo and accessories, so roof-mounted gear counts toward the 4.15 m limit (https://www.bclaws.gov.bc.ca/civix/document/id/crbc/crbc/30_78 and https://www.drivesmartbc.ca/bc-vehicle-dimensions-regulations , accessed 2026-11-24).
 
@@ -216,10 +216,10 @@ v1 sets no pass/fail threshold; each range is a sum or spread of the prices cite
 
 | Option | Total cost range (CAD) | Good enough for |
 |---|---|---|
-| Cameras only | 2,283 if the antenna is kept, otherwise 1,924 + antenna (lower bound) (derived: low total minus 1,406.73 LiDAR line; mount bundle retained, so upper bound; laptop reused) | appearance, colour and signs only |
-| LiDAR only | 3,099 if the antenna is kept, otherwise 2,742 + antenna (lower bound) (derived: low total minus 589.00 camera line; mount bundle retained, so upper bound) | scale, height and geometry, no colour or sign |
-| Low | 3,331 + antenna (lower bound) (derived row sum; no range in the note) | measured twin, relative height only, colour optional |
-| Middle | 11,762 (row sum) | adds the colour stage |
-| High | 18,203-24,597 (derived: 24,597 new LiDAR; 18,203 = 24,597 minus 8,908.78 XT32M plus 2,514.58 used Ouster) | six-camera surround and long-range LiDAR, still relative height, no true INS |
+| Cameras only | 1,924 + antenna (lower bound) (derived: 3,330.61 − 1,406.73 = 1,923.88, rounded; mount bundle retained, upper bound; laptop reused) | appearance, colour and signs only |
+| LiDAR only | 2,742 + antenna (lower bound) (derived: 3,330.61 − 589.00 = 2,741.61, rounded) | scale, height and geometry, no colour or sign |
+| Low | 3,331 + antenna (lower bound) | measured twin, relative height only, colour optional |
+| Middle | 11,762 | adds the colour stage |
+| High | 18,203–24,597 (derived: 24,597 new LiDAR; 18,203 = 24,597 minus 8,908.78 XT32M plus 2,514.58 used Ouster) | six-camera surround and long-range LiDAR, still relative height, no true INS |
 
 The 5 cm road-surface depth bar is map #415's (<=5 cm p95 against held-out LiDAR), not a v1 criterion.
