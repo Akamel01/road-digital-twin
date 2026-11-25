@@ -110,6 +110,13 @@ A label on a feature's accuracy when its reference depends on the HD map's own d
 Part of the ground or a point that no camera saw cleanly. It is left without colour, never filled.
 _Avoid_: missing, no data, hole
 
+**Measured**:
+An element of the 3D world whose shape and position come from the drives' sensors (LiDAR, camera) and pass the held-out check. Only measured elements are used for measurements.
+
+**Completed**:
+An element, or part of one, of the 3D world that no sensor saw and was filled in so the world looks whole: the hidden side of a parked car, the back of a building, a far facade. It must agree with everything measured nearby, is labelled as completed, and is never used for measurements. The world has a "measured only" view that hides or greys it.
+_Avoid_: synthetic, fake, generated, hallucinated (completion is the act, not the tool)
+
 **Origin**:
 Whether a labelled feature came from the twin or from the operator: `drafted` means machine-drafted from twin outputs, `operator` means human-corrected or approved.
 _Avoid_: source, provenance
