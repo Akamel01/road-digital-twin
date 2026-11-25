@@ -3,11 +3,11 @@
 ## Answer and scope
 
 - The Insurance Corporation of British Columbia (ICBC) publishes two free, province-wide crash products on the BC Data Catalogue under the Open Data Licence for ICBC Information v1.0: ICBC Reported Crashes and Police-Reported Crash Data (Traffic Accident System, TAS). [1][2][6] These are the only free, province-wide, commercial-use-permitted sources found in this scan. (Inference)
-- Scope of this scan: the four city open-data portals, the BC Data Catalogue, the ICBC site, the TAC publisher pages, and the Action2Zero summary. Access date for all fetches: 2026-11-24.
+- Scope of this scan: the four city open-data portals, the BC Data Catalogue, the ICBC site, the Transportation Association of Canada (TAC) publisher pages, and the Action2Zero summary. Access date for all fetches: 2026-11-24.
 - ICBC public data gives counts, severity, coarse location (intersection vs mid-block flags, street/cross-street text, approximate latitude/longitude), road-user flags, time bands, year and month. [1] No structured civic address or 100-block masking.
 - City portals mostly publish no collision layer: Surrey publishes a Fatal/Injury Collision point layer at 100-block; Vancouver, Richmond and Coquitlam publish none found. [25][26][27][13] Absence is "not found in <portal/search> on <date>", not proof of absence.
 - Richer records need a data-sharing agreement (DSA) with the holder (ICBC or the city/police) or a Freedom of Information (FOI) request under the Freedom of Information and Protection of Privacy Act (FIPPA) ($10 CAD application fee for general requests, 2026-11-24). [20] No DSA is assumed to exist.
-- Methods a city expects: crash frequency and rate (per million entering vehicles, MEV; per 100 million vehicle-kilometres travelled, VKT), severity weighting (equivalent property-damage-only, EPDO; KABCO injury scale; killed and seriously injured, KSI), multi-year trends, and network screening including Highway Safety Manual (HSM) empirical Bayes. [7][17][24] Exact coefficients and formulas are paywalled and listed in Gaps.
+- Methods a city expects: crash frequency and rate (per million entering vehicles, MEV; per 100 million vehicle-kilometres travelled, VKT), severity weighting (equivalent property-damage-only, EPDO; the KABCO injury scale (K fatal, A incapacitating, B non-incapacitating, C possible, O no injury); killed and seriously injured, KSI), multi-year trends, and network screening including Highway Safety Manual (HSM) empirical Bayes. [7][17][24] Exact coefficients and formulas are paywalled and listed in Gaps.
 - Privacy: FIPPA, de-identification, small-population suppression, and withheld personal information limit what can be released. [22] (Inference)
 - Reporting unit is the Facility (Intersection, Segment, Access point). A per-facility collision layer is buildable for Intersection and Segment from public data; Access point not reliably buildable publicly. [1][2] (Inference) This is GTM/feasibility research, not a design decision, data request, or legal advice. No one was contacted.
 
@@ -50,7 +50,7 @@ Open Data Licence for ICBC Information v1.0 (last updated 2020-07-22): [6] "ICBC
 1. ICBC public open data (free, licence above).
 2. A data-sharing agreement (DSA) with ICBC or a municipality for record-level or richer fields — suited to ongoing structured access; no such agreement is assumed to exist. (Inference)
 3. FOI request under FIPPA [19][20][21] to the public body holding the records (municipalities, police departments including RCMP, health authorities, crown corporations each run their own FOI office). Written request with enough detail to identify the record; response within 30 business days (may be extended); $10 CAD non-refundable application fee for general requests (published fee, 2026-11-24); no fee for personal requests; processing fees may apply if locating/retrieving/preparing exceeds 3 hours (first 3 hours free, severing not charged); fees waivable on public-interest or hardship grounds; exemptions in Part 2 of the Act; severance allowed. Outcomes and terms vary by body. (Inference)
-4. Purchase where offered — the Collision Information System is not public; ICBC data support is published on the CIS page (not a contact attempt).
+4. Purchase where offered — the Collision Information System (CIS) is not public; ICBC data support is published on the CIS page (not a contact attempt).
 
 ### Typical record fields
 
@@ -62,7 +62,7 @@ TAS record fields (from the metadata description): date/time, location, road con
 
 Frequency: collisions per year at a location. Rate per million entering vehicles (MEV) or per 100 million vehicle-kilometres travelled (VKT); per-100 m histograms. [7] CIS functions include Fatal/Injury/PDO counts, collision-prone locations/sections, collision rate table, histogram, and specified-sections analysis. [7] Surrey reports killed-and-injured collisions per 100,000 population. [10][11] (Inference)
 
-Severity: EPDO (equivalent property-damage-only), where an injury/fatal crash is weighted as multiple PDOs; KABCO (K fatal, A incapacitating, B non-incapacitating, C possible, O no injury) is the US convention; BC uses ICBC/TAS injury counts and KSI. [17][24] Richmond's severity index is "a measure of how severe collisions are and whether they resulted in injuries or fatalities." [14] Exact EPDO coefficients and the KABCO-to-BC mapping are not in the fetched pages. (Inference)
+Severity: EPDO (equivalent property-damage-only), where an injury/fatal crash is weighted as multiple PDOs; KABCO is the US convention; BC uses ICBC/TAS injury counts and KSI. [17][24] Richmond's severity index is "a measure of how severe collisions are and whether they resulted in injuries or fatalities." [14] Exact EPDO coefficients and the KABCO-to-BC mapping are not in the fetched pages. (Inference)
 
 ### Trends and network screening
 
@@ -72,7 +72,7 @@ Network screening methods: crash frequency/rate ranking; empirical Bayes excess 
 
 ### TAC and HSM references
 
-Transportation Association of Canada (TAC) CRaSH (TAC publication series) titles (list price, CAD, publisher page, 2026-11-24; full text not read): [16][17][18] Canadian Road Safety Audit Guide (2001, PTM-CRSAG-E, 81 pp, $199.00); Canadian Guide to In-Service Road Safety Reviews (2004, PTM-INSERVICE-E, 232 pp, $239.00); Guidelines for the Network Screening of Collision-Prone Locations (2011, PTM-CLLSN-E, 168 pp, $225.00). The TAC screening guide names the Highway Safety Manual (HSM, AASHTO) as a companion source of network-screening methods. [17] HSM is the US reference for empirical Bayes and SPFs; exact edition/year not confirmed. [24] No quotes or forum reports were used for any price; TAC prices are publisher list prices and the FOI amount is a published application fee. BC MUTCDC (Manual of Uniform Traffic Control Devices for Canada) and T-02/04 were not fetched and are omitted.
+Transportation Association of Canada (TAC) titles (list price, CAD, publisher page, 2026-11-24; full text not read): [16][17][18] Canadian Road Safety Audit Guide (2001, PTM-CRSAG-E, 81 pp, $199.00); Canadian Guide to In-Service Road Safety Reviews (2004, PTM-INSERVICE-E, 232 pp, $239.00); Guidelines for the Network Screening of Collision-Prone Locations (2011, PTM-CLLSN-E, 168 pp, $225.00). The TAC screening guide names the Highway Safety Manual (HSM, AASHTO) as a companion source of network-screening methods. [17] HSM is the US reference for empirical Bayes and SPFs; exact edition/year not confirmed. [24] No quotes or forum reports were used for any price; TAC prices are publisher list prices and the FOI amount is a published application fee. BC MUTCDC (Manual of Uniform Traffic Control Devices for Canada) and T-02/04 were not fetched and are omitted.
 
 ## Privacy limits
 
@@ -121,9 +121,9 @@ Minimum viable layer from public data: counts and severity flags for all four ci
 | 13 | Coquitlam Open Data Portal | City of Coquitlam | https://data.coquitlam.ca/ | 2026-11-24 | portal categories, OGL-BC v2.0, no collision set | |
 | 14 | Top 20 Collision-Prone Intersections Update 2026 | City of Richmond | https://citycouncil.richmond.ca/__shared/assets/Top_20_Collision-Prone_Intersections_Update_202679943.pdf | 2026-11-24 | Richmond severity index, 5-year data need | |
 | 15 | ICBC–City of Richmond Road Safety Improvement Program Update 2026 | City of Richmond | https://citycouncil.richmond.ca/__shared/assets/ICBC-City_of_Richmond_Road_Safety_Improvement_Program_Update_202679416.pdf | 2026-11-24 | city–ICBC cost-share program | |
-| 16 | Canadian Guide to In-service Road Safety Reviews (CRaSH, 2004) | TAC | https://www.tac-atc.ca/en/publications/ptm-inservice | 2026-11-24 | title, year, price, publisher page | |
-| 17 | Guidelines for the Network Screening of Collision-Prone Locations (CRaSH, 2011) | TAC | https://www.tac-atc.ca/en/knowledge-centre/technical-resources-search/publications/ptm-cllsn-e/ | 2026-11-24 | title, year, price, methods | |
-| 18 | Canadian Road Safety Audit Guide (CRaSH, 2001) | TAC | https://www.tac-atc.ca/en/knowledge-centre/technical-resources-search/publications/ptm-crsag-e | 2026-11-24 | title, year, price | |
+| 16 | Canadian Guide to In-service Road Safety Reviews (2004) | TAC | https://www.tac-atc.ca/en/publications/ptm-inservice | 2026-11-24 | title, year, price, publisher page | |
+| 17 | Guidelines for the Network Screening of Collision-Prone Locations (2011) | TAC | https://www.tac-atc.ca/en/knowledge-centre/technical-resources-search/publications/ptm-cllsn-e/ | 2026-11-24 | title, year, price, methods | |
+| 18 | Canadian Road Safety Audit Guide (2001) | TAC | https://www.tac-atc.ca/en/knowledge-centre/technical-resources-search/publications/ptm-crsag-e | 2026-11-24 | title, year, price | |
 | 19 | Freedom of Information (FOI) FAQ | Province of BC | https://www2.gov.bc.ca/gov/content/governments/about-the-bc-government/open-government/open-information/freedom-of-information/foi-faq | 2026-11-24 | FOI process, fees, timelines | |
 | 20 | Fees for Freedom of Information Requests | Province of BC | https://www2.gov.bc.ca/gov/content/governments/about-the-bc-government/open-government/open-information/freedom-of-information/11936 | 2026-11-24 | $10 CAD application fee, processing fees | |
 | 21 | Guidance on FIPPA's FOI Process | OIPC BC | https://www.oipc.bc.ca/documents/guidance-documents/3009 | 2026-11-24 | 30-business-day response, fee practice | |
