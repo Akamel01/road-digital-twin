@@ -126,12 +126,12 @@ Crosswalks: the 6th edition integrates pedestrian-crossing guidance rather than 
 
 ### 2.3 BC supplement
 
-In the sources listed here, no single BC "MUTCDC supplement" document appears. BC MoSTS&PM is a living web catalogue with no single consolidated edition number or list price; its introduction cites a 2008 Catalogue of Standard Traffic Signs and a Standard Traffic Signs & Pavement Markings Manual (2000) as base documents ([BC MoSTS&PM](https://www2.gov.bc.ca/gov/content/transportation/transportation-infrastructure/engineering-standards-guidelines/traffic-engineering-safety/traffic-signs-markings), accessed 2026-11-24). BC sign codes differ from MUTCDC codes: stop sign MUTCDC RA-1 vs BC R-001 Series; pedestrian crosswalk MUTCDC RA-4 vs BC PS-003 Series; pedestrian crosswalk ahead MUTCDC WC-2 vs BC PS-002 Series ([BC Active Transportation Design Guide](https://www2.gov.bc.ca/assets/gov/driving-and-transportation/funding-engagement-permits/grants-funding/cycling-infrastructure-funding/active-transportation-guide-low-res/2019-06-14_bcatdg_section_g_rfs.pdf), accessed 2026-11-24). 
-The catalogue publishes no edition number or year.
+In the sources listed here, no single BC "MUTCDC supplement" document appears. BC MoSTS&PM is a living web catalogue with no single consolidated edition number or list price; its introduction cites a 2008 Catalogue of Standard Traffic Signs and a Standard Traffic Signs & Pavement Markings Manual (2000) as base documents ([BC MoSTS&PM](https://www2.gov.bc.ca/gov/content/transportation/transportation-infrastructure/engineering-standards-guidelines/traffic-engineering-safety/traffic-signs-markings), accessed 2026-11-24). BC sign codes differ from MUTCDC codes: stop sign MUTCDC RA-1 vs BC R-001 Series; pedestrian crosswalk MUTCDC RA-4 vs BC PS-003 Series; pedestrian crosswalk ahead MUTCDC WC-2 vs BC PS-002 Series ([BC Active Transportation Design Guide](https://www2.gov.bc.ca/assets/gov/driving-and-transportation/funding-engagement-permits/grants-funding/cycling-infrastructure-funding/active-transportation-guide-low-res/2019-06-14_bcatdg_section_g_rfs.pdf), accessed 2026-11-24).
 
 ### 2.4 Municipal curb and parking rules
 
-All four are traffic and parking bylaws, not marking standards. 
+All four are traffic and parking bylaws, not marking standards.
+
 | City | Instrument | Version | Relevant section | Curb/parking rule | Source |
 |---|---|---|---|---|---|
 | Coquitlam | Street and Traffic Bylaw No. 5499, 2026 | no consolidation date published; PDF read 2026-11-24 | s. 8.1 | No stopping within 6 m of either side of a fire-hall entrance, 5 m of a fire hydrant, 2 m of a boulevard or sidewalk crossing, 6 m of a stop sign; no parking within 6 m of a crosswalk, 9 m of an intersecting roadway, 6 m of a stop sign or signal, 3 m of an alley | [Coquitlam bylaw PDF](https://publicdocs.coquitlam.ca/coquitlamdoc/getdocIF.asp?doc=6125641) (accessed 2026-11-24) |
