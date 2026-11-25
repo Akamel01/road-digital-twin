@@ -76,7 +76,7 @@ Scope: a research note comparing four Metro Vancouver cities as a first pilot fo
 
 ### 3.1 Plan
 
-- Transportation 2040 Plan (adopted 2012-10-31) and Vision Zero Safe Mobility Plan (approved by Council 2026-06-02, reported via search excerpts; council report r3 and plan PDF fetch returned HTTP 403; these statements come from the news release and search excerpts) [39][40].
+- Transportation 2040 Plan (adopted 2012-10-31) and Vision Zero Safe Mobility Plan (approved by Council 2026-06-02, reported via search excerpts; the council report r3, the June 2026 news release and the plan PDF all returned HTTP 403; these statements come from search excerpts) [39][40][41].
 - Target: reduce traffic-related fatalities and serious injuries by at least 5% each year, on the way to zero before 2050 (reported via search excerpts) [39][40].
 - Published budget: the plan report states "no financial implications" associated with its recommendation; some actions fall within existing budgets, others depend on future funding. Separate: $5.5M CAD increased pedestrian-safety funding 2025–2026 [39][41]. No dedicated capital/operating budget for the plan itself [39].
 - In-service road safety reviews: not found as a stated element of the plan in sources reviewed; plan references "a more detailed analysis of collisions in Vancouver is currently underway through a consultant-led study" [39][42] (plan PDF fetch blocked; excerpts only).
@@ -172,17 +172,17 @@ Definitions: (b) low-value/direct-award authority = a published city policy stat
 |---|---|---|---|---|---|---|
 | Coquitlam | L | M | M | M | M | No direct-award threshold found and no relevant 2020–2026 award [6][7]; target endorsed 2023 but program still draft, no in-service practice [4]. |
 | Surrey | H | H | H | H | H | Published sole-source exception plus 2025 LiDAR award to Eagle Mapping [29][30][31]; adopted 2019 plan plus published in-service reviews [20][17][23]. Threshold figures read via excerpts/secondary — caveat [29][30]. |
-| Vancouver | M | M | M | M | H | Sole-source threshold published but no qualifying 2020–2026 award [45][74]; plan plus target but no in-service practice [39][40]. |
+| Vancouver | M | M | M | M | H | Sole-source threshold published but no qualifying 2020–2026 award [45][46]; plan plus target but no in-service practice [39][40]. |
 | Richmond | H | M | H | H | H | 8319P road asset modelling, 8365P digital twin, 8516P pavement management awarded 2024–2026 [64]; Top 20 screening counts as review practice but no adopted plan or target year [51][53]. |
 
-Cell support (b/a/e/c/d): Coquitlam [6][7]/[4]/[4]/[11]/[10] (Coquitlam d is vendor-only: [10]); Surrey [29][30][31]/[20][17][23]/[20][23]/[17][33]/[27][32]; Vancouver [45][74]/[39][40]/[39][40]/[48]/[74][46][47]; Richmond [64]/[51][53][54]/[51][58]/[59]/[64].
+Cell support (b/a/e/c/d): Coquitlam [6][7]/[4]/[4]/[11]/[10] (Coquitlam d is vendor-only: [10]); Surrey [29][30][31]/[20][17][23]/[20][23]/[17][33]/[27][32]; Vancouver [45][46]/[39][40]/[39][40]/[48]/[74][46][47]; Richmond [64]/[51][53][54]/[51][58]/[59]/[64].
 
 Result: Surrey 1, Richmond 2, Vancouver 3, Coquitlam 4. Coquitlam's b = L triggers the veto: it cannot be recommended #1 on published evidence (this is not proof the city cannot buy). The rest of the order follows the cells.
 
 Ranking with reasons:
 1. Surrey — highest rubric profile (H on all five); published in-service review practice and a published sole-source exception, with a 2025 LiDAR award; ICBC RIP funding and a CCBF allocation [20][17][23][29][30][31][35]. Risk: in-house/ICBC-funded reviews, dollar thresholds from a secondary table, LiDAR vendor relationship, and threshold figures from secondary sources.
 2. Richmond — H on b, e, c, d; has awarded relevant contracts (8319P, 8365P, 8516P) and published ICBC RIP amounts; but no adopted plan or target year (a = M) [51][53][64][59]. Richmond is the strongest alternative for #1 on recent awarded contracts alone; it ranks second because it has no adopted plan or target year (a = M). Risk: no plan/target; the public RFP pages show no awarded vendor or value.
-3. Vancouver — H on d only; sole-source threshold published but no qualifying 2020–2026 award (b = M); plan plus target but no in-service practice (a = M) [39][40][45][74]. Risk: plan PDF blocked, no in-service practice.
+3. Vancouver — H on d only; sole-source threshold published but no qualifying 2020–2026 award (b = M); plan plus target but no in-service practice (a = M) [39][40][45][46]. Risk: plan PDF blocked, no in-service practice.
 4. Coquitlam — b = L veto; target endorsed 2023 but program draft; no in-service practice; no direct-award threshold and no relevant award [4][6][7]. Risk: no review RFP/direct-award threshold — confirm before treating as unavailable.
 
 Top-city risk (Surrey, ranks #1): in-house/ICBC-funded reviews, dollar thresholds from a secondary table, LiDAR vendor relationship, and threshold figures from secondary sources.
@@ -229,8 +229,8 @@ The 3–5 intersection assumption comes from map #470 (decision 15, 2026-11-24).
 37. Secondary — BC Vision Zero grant program — https://www.visionzerobc.ca/news/vision-zero-2025-2026 — accessed 2026-11-24
 38. Secondary — Federal Build Communities Strong Fund BC — https://www.canada.ca/en/housing-infrastructure-communities/news/2026/07/building-communities-strong-in-british-columbia-with-54-new-infrastructure-projects.html — accessed 2026-11-24
 39. Primary — City of Vancouver, transportation safety page — https://vancouver.ca/streets-transportation/transportation-safety.aspx — accessed 2026-11-24
-40. Primary — City of Vancouver, Council report r3 (Vision Zero Safe Mobility Plan) — https://council.vancouver.ca/20260602/documents/r3.pdf — accessed 2026-11-24
-41. Primary — City of Vancouver, news release (June 2026) — https://vancouver.ca/news-calendar/vancouver-renews-commitment-to-eliminate-traffic-deaths-jun-2026.aspx — accessed 2026-11-24
+40. Primary — City of Vancouver, Council report r3 (Vision Zero Safe Mobility Plan) — https://council.vancouver.ca/20260602/documents/r3.pdf — accessed 2026-11-24, read via search excerpts only (fetch blocked, HTTP 403)
+41. Primary — City of Vancouver, news release (June 2026) — https://vancouver.ca/news-calendar/vancouver-renews-commitment-to-eliminate-traffic-deaths-jun-2026.aspx — accessed 2026-11-24, read via search excerpts only (fetch blocked, HTTP 403)
 42. Primary — City of Vancouver, Vision Zero Safe Mobility Plan PDF — https://vancouver.ca/files/cov/vision-zero-safe-mobility-plan.pdf — accessed 2026-11-24, read via search excerpts only (fetch blocked, HTTP 403)
 43. Primary — City of Vancouver, Annual Procurement Report 2025 — https://council.vancouver.ca/20260422/documents/cfsc3.pdf — accessed 2026-11-24
 44. Primary — City of Vancouver, bids portal — https://bids.vancouver.ca/ — accessed 2026-11-24
