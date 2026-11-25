@@ -8,7 +8,7 @@ Question: what privacy rules apply when a contractor captures street-level image
 - Collection needs a listed authority, in practice s.26(c); notice (s.27); security (s.30); use (s.32); disclosure (s.33), outside Canada (s.33.1); retention of at least one year only where a decision directly affects the individual (s.31) ([S2](#s2), accessed 2026-11-24).
 - The contractor as an organisation is also subject to PIPA, but PIPA does not apply to personal information to which FOIPPA applies; the split runs by information and purpose, not by record (PIPA s.1 "organization" excludes a public body; PIPA s.3(2)(d); [S4](#s4), accessed 2026-11-24).
 - A non-ministry public body must conduct a PIA (FOIPPA s.69(5.3)), in accordance with the minister's directions; commissioner's review is comment, not approval ([S3](#s3), accessed 2026-11-24).
-- Faces and licence plates are personal information only when linked to an identifiable individual; identifiability depends on context ([S1](#s1), accessed 2026-11-24).
+- Faces and plates are personal information when linked to an identifiable individual; context decides ([S1](#s1); [S10](#s10), accessed 2026-11-24).
 - No blanket prohibition on storing personal information outside Canada since 2021: former s.30.1 was repealed by Bill 22 (2021); s.33.1 plus B.C. Reg. 294/2021 govern disclosure outside Canada, with a supplementary assessment for sensitive information ([S5](#s5); [S6](#s6); [S7](#s7), accessed 2026-11-24).
 
 ## FOIPPA and PIPA duties
@@ -64,7 +64,7 @@ Checks to consider:
 - No LiDAR-specific OIPC guidance was found; the analysis above applies the general statutory test and de-identification practice.
 - Whether the contractor's own processing (for example training models on captured imagery) falls under FOIPPA or PIPA is not resolved and needs counsel.
 - Storage-versus-disclosure scope: s.33.1 regulates disclosure outside Canada; storage is assessed as part of that disclosure and the supplementary assessment; any successor provision specifically covering storage is not confirmed here.
-- Currency of dated OIPC guidance: surveillance guidelines undated on source ([S15](#s15)); data services contracts guidance May 2003 ([S11](#s11)); outside-Canada security guidance 2022 ([S13](#s13)). BC government guidance last updated 2025-02-13 ([S7](#s7), accessed 2026-11-24).
+- Currency of dated OIPC guidance: surveillance guidelines no printed date (PDF created 2026-01-14) ([S15](#s15)); data services contracts guidance May 2003 ([S11](#s11)); outside-Canada security guidance 2022 ([S13](#s13)). BC government guidance last updated 2025-02-13 ([S7](#s7), accessed 2026-11-24).
 - De-identification limits: de-identified data may still be personal information in some contexts; blurring is not a guarantee.
 - No prices are in scope.
 
