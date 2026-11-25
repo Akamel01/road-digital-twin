@@ -37,12 +37,12 @@ The low rig assumes the operator already has a laptop and a car; if no laptop is
 | Mounts | Roof rack + LiDAR plate + camera mounts + safety tethers | 359.23 | Labelled estimate, typical retail, 2026-11-24 | labelled estimate, no vendor quote |
 | **Total** | excl. tax, duty, shipping | **11,762** | sum of rows at 1.4369, checked 2026-11-24 | see 1.4 |
 
-### 1.3 High: survey-grade-ish on the operator's own car (about CAD 18,000-25,000)
+### 1.3 High: survey-grade-ish on the operator's own car (about CAD 18,000-21,000)
 
 | Item | Model / spec | Price (CAD) | Price basis and date | Source (URL, accessed) |
 |---|---|---|---|---|
 | Cameras | 6× action cameras (Insta360 Ace Pro 2 or GoPro) for full surround | 3,362.26 | Vendor list (Ace Pro 2, store shows USD 389.99) | https://store.insta360.com/consumer , accessed 2026-11-24 |
-| LiDAR option A (new): Hesai XT32M | Hesai XT32M (32 ch, 300 m, 640 kpts/s) | 8,908.78 | Retail listing, 2026-08 | https://lidarseek.com/product/hesai-xt32 , accessed 2026-11-24 |
+| LiDAR option A (new): Hesai XT32 | Hesai XT32 (32 ch, 120 m, 640 kpts/s, 360°×31°, ±1 cm, zero blind spot) | 5,385.50 | Retail listing, 2026-08 (USD 3,748) | https://lidarseek.com/product/hesai-xt32 , accessed 2026-11-24 |
 | LiDAR option B (used): Ouster OS1-128 | Used Ouster OS1-128-U (128 ch, 120 m, 2.62 Mpts/s) | 2,514.58 | eBay listing (used, "fully operational"); new listing USD 11,785 | https://www.ebay.com/itm/356384649975 , accessed 2026-11-24 |
 | GNSS | Emlid Reach RS4 all-band RTK receiver (tilt compensation) | 5,602.47 | Vendor list, 2026-11-24 | https://store.emlid.com/collections/all , accessed 2026-11-24 |
 | Time sync | Hardware PPS from GNSS into logger + camera GPIO trigger board (e.g., Arduino/Teensy) | 114.95 | Labelled estimate, typical retail, 2026-11-24 | labelled estimate, no vendor quote |
@@ -50,16 +50,16 @@ The low rig assumes the operator already has a laptop and a car; if no laptop is
 | Storage | 4 TB NVMe SSD | 431.07 | Labelled estimate, typical retail, 2026-11-24 | labelled estimate, no vendor quote |
 | Power | 12 V marine-grade DC distribution, 200 W, fusing, cabling | 431.07 | Labelled estimate, typical retail, 2026-11-24 | labelled estimate, no vendor quote |
 | Mounts | Roof rack + machined aluminium LiDAR plate + 6 camera mounts + safety tethers | 718.45 | Labelled estimate, typical retail, 2026-11-24 | labelled estimate, no vendor quote |
-| **Total (new LiDAR)** | excl. tax, duty, shipping | **24,597** | sum of rows at 1.4369, checked 2026-11-24 | see 1.4 |
+| **Total (new LiDAR)** | excl. tax, duty, shipping | **21,073** | sum of rows at 1.4369, checked 2026-11-24 | see 1.4 |
 | **Total (used LiDAR)** | excl. tax, duty, shipping | **18,203** | sum of rows at 1.4369, checked 2026-11-24 | see 1.4 |
 
 Ouster OS1 spec for the used alternative: 128 beams, 120 m range, 2.62 Mpts/s, 360°×45°, ±3 cm at 20 m, 5 mm precision (Ouster datasheet referenced in the eBay listing https://www.ebay.com/itm/356384649975 , accessed 2026-11-24; listing states "Ouster OS1-128 Lidar Sensor brand new" USD 11,785; used listing USD 1,750 "fully operational").
 
 ### 1.4 Notes: laptop, conversion, time sync, GNSS and INS
 
-Currency conversion uses one rate: Bank of Canada daily average USD/CAD = 1.4369, observation date 2026-11-23 (nearest business day to 2026-11-24), source https://www.bankofcanada.ca/valet/observations/FXUSDCAD/json?recent=5 , accessed 2026-11-24. All CAD figures are USD price times 1.4369 unless a CAD retail price is quoted directly. Taxes, duty, shipping and cables beyond those listed are excluded unless stated.
+Currency conversion uses one rate: Bank of Canada daily average USD/CAD = 1.4369, observation date 2026-11-23 (nearest business day to 2026-11-24), source https://www.bankofcanada.ca/valet/observations/FXUSDCAD/json?recent=5 , accessed 2026-11-24. All CAD figures are USD price times 1.4369 unless a CAD retail price is quoted directly. Taxes, duty, shipping and cables beyond those listed are excluded unless stated. All sources were accessed on 2026-11-24.
 
-Mounts, power, storage and sync-hardware costs are labelled estimates, not vendor quotes; the task forbids quote requests. The low rig reuses the operator's laptop and car; the Jetson Orin Nano Super Developer Kit at USD 399 (CAD 573.32) replaces the laptop if none is available.
+Mounts, power, storage and sync-hardware costs are labelled estimates, not vendor quotes; no quote requests were made. The low rig reuses the operator's laptop and car; the Jetson Orin Nano Super Developer Kit at USD 399 (CAD 573.32) replaces the laptop if none is available.
 
 Time sync per tier: low tier uses software timestamps (NTP) plus Livox PTPv2 with GPS time via M2 PPS, no extra hardware; middle tier uses PTPv2 from the Hesai over Ethernet plus GNSS PPS into the logger, no extra hardware; high tier uses hardware PPS from GNSS into the logger plus a camera GPIO trigger board (labelled estimate, CAD 114.95). Multi-camera synchronisation for 4-6 action cameras is not priced (no hardware trigger or multi-cam sync box included in the low or middle estimates). Wherever sync hardware is not priced, the note says not priced rather than inventing a figure.
 
@@ -130,7 +130,7 @@ CSRS-PPP v5 (from 2025-05-14) adds Galileo PPP-AR for E1/E5a data collected from
 
 A minimal base requires a multi-band GNSS receiver, survey antenna, and either a radio link or an NTRIP caster. Practical range: RTK works up to 35-50 km baseline from the base; accuracy degrades with distance (https://www.ardusimple.com/rtk-correction-services-and-ntrip-casters-in-canada/ , accessed 2026-11-24).
 
-A nearby free base (RichmondBC on RTK2go) is the only Lower Mainland option; the nearest other BC RTK2go station is in North Cowichan (https://kuongeo.com/stations/region/CAN-british-columbia , accessed 2026-11-24). No BC-specific free public base within the Lower Mainland except RichmondBC on RTK2go; the nearest other BC RTK2go station is in North Cowichan (https://kuongeo.com/stations/region/CAN-british-columbia , accessed 2026-11-24).
+A nearby free base (RichmondBC on RTK2go) is the only Lower Mainland option; the nearest other BC RTK2go station is in North Cowichan (https://kuongeo.com/stations/region/CAN-british-columbia , accessed 2026-11-24).
 
 A second receiver for an own base is not priced in this pass; a local base is preferable because accuracy degrades with distance over the 35-50 km baseline.
 
@@ -220,6 +220,6 @@ v1 sets no pass/fail threshold; each range is a sum or spread of the prices cite
 | LiDAR only | 2,742 + antenna (lower bound) (derived: 3,330.61 − 589.00 = 2,741.61, rounded) | scale, height and geometry, no colour or sign |
 | Low | 3,331 + antenna (lower bound) | measured twin, relative height only, colour optional |
 | Middle | 11,762 | adds the colour stage |
-| High | 18,203–24,597 (derived: 24,597 new LiDAR; 18,203 = 24,597 minus 8,908.78 XT32M plus 2,514.58 used Ouster) | six-camera surround and long-range LiDAR, still relative height, no true INS |
+| High | 18,203–21,073 (derived: 21,073 new LiDAR; 18,203 = 21,073 minus 5,385.50 XT32 plus 2,514.58 used Ouster) | six-camera surround and 120 m LiDAR, still relative height, no true INS |
 
 The 5 cm road-surface depth bar is map #415's (<=5 cm p95 against held-out LiDAR), not a v1 criterion.
