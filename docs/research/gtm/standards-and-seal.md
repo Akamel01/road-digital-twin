@@ -31,7 +31,7 @@ The distinction: a road safety audit (RSA) runs at design and new-project stages
 
 TAC publishes the in-service guide's chapter list openly, not a report template. The guide is divided into: Introduction; Safety Management Systems; Data Management; Network Screening; Engineering Analysis, Countermeasures; Evaluating Road Safety Improvements; and Getting Started ([TAC in-service guide](https://www.tac-atc.ca/en/publications/ptm-inservice), accessed 2026-11-24).
 
-A typical report contents list comes from secondary evidence. Quote (Manitoba WSP in-service road safety review report, 2023-12-22, secondary, https://www.gov.mb.ca/mti/projects_management/pdf/pth1-pth5-in-service-road-safety-review-complete-report.pdf, accessed 2026-11-24, applying the guide): "Reviews were generally conducted in accordance with TAC guidelines for in-service road safety reviews and included collision data analysis, geometric analysis, operations analysis, human factors analysis, key issues synthesis, and recommended short- and long-term improvements." And: "Each review produced a report synthesizing review results." The Manitoba report (secondary) contained: executive summary; introduction and purpose; methodology (lines of evidence, risk-based evaluation); site description; collision data analysis; traffic counts; geometric, operational and human-factors analysis; key issues prioritized; countermeasures with cost-effectiveness; short-, medium- and long-term implementation options; conclusion and recommendations; and appendices (collision data, traffic counts, conflict data). This is a labelled example of practice, not a TAC requirement.
+A typical report contents list comes from secondary evidence. Quote (Manitoba WSP in-service road safety review report, 2023-12-22, secondary, https://www.gov.mb.ca/mti/projects_management/pdf/pth1-pth5-in-service-road-safety-review-complete-report.pdf, accessed 2026-11-24): "The ISRSR was conducted in accordance with the Transportation Association of Canada (TAC) Canadian Guide to In-service Road Safety Reviews and was an independent and formal process, conducted by a multidisciplinary team who, based on their experience and expertise, provided opinions on safety issues from the perspective of all road users." This is a labelled example of practice, not a TAC requirement. TAC publishes the chapter list, not a report template.
 
 ### 1.3 Team roles
 
@@ -55,7 +55,7 @@ The Manual of Uniform Traffic Control Devices for Canada (MUTCDC) is the 6th edi
 
 ### 2.2 MUTCDC clauses verified from free sources
 
-The MUTCDC 6th edition is sold in print and e-book only ([TAC MUTCDC product page](https://www.tac-atc.ca/en/knowledge-centre/technical-resources-search/publications/ptm-mutcdc21-e/), accessed 2026-11-24), so this note names only clause numbers that a free source verifies. In the sources listed here, none quotes crosswalk-marking, curb-marking or parking-stall-marking clause numbers, so the note gives none. The US MUTCD is a different document and is not cited as MUTCDC.
+The MUTCDC 6th edition is sold in print and e-book only ([TAC MUTCDC product page](https://www.tac-atc.ca/en/knowledge-centre/technical-resources-search/publications/ptm-mutcdc21-e/), accessed 2026-11-24), so this note names only clause numbers that a free source verifies. The free 2026 errata verifies the clause numbers and titles below, including crosswalk and parking-line clauses; it does not reproduce the full clause text, so dimensions and warrants are not quoted here. The US MUTCD is a different document and is not cited as MUTCDC.
 
 The tables below group the verified clause numbers by source and topic.
 
@@ -67,10 +67,10 @@ Source: [MUTCDC 2026 Summary of Revisions (errata PDF)](https://www.tac-atc.ca/w
 | A | A2.3 | signs | Speed control |
 | A | A2.4 | signs | Turn control |
 | A | A2.5 | signs | Two-way traffic |
-| A | A2.6 | signs | Section heading not titled in the errata |
+| A | A2.6 | signs | Passing control |
 | A | A2.7 | signs | Lane designation |
 | A | A2.9 | signs | Turning vehicles yield to cyclists/pedestrians |
-| A | A2.10 | signs | Section heading not titled in the errata |
+| A | A2.10 | signs | Miscellaneous regulatory signs |
 | A | A3.6 | signs | Warning signs (WB-3 at A3.6.1; WB-7S at A3.6.2) |
 | A | A3.7 | signs | Warning signs |
 | A | A3.8 | signs | Warning signs (includes school crosswalk, trail crossing) |
@@ -79,6 +79,20 @@ Source: [MUTCDC 2026 Summary of Revisions (errata PDF)](https://www.tac-atc.ca/w
 | A | A4.6 | signs | Guide/information signs |
 | A | A5 | signs | Dynamic message signs |
 | A | D2.11 | signs | Temporary signs |
+| C | C3 | markings | Transverse pavement markings |
+| C | C3.1 | crosswalks | Crosswalk lines |
+| C | C3.1.1 | crosswalks | Twin parallel line crosswalk markings |
+| C | C3.2 | markings | Stop lines |
+| C | C3.3 | markings | Gore areas |
+| C | C3.4 | markings | Diagonal markings |
+| C | C3.5 | curb regulations | Parking lines |
+| C | C4.1.5 | markings | Shared use lane symbol |
+| C | C4.1.6 | markings | Bicycle detection symbol |
+| C | C6.1.5 | signals/intersections | Pedestrian crossings (roundabouts) |
+| C | C6.1.6 | signals/intersections | Example signing and marking applications |
+| C | C7.2.1 | crosswalks | Pedestrian crosswalk pavement markings |
+| C | C7.2.2 | crosswalks | School crossings |
+| C | C7.2.3 | crosswalks | Decorative crosswalk pavement markings |
 | B | B3 | signals/intersections | Traffic control signals (display and configuration) |
 | B | B4 | signals/intersections | Traffic control signals (operational requirements/warrants) |
 | E | E1 | signals/intersections | Stop-controlled and signalized intersections |
@@ -122,7 +136,7 @@ Source: [BC MoSTS&PM, whose catalogue cites a 2000 base manual](https://www2.gov
 
 Additional verified quotes: Quote (MUTCDC background info, 2024-06-19, https://www.tac-atc.ca/wp-content/uploads/MUTCDC-Background-Information_EN.pdf, accessed 2026-11-24): "Guidance on pedestrian crossings, which was previously in a dedicated section, is now integrated with other guidance" — so the 6th edition has no dedicated crosswalk part; crosswalk guidance is integrated into Part C and Part E. Quote (TAC chevron guidelines, 2012): "The MUTCDC provides guidance on curve warning signs (Section A3.2.1), checkerboard signs (Section A3.2.6), delineation (Section A3.4.12), pavement edge lines (Section C2.4.1) and raised pavement markers (Section C1.6.4)."
 
-Crosswalks: the 6th edition integrates pedestrian-crossing guidance rather than keeping a dedicated section; crosswalk sign codes exist (MUTCDC RA-4, WC-2, RA-5; BC PS-003, PS-002); no free source verifies crosswalk marking clause numbers. Curb regulations: set by municipal traffic and parking bylaws; parking and stopping distances per the city table below; no verified MUTCDC curb-marking clause.
+Crosswalks: the errata verifies C3.1, C3.1.1 and C7.2.1–C7.2.3 as crosswalk clauses; the 6th edition integrates pedestrian-crossing guidance rather than keeping a dedicated section; crosswalk sign codes exist (MUTCDC RA-4, WC-2, RA-5; BC PS-003, PS-002). The full clause text is paywalled. Curb regulations: C3.5 Parking Lines is the verified parking-line clause; the full text is paywalled; the actual stopping and parking rules are municipal bylaw rules (see §2.4).
 
 ### 2.3 BC supplement
 
@@ -147,7 +161,7 @@ In the sources listed here, no city-specific marking or sign engineering manual 
 
 EGBC's governing rule is the three-question authentication test, from the Practice Advisor FAQs and the Quality Management Guide (QMG) v5.0. Quote (Practice Advisor FAQs, https://www.egbc.ca/Registrants/Practice-Resources/Practice-Advice-Program/Practice-Advisor-Faqs, accessed 2026-11-24): "If the response to all three questions above is yes, then the professional registrant must authenticate the document prior to the document being delivered." The three questions: (1) Does the document contain information resulting from the practice of professional engineering or professional geoscience? (2) Is the document complete for its intended purpose? (3) Will the document be relied upon by others (whether for bidding, permitting, construction, implementation, use or other reliance)? Quote (QMG v5.0, https://www.egbc.ca/getmedia/bb8be418-ae51-4ea5-ad0d-2c671bcb1df0/EGBC-QMG-Authentication-of-Documents.pdf, accessed 2026-11-24): "A Professional Registrant must Authenticate (a) a Document that: (i) the Professional Registrant has prepared in their professional capacity or has been prepared under their Direct Supervision, (ii) contains content related to the Regulated Practice, and (iii) will be relied on by others." And: "Only a Professional Registrant may Authenticate a Document."
 
-Applied to the pilot deliverables: engineering findings, reports, opinions, review findings against TAC and MUTCDC, countermeasures and risk ranking must be authenticated by a P.Eng. who prepared them or under whose direct supervision they were prepared. A factual data or inventory deliverable — features found, typed and placed, with no engineering opinion — may not require authentication under the three-question test unless it will be relied upon by others for engineering decisions. Whether it needs a seal is a judgment call for the engineer of record. In the EGBC documents listed here, no "reports of factual data" exemption appears, and EGBC does not use an "engineering reports vs reports of factual data" dichotomy; the governing test is the three-question test above. EGBC does not approve sealing documents that do not contain engineering or geoscience content unless required by other federal or provincial legislation (Practice Advisory: Sealing Insurance Declarations, 2018-11-27, https://www.egbc.ca/getmedia/9467401d-6d6b-4332-b469-367c2e028d6e/Practice-Advisory-Sealing-Insurance-Declarations.pdf.aspx, accessed 2026-11-24; QMG 3.2.19.1). The Manitoba in-service review report (secondary) was signed by five P.Eng.s, treating review findings as engineering opinion — an example of practice, not a rule.
+Applied to the pilot deliverables: engineering findings, reports, opinions, review findings against TAC and MUTCDC, countermeasures and risk ranking must be authenticated by a P.Eng. who prepared them or under whose direct supervision they were prepared. A factual data or inventory deliverable — features found, typed and placed, with no engineering opinion — may not require authentication under the three-question test unless it will be relied upon by others for engineering decisions. Whether it needs a seal is a judgment call for the engineer of record. In the EGBC documents listed here, no "reports of factual data" exemption appears, and EGBC does not use an "engineering reports vs reports of factual data" dichotomy; the governing test is the three-question test above. EGBC does not approve sealing documents that do not contain engineering or geoscience content unless required by other federal or provincial legislation. Quote (QMG v5.0, §3.2.6.1, https://www.egbc.ca/getmedia/bb8be418-ae51-4ea5-ad0d-2c671bcb1df0/EGBC-QMG-Authentication-of-Documents.pdf, accessed 2026-11-24): "Professional Registrants must not Authenticate Documents that do not contain professional engineering or professional geoscience content, unless the Documents are required to be Authenticated by applicable legislation, associated regulations, the Bylaws, or policies endorsed by Engineers and Geoscientists BC Board." The 2018 sealing-insurance advisory is cited only as a dated example ([Practice Advisory: Sealing Insurance Declarations](https://www.egbc.ca/getmedia/9467401d-6d6b-4332-b469-367c2e028d6e/Practice-Advisory-Sealing-Insurance-Declarations.pdf.aspx), accessed 2026-11-24), subject to the HTTP 403 noted in Limits 5. The Manitoba in-service review report (secondary) was signed by five P.Eng.s, treating review findings as engineering opinion — an example of practice, not a rule.
 
 ### 3.2 What an EIT may do
 
@@ -160,7 +174,7 @@ When a firm needs one ([EGBC firm practice overview](https://www.egbc.ca/Firms/F
 
 Structure: at least one Responsible Registrant (an engineering or geoscience professional who acknowledges responsibility for the firm, is the point of contact for practice reviews, audits and investigations, and must take the Regulation of Firms Permit to Practice Training) and one Responsible Officer (an executive lead who need not be a registrant, with authority to make binding decisions).
 
-Obligations: "The Permit to Practice number must appear on all professional documents issued by the firm." ([EGBC authentication infographic](https://www.egbc.ca/getmedia/f7b46ea5-b585-42c4-a20a-d1b6e787c6e1/Authentication-Infographic.pdf), accessed 2026-11-24.) Plus a Professional Practice Management Plan (PPMP) within 12 months, covering code of conduct, quality management policies and procedures, continuing education compliance, organizational structure, names of the Responsible Officer and Registrant(s), areas of practice, the designated Responsible Registrant per area, and the policy on use of the Permit to Practice number.
+Obligations: Quote (EGBC authentication infographic, https://www.egbc.ca/getmedia/f7b46ea5-b585-42c4-a20a-d1b6e787c6e1/Authentication-Infographic.pdf, accessed 2026-11-24): "All authenticated documents, manual or digital, must have a visible Permit to Practice number for the Firm under which the work is being performed." Plus a Professional Practice Management Plan (PPMP) within 12 months, covering code of conduct, quality management policies and procedures, continuing education compliance, organizational structure, names of the Responsible Officer and Registrant(s), areas of practice, the designated Responsible Registrant per area, and the policy on use of the Permit to Practice number.
 
 Fees (CAD, official, EGBC firm fees page, accessed 2026-11-24): multi-professional firm annual fee = √N × $500, where N is the number of EGBC registrants on staff; sole practitioner = $250 per year (50% discount); application fee $350 (non-refundable); late fee 15% of the annual fee for failure to pay. Quote: "A multi-professional firm's annual Permit to Practice registration fee is calculated using the following formula: √N x $500, where N is the number of Engineers and Geoscientists BC registrants on staff." And: "Sole practitioners receive a 50% discount resulting in a flat rate of $250 annually for the Permit to Practice registration fee." And: "An application fee of $350 is also required." Renewal: April 1 to May 31 annually. ([EGBC firm fees](https://www.egbc.ca/How-To-Apply/Register-As-A-Firm/Firm-Fees), accessed 2026-11-24; [firm practice overview](https://www.egbc.ca/Firms/Firm-Practice/Firm-Practice-Overview), accessed 2026-11-24.)
 
@@ -199,10 +213,10 @@ All eight are published list prices or official fees checked 2026-11-24; no quot
 ## Limits
 
 1. The TAC in-service (2004) and RSA (2001) guides are paywalled ([in-service](https://www.tac-atc.ca/en/publications/ptm-inservice), [audit](https://www.tac-atc.ca/en/knowledge-centre/technical-resources-search/publications/ptm-crsag-e), accessed 2026-11-24). Only their public section and chapter lists and metadata were verified; finer template, independence and team-composition requirements inside the guides are not verified. In the sources listed here, no 2nd edition appears as of 2026-11-24.
-2. The MUTCDC 6th edition full text is paywalled; it is sold in print and e-book only ([TAC MUTCDC product page](https://www.tac-atc.ca/en/knowledge-centre/technical-resources-search/publications/ptm-mutcdc21-e/), accessed 2026-11-24). Part C is verified only at C1 (general aspects) and C2 (longitudinal markings). In the sources listed here, none quotes crosswalk-marking, curb-marking or parking-stall-marking clause numbers, so the note gives none; no MUTCDC clause beyond the clauses listed above is asserted.
-3. In the sources listed here, no city-specific marking or sign engineering manual appears for Coquitlam, Surrey or Richmond. Vancouver's [Engineering Design Manual](https://vancouver.ca/files/cov/engineering-design-manual.pdf) returned HTTP 403 on 2026-11-24; its markings statement is quoted from the search index. Municipal differences in this note are limited to bylaw curb/parking rules plus the two disclosed observations: Surrey's no-painted-curbs note and Vancouver's EDM line.
+2. The MUTCDC 6th edition full text is paywalled; it is sold in print and e-book only ([TAC MUTCDC product page](https://www.tac-atc.ca/en/knowledge-centre/technical-resources-search/publications/ptm-mutcdc21-e/), accessed 2026-11-24). The errata verifies the clause numbers and titles used here, including C3.1, C3.1.1, C7.2.1–C7.2.3 and C3.5; the full text (dimensions and warrants) is paywalled. No MUTCDC clause beyond the clauses listed above is asserted.
+3. In the sources listed here, no city-specific marking or sign engineering manual appears for Coquitlam, Surrey or Richmond. Vancouver's [Engineering Design Manual](https://vancouver.ca/files/cov/engineering-design-manual.pdf) returned HTTP 403 on 2026-11-24 and again on a later check; the table wording is from the 2026-11-24 read and the markings statement is quoted from the search index. Municipal differences in this note are limited to bylaw curb/parking rules plus the two disclosed observations: Surrey's no-painted-curbs note and Vancouver's EDM line.
 4. BC's [Manual of Standard Traffic Signs and Pavement Markings](https://www2.gov.bc.ca/gov/content/transportation/transportation-infrastructure/engineering-standards-guidelines/traffic-engineering-safety/traffic-signs-markings) (accessed 2026-11-24) is a living web catalogue with no single consolidated edition number or list price; the page was reachable on 2026-11-24. BC MoT's [RSA policy T-02/04](https://www2.gov.bc.ca/assets/gov/driving-and-transportation/transportation-infrastructure/engineering-standards-and-guidelines/technical-circulars/2004/t02-04a.pdf) is from 2004 and excludes in-service works; the [corridor safety review guidelines](https://www2.gov.bc.ca/assets/gov/driving-and-transportation/transportation-infrastructure/planning/guidelines/corridor-management-safety-review-guidelines.pdf) are dated 2018 and marked "Draft" (both accessed 2026-11-24); in the sources listed here, no newer BC MoT in-service review standard appears as of 2026-11-24.
-5. In the EGBC documents listed here, no "engineering reports vs reports of factual data" dichotomy appears. Whether a purely factual data or inventory deliverable requires authentication is a judgment call for the engineer of record; this note states the three-question test and does not assert a blanket exemption. The EGBC firm fees and Practice Advisor FAQ pages returned HTTP 403 on the 2026-11-24 check; their wording is from the search record, and the authentication guide PDF (HTTP 200) supports the test.
+5. In the EGBC documents listed here, no "engineering reports vs reports of factual data" dichotomy appears. Whether a purely factual data or inventory deliverable requires authentication is a judgment call for the engineer of record; this note states the three-question test and does not assert a blanket exemption. The EGBC firm fees and Practice Advisor FAQ pages returned HTTP 403 on the 2026-11-24 check; the firm practice overview and the 2018 sealing-insurance advisory also returned HTTP 403 on later checks; their wording is from the search record; the QMG, bylaws and infographic (HTTP 200) support the rules.
 
 ## Sources
 
@@ -234,17 +248,17 @@ Primary:
 - EGBC sealing insurance declarations advisory — https://www.egbc.ca/getmedia/9467401d-6d6b-4332-b469-367c2e028d6e/Practice-Advisory-Sealing-Insurance-Declarations.pdf.aspx (accessed 2026-11-24)
 - CCMTA RSS 2035+ — https://www.ccmta.ca/road-safety-strategy-2026/en/strategy (accessed 2026-11-24)
 - CCMTA RSS 2035+ info sheet PDF — https://www.ccmta.ca/web/road-safety-strategy-2026/files/public/2026/RSS%202035+%20Info%20Sheet.pdf (accessed 2026-11-24)
+- BCRSS 2025 PDF — https://www2.gov.bc.ca/assets/gov/driving-and-transportation/driving/roadsafetybc/strategy/bcrss_2025_final.pdf (accessed 2026-11-24)
+- Coquitlam bylaw PDF — https://publicdocs.coquitlam.ca/coquitlamdoc/getdocIF.asp?doc=6125641 (accessed 2026-11-24)
+- Surrey bylaw 13007 — https://www.surrey.ca/sites/default/files/bylaws/BYL_reg_13007.pdf (accessed 2026-11-24)
+- Vancouver bylaw 2849 — https://bylaws.vancouver.ca/2849c.PDF (accessed 2026-11-24)
+- Richmond bylaw 5870 — https://www.richmond.ca/__shared/assets/BL_5870_03092678642.pdf (accessed 2026-11-24)
 - CCMTA RSS 2035+ key messages PDF — https://www.ccmta.ca/web/road-safety-strategy-2026/files/public/2026/RSS%202035+%20Key%20Messages.pdf (accessed 2026-11-24)
-- Edmonton pavement marking manual — https://www.edmonton.ca/sites/default/files/public-files/COE-IM-GUIDE-0014_Volume8-PavementMarking.pdf (accessed 2026-11-24) (secondary, quoted for MUTCDC clauses)
 
 Secondary:
-- Vancouver Engineering Design Manual (search-index snippet; direct fetch HTTP 403, 2026-11-24) — https://vancouver.ca/files/cov/engineering-design-manual.pdf (accessed 2026-11-24)
+- Edmonton pavement marking manual (secondary, quoted for MUTCDC clauses) — https://www.edmonton.ca/sites/default/files/public-files/COE-IM-GUIDE-0014_Volume8-PavementMarking.pdf (accessed 2026-11-24)
+- Vancouver Engineering Design Manual (search-index snippet; direct fetch HTTP 403, 2026-11-24) — https://vancouver.ca/files/cov/engineering-design-manual.pdf
 - Action2Zero (audits and in-service reviews) — https://action2zero.tirf.ca/modules/road-safety-engineering/engineering-audits-and-in-service-reviews (accessed 2026-11-24)
 - Manitoba ISRSR report (WSP, 2023) — https://www.gov.mb.ca/mti/projects_management/pdf/pth1-pth5-in-service-road-safety-review-complete-report.pdf (accessed 2026-11-24)
 - CARSP (Vision Zero and Safe System) — https://carsp.ca/en/news-and-resources/road-safety-information/vision-zero-and-the-safe-system-approach (accessed 2026-11-24)
-- Coquitlam bylaw PDF — https://publicdocs.coquitlam.ca/coquitlamdoc/getdocIF.asp?doc=6125641 (accessed 2026-11-24)
-- Surrey bylaw 13007 — https://www.surrey.ca/sites/default/files/bylaws/BYL_reg_13007.pdf (accessed 2026-11-24)
 - Surrey parking without sign regulations — https://www.surrey.ca/services-payments/parking-streets-transportation/parking/parking-regulations/parking-without-sign-regulations (accessed 2026-11-24)
-- Vancouver bylaw 2849 — https://bylaws.vancouver.ca/2849c.PDF (accessed 2026-11-24)
-- Richmond bylaw 5870 — https://www.richmond.ca/__shared/assets/BL_5870_03092678642.pdf (accessed 2026-11-24)
-- BC BCRSS 2025 PDF — https://www2.gov.bc.ca/assets/gov/driving-and-transportation/driving/roadsafetybc/strategy/bcrss_2025_final.pdf (accessed 2026-11-24)
